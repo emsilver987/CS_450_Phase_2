@@ -49,7 +49,6 @@ jobs:
     name: Node — Install & Test (if present)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ hashFiles('package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node.js 22
