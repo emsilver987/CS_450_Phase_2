@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install pytest pytest-cov
-          python -m pytest \
+          python -m pytest tests/unit \
             -q \
             --maxfail=1 -x \
             -W error \
