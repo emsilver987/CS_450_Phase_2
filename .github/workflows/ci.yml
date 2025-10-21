@@ -1,19 +1,15 @@
 name: CI
-
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: read
-
 jobs:
   test-python:
     name: Python — Install & Test (strict)
@@ -21,16 +17,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
       - name: Install deps
         run: python -u run.py install
-
       - name: Run tests (fail on low coverage / warnings)
         shell: bash
         env:
@@ -44,7 +37,6 @@ jobs:
             -W error \
             --cov=src --cov-report=term-missing --cov-report=xml \
             --cov-fail-under=60 | tee pytest-output.txt
-
       - name: Upload pytest log & coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,24 +45,20 @@ jobs:
           path: |
             pytest-output.txt
             coverage.xml
-
   test-node:
     name: Node — Install & Test (if present)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: hashFiles('package.json') != ''
+    if: ${{ hashFiles('package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-
       - name: Install
         run: npm ci
-
       - name: Test (Jest if available)
         shell: bash
         run: |
@@ -80,14 +68,12 @@ jobs:
           else
             echo "No Jest test script; skipping."
           fi
-
       - name: Upload jest log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: node-test-artifacts
           path: jest-output.txt
-
   smoke-score:
     name: Smoke score (main only, non-blocking)
     needs: [test-python]
@@ -96,16 +82,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
       - name: Install deps
         run: python -u run.py install
-
       - name: Score default URLs (never fail CI)
         shell: bash
         env:
@@ -114,7 +97,6 @@ jobs:
           set -euo pipefail
           python -u run.py urls_file > reports.ndjson || true
           echo "NDJSON lines: $(wc -l < reports.ndjson 2>/dev/null || echo 0)"
-
       - name: Upload NDJSON
         if: always()
         uses: actions/upload-artifact@v4
