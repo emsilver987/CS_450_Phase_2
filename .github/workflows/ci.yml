@@ -104,11 +104,10 @@ jobs:
             coverage.xml
 
   smoke-score:
-    name: Smoke score (push to main only)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Smoke score
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Checkout
@@ -131,32 +130,70 @@ jobs:
           elif [ -f requirements.txt ]; then
             python -m pip install -U pip
             pip install -r requirements.txt
+          else
+            python -m pip install -U pip
           fi
 
-      - name: Score default URLs (non-blocking)
-        continue-on-error: true
+      - name: Start LocalStack (S3 + DynamoDB)
+        shell: bash
+        run: |
+          docker run -d --name localstack \
+            -p 4566:4566 \
+            -e SERVICES="s3,dynamodb" \
+            localstack/localstack:latest
+          # wait until ready
+          for i in {1..60}; do
+            if curl -fsS http://localhost:4566/health | grep -q '"initialized": true' || \
+               curl -fsS http://localhost:4566/_localstack/health | grep -Eq '"s3".*"available".*"dynamodb".*"available"'; then
+              echo "LocalStack ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::LocalStack failed to become ready"; exit 1
+
+      - name: Export AWS env for smoke score
+        shell: bash
+        run: |
+          echo "AWS_ENDPOINT_URL=http://localhost:4566" >> $GITHUB_ENV
+          echo "AWS_DEFAULT_REGION=us-east-1"          >> $GITHUB_ENV
+          echo "AWS_ACCESS_KEY_ID=test"                >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=test"            >> $GITHUB_ENV
+          echo "ARTIFACTS_BUCKET=pkg-artifacts"        >> $GITHUB_ENV
+          echo "DDB_TABLE_PACKAGES=packages"           >> $GITHUB_ENV
+          echo "DDB_TABLE_UPLOADS=uploads"             >> $GITHUB_ENV
+          echo "DDB_TABLE_USERS=users"                 >> $GITHUB_ENV
+          echo "DDB_TABLE_TOKENS=tokens"               >> $GITHUB_ENV
+          echo "DDB_TABLE_DOWNLOADS=downloads"         >> $GITHUB_ENV
+
+      - name: Run smoke score
         env:
           LOG_LEVEL: "1"
         shell: bash
         run: |
-          if [ -f urls.txt ]; then
-            echo "Scoring urls.txt..."
-            if [ -x ./run ]; then
-              ./run urls.txt > reports.ndjson || true
-            elif [ -f run.py ]; then
-              python -u run.py score urls.txt > reports.ndjson || true
-            else
-              echo "No scoring entrypoint found; creating empty reports.ndjson"
-              : > reports.ndjson
-            fi
-            echo "NDJSON lines: $(wc -l < reports.ndjson)"
-          else
-            echo "urls.txt not found; creating empty reports.ndjson"
-            : > reports.ndjson
+          set -euo pipefail
+          if [ ! -f urls.txt ]; then
+            echo "::error::urls.txt not found (required for smoke scoring)"; exit 1
           fi
+          if [ -x ./run ]; then
+            ./run urls.txt > reports.ndjson
+          elif [ -f run.py ]; then
+            python -u run.py score urls.txt > reports.ndjson
+          else
+            echo "::error::No scoring entrypoint found (./run or run.py)"; exit 1
+          fi
+          lines=$(wc -l < reports.ndjson | tr -d ' ')
+          if [ "$lines" -eq 0 ]; then
+            echo "::error::reports.ndjson is empty"; exit 1
+          fi
+          echo "NDJSON lines: $lines"
 
       - name: Upload NDJSON
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: reports.ndjson
           path: reports.ndjson
+
+      - name: LocalStack logs (on failure)
+        if: failure()
+        run: docker logs localstack | tail -n 300
