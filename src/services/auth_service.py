@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import boto3
 import jwt
 import bcrypt
 import secrets
@@ -9,9 +8,10 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 import os
 import logging
+from src.aws_clients import dynamodb_resource
 
 # AWS clients
-dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_REGION', 'us-east-1'))
+dynamodb = dynamodb_resource()
 
 # Environment variables
 JWT_SECRET = os.getenv('JWT_SECRET', secrets.token_urlsafe(32))

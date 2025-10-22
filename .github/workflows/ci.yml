@@ -60,7 +60,34 @@ jobs:
           python -m pip install flake8 || true
           flake8 src/ --max-line-length=100 --ignore=E203,W503 || true
 
-      - name: Run tests with coverage
+      - name: Start LocalStack (S3 + DynamoDB)
+        run: |
+          docker run -d --name localstack \
+            -p 4566:4566 \
+            -e SERVICES="s3,dynamodb" \
+            localstack/localstack:latest
+          # wait until ready
+          for i in {1..40}; do
+            if curl -s http://localhost:4566/health | grep -q '"initialized": true'; then
+              echo "LocalStack ready"; break
+            fi
+            sleep 1
+          done
+
+      - name: Export AWS env for tests
+        run: |
+          echo "AWS_ENDPOINT_URL=http://localhost:4566" >> $GITHUB_ENV
+          echo "AWS_DEFAULT_REGION=us-east-1"          >> $GITHUB_ENV
+          echo "AWS_ACCESS_KEY_ID=test"                >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=test"            >> $GITHUB_ENV
+          echo "ARTIFACTS_BUCKET=pkg-artifacts"        >> $GITHUB_ENV
+          echo "DDB_TABLE_PACKAGES=packages"           >> $GITHUB_ENV
+          echo "DDB_TABLE_UPLOADS=uploads"             >> $GITHUB_ENV
+          echo "DDB_TABLE_USERS=users"                 >> $GITHUB_ENV
+          echo "DDB_TABLE_TOKENS=tokens"               >> $GITHUB_ENV
+          echo "DDB_TABLE_DOWNLOADS=downloads"         >> $GITHUB_ENV
+
+      - name: Run tests (unit + integration)
         shell: bash
         run: |
           set -o pipefail

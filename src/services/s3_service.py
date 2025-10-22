@@ -1,34 +1,27 @@
-import boto3
+import os
 import zipfile
 import io
 import re
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
+from src.aws_clients import s3_client
 
 # Mock storage for development when AWS is not available
 _mock_models = []
 
-region = "us-east-1"
-access_point_name = "cs450-s3"
+# Environment variables
+ARTIFACTS_BUCKET = os.getenv("ARTIFACTS_BUCKET", "pkg-artifacts")
 
 # Initialize AWS clients with error handling for development
 try:
-    sts = boto3.client("sts", region_name=region)
-    account_id = sts.get_caller_identity()["Account"]
-    # Use the correct access point ARN format
-    ap_arn = f"arn:aws:s3:{region}:{account_id}:accesspoint/{access_point_name}"
-    # Use regular S3 client - boto3 handles access points automatically
-    s3 = boto3.client("s3", region_name=region)
-    # Test if S3 client actually works with access point
-    s3.list_objects_v2(Bucket=ap_arn, Prefix="models/", MaxKeys=1)
+    s3 = s3_client()
+    # Test if S3 client actually works
+    s3.list_objects_v2(Bucket=ARTIFACTS_BUCKET, Prefix="models/", MaxKeys=1)
     aws_available = True
-    print(f"AWS S3 connected successfully to access point {ap_arn}")
+    print(f"AWS S3 connected successfully to bucket {ARTIFACTS_BUCKET}")
 except Exception as e:
     # AWS not available - set dummy values for development
     print(f"AWS initialization failed: {e}")
-    sts = None
-    account_id = "838693051036"  # Use the actual account ID from the URL
-    ap_arn = f"arn:aws:s3:{region}:{account_id}:accesspoint/{access_point_name}"
     s3 = None
     aws_available = False
 
@@ -143,7 +136,7 @@ def upload_model(file_content: bytes, model_id: str, version: str, debloat: bool
         
         s3_key = f"models/{model_id}/{version}/model.zip"
         s3.put_object(
-            Bucket=ap_arn,
+            Bucket=ARTIFACTS_BUCKET,
             Key=s3_key,
             Body=file_content,
             ContentType='application/zip'
@@ -163,7 +156,7 @@ def download_model(model_id: str, version: str, component: str = "full") -> byte
     try:
         s3_key = f"models/{model_id}/{version}/model.zip"
         print(f"AWS S3 download: {model_id} v{version} ({component}) -> {s3_key}")
-        response = s3.get_object(Bucket=ap_arn, Key=s3_key)
+        response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
         zip_content = response['Body'].read()
         
         if component != "full":

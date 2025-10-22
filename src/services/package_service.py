@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import boto3
 import uuid
 import zipfile
 import io
@@ -10,10 +9,11 @@ from pydantic import BaseModel
 import os
 import logging
 import json
+from src.aws_clients import s3_client, dynamodb_resource
 
 # AWS clients
-s3 = boto3.client('s3', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_REGION', 'us-east-1'))
+s3 = s3_client()
+dynamodb = dynamodb_resource()
 
 # Environment variables
 ARTIFACTS_BUCKET = os.getenv('ARTIFACTS_BUCKET', 'pkg-artifacts')

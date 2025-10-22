@@ -1,16 +1,16 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import boto3
 import json
 import logging
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 import os
 from datetime import datetime, timezone
+from src.aws_clients import dynamodb_resource, s3_client
 
 # AWS clients
-dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-s3 = boto3.client('s3', region_name=os.getenv('AWS_REGION', 'us-east-1'))
+dynamodb = dynamodb_resource()
+s3 = s3_client()
 
 # Environment variables
 ARTIFACTS_BUCKET = os.getenv('ARTIFACTS_BUCKET', 'pkg-artifacts')
