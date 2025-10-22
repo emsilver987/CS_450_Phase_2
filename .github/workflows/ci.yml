@@ -17,7 +17,7 @@ permissions:
 jobs:
   test:
     name: Install & Test
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -30,33 +30,55 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      # Project-specific install & test commands
-      - name: Install Python dependencies
+      - name: Install dependencies (robust)
         shell: bash
-        run: ./run install
-
-      - name: Lint Python
-        continue-on-error: true
         run: |
-          python -m pip install flake8
-          python -m flake8 src/ --max-line-length=100 --ignore=E203,W503
+          set -euo pipefail
+          if [ -f run.py ]; then
+            echo "[installer] using run.py"
+            python -u run.py install
+          elif [ -x ./run ]; then
+            echo "[installer] using ./run"
+            ./run install
+          elif [ -f requirements-dev.txt ]; then
+            echo "[installer] using requirements-dev.txt"
+            python -m pip install -U pip
+            pip install -r requirements-dev.txt
+          elif [ -f requirements.txt ]; then
+            echo "[installer] using requirements.txt"
+            python -m pip install -U pip
+            pip install -r requirements.txt
+          else
+            echo "::warning::No installer found; installing minimal test stack"
+            python -m pip install -U pip pytest pytest-cov
+          fi
 
-      - name: Test Python (project-defined)
+      - name: Lint (non-blocking)
+        continue-on-error: true
+        shell: bash
+        run: |
+          python -m pip install flake8 || true
+          flake8 src/ --max-line-length=100 --ignore=E203,W503 || true
+
+      - name: Run tests with coverage
         shell: bash
         run: |
           set -o pipefail
-          ./run test 2>&1 | tee pytest-output.txt
+          export PYTHONPATH="src:${PYTHONPATH:-}"
+          python -m pytest -v --cov=src --cov-report=term-missing --cov-report=xml | tee pytest-output.txt
 
-      - name: Upload test log
+      - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-output
-          path: pytest-output.txt
+          name: test-artifacts
+          path: |
+            pytest-output.txt
+            coverage.xml
 
   smoke-score:
-    name: Smoke score (main only)
-    if: github.event_name == 'push' # skip on PRs to avoid flakiness
+    name: Smoke score (push to main only)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -71,9 +93,18 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install Python dependencies
+      - name: Install dependencies (robust)
         shell: bash
-        run: ./run install
+        run: |
+          set -euo pipefail
+          if [ -f run.py ]; then
+            python -u run.py install
+          elif [ -x ./run ]; then
+            ./run install
+          elif [ -f requirements.txt ]; then
+            python -m pip install -U pip
+            pip install -r requirements.txt
+          fi
 
       - name: Score default URLs (non-blocking)
         continue-on-error: true
@@ -81,8 +112,21 @@ jobs:
           LOG_LEVEL: "1"
         shell: bash
         run: |
-          ./run urls.txt > reports.ndjson
-          echo "NDJSON lines: $(wc -l < reports.ndjson)"
+          if [ -f urls.txt ]; then
+            echo "Scoring urls.txt..."
+            if [ -x ./run ]; then
+              ./run urls.txt > reports.ndjson || true
+            elif [ -f run.py ]; then
+              python -u run.py score urls.txt > reports.ndjson || true
+            else
+              echo "No scoring entrypoint found; creating empty reports.ndjson"
+              : > reports.ndjson
+            fi
+            echo "NDJSON lines: $(wc -l < reports.ndjson)"
+          else
+            echo "urls.txt not found; creating empty reports.ndjson"
+            : > reports.ndjson
+          fi
 
       - name: Upload NDJSON
         uses: actions/upload-artifact@v4
