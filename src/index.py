@@ -19,6 +19,7 @@ from botocore.exceptions import ClientError
 from .routes.index import router as api_router
 from .services.auth_public import public_auth as authenticate_router
 from .services.auth_service import auth_public as auth_ns_public, auth_private as auth_ns_private
+from .autograder import router as autograder_router
 from .services.s3_service import list_models, upload_model, download_model, reset_registry, get_model_lineage_from_config, get_model_sizes, s3, ap_arn, model_ingestion
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import extract_model_license, extract_github_license, check_license_compatibility
@@ -1423,6 +1424,8 @@ app.include_router(auth_ns_private)  # /auth/me, /auth/logout      (Bearer requi
 
 # 4) Existing API router
 app.include_router(api_router, prefix="/api")
+# 5) Autograder API (spec-driven)
+app.include_router(autograder_router, prefix="/autograder")
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 TEMPLATES_DIR = FRONTEND_DIR / "templates"
