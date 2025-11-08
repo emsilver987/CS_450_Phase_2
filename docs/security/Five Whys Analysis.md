@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 # 🧩 Five Whys Analysis — Trustworthy Module Registry
-=======
-# 🧩 Five Whys Analysis
->>>>>>> 3e5b6f144d5ac92802d2ae2a7086fdbe1a4bc7a5
-=======
-# 🧩 Five Whys Analysis — Trustworthy Module Registry
->>>>>>> eda6b84d50b63949d957cac35c29c2f1018e278d
 
 This document applies the **Five Whys** root-cause method to four potential security issues discovered during STRIDE analysis.  
 Each issue traces its failure chain to an underlying cause and proposes an actionable mitigation.
@@ -27,7 +19,7 @@ A user could still access package endpoints with an expired or tampered JWT.
 | **5. Why was that choice made?**         | Limited familiarity with API Gateway authorizers and reuse patterns.                      |
 
 **Root Cause:** Authentication not centralized across all endpoints.  
-**Fix:** Implement a **shared JWT-verification middleware** or API Gateway **Lambda Authorizer**; enforce token expiry and signature validation on every call.
+**Fix :** Added a shared JWT verification helper in `src/index.py` that calls `verify_jwt_token`, rejects expired/forged tokens with HTTP 403, and stores claims on `request.state`. All protected routes now depend on this helper, closing the replay gap.
 
 ---
 

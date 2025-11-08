@@ -4,9 +4,10 @@ import os
 from typing import Iterable
 
 import jwt
-from fastapi import Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.testclient import TestClient
 
 
 def _is_exempt(path: str, exempt_paths: Iterable[str]) -> bool:
@@ -66,3 +67,90 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+
+# ----------------------------- Tests ----------------------------- #
+
+def _build_app(exempt_paths=()):
+    app = FastAPI()
+
+    @app.get("/protected")
+    async def protected(request: Request):
+        return {"user": getattr(request.state, "user", None)}
+
+    @app.get("/health")
+    async def health():
+        return {"ok": True}
+
+    app.add_middleware(JWTAuthMiddleware, exempt_paths=exempt_paths)
+    return app
+
+
+def _encode(payload, secret, *, leeway=0, expired=False):
+    data = payload.copy()
+    now = int(os.getenv("TEST_NOW", "0") or "0") or int(__import__("time").time())
+    if expired:
+        data["exp"] = now - 1
+    else:
+        data["exp"] = now + 60
+    return jwt.encode(data, secret, algorithm="HS256")
+
+
+def test_is_exempt_matches_exact_and_prefix():
+    assert _is_exempt("/health", ("/health", "/metrics"))
+    assert _is_exempt("/health/live", ("/health",))
+    assert not _is_exempt("/api/health", ("/health",))
+
+
+def test_request_without_authorization_header(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "secret123")
+    app = _build_app()
+    client = TestClient(app)
+
+    response = client.get("/protected")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Unauthorized"
+
+
+def test_request_with_invalid_token(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "secret123")
+    app = _build_app()
+    client = TestClient(app)
+
+    response = client.get("/protected", headers={"Authorization": "Bearer not_a_jwt"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid token"
+
+
+def test_request_with_expired_token(monkeypatch):
+    secret = "secret123"
+    monkeypatch.setenv("JWT_SECRET", secret)
+    token = _encode({"sub": "user1"}, secret, expired=True)
+    app = _build_app()
+    client = TestClient(app)
+
+    response = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Token expired"
+
+
+def test_request_with_valid_token(monkeypatch):
+    secret = "secret123"
+    monkeypatch.setenv("JWT_SECRET", secret)
+    token = _encode({"sub": "user1"}, secret)
+    app = _build_app()
+    client = TestClient(app)
+
+    response = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["user"] == "user1"
+
+
+def test_exempt_path_skips_auth(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "secret123")
+    app = _build_app(exempt_paths=("/health",))
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
