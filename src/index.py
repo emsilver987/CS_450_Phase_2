@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from botocore.exceptions import ClientError
 from .routes.index import router as api_router
 from .services.auth_public import public_auth as authenticate_router
-from .services.auth_service import auth_public as auth_ns_public, auth_private as auth_ns_private
+from .services.auth_service import auth_public as auth_ns_public, auth_private as auth_ns_private, verify_jwt_token
 from .services.s3_service import list_models, upload_model, download_model, reset_registry, get_model_lineage_from_config, get_model_sizes, s3, ap_arn, model_ingestion
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import extract_model_license, extract_github_license, check_license_compatibility
@@ -99,13 +99,13 @@ async def startup_event():
             logger.info(f"Route: {list(route.methods)} {route.path}")
     logger.info("=== END REGISTERED ROUTES ===")
 _artifact_storage = {}
-def verify_auth_token(request: Request) -> bool:
-    """Verify auth token from either Authorization or X-Authorization header"""
+def verify_auth_token(request: Request):
+    """Verify auth token from either Authorization or X-Authorization header."""
     raw = request.headers.get("authorization") or request.headers.get("x-authorization") or ""
     raw = raw.strip()
 
     if not raw:
-        return False
+        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
 
     # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
     if raw.lower().startswith("bearer "):
@@ -114,10 +114,12 @@ def verify_auth_token(request: Request) -> bool:
         # Also accept a raw JWT without the "Bearer " prefix
         token = raw.strip()
 
-    # Very light check: looks like a JWT (three parts with dots)
-    # (Replace with real verification when ready)
-    parts = token.split(".")
-    return len(parts) == 3 and all(parts)
+    payload = verify_jwt_token(token)
+    if not payload:
+        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+
+    request.state.auth_claims = payload
+    return payload
 
 
 @app.get("/health")
@@ -169,8 +171,7 @@ def health_components(windowMinutes: int = 60, includeTimeline: bool = False):
 
 @app.post("/artifacts")
 async def list_artifacts(request: Request, offset: str = None):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         body = await request.json() if request.headers.get("content-type") == "application/json" else {}
         if not isinstance(body, list):
@@ -253,35 +254,18 @@ async def list_artifacts(request: Request, offset: str = None):
 
 @app.delete("/reset")
 def reset_system(request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    payload = verify_auth_token(request)
     
     # Check admin permissions
     try:
-        from .services.auth_service import verify_jwt_token
-        raw = request.headers.get("authorization") or request.headers.get("x-authorization") or ""
-        raw = raw.strip()
-        
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-        
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", []) or
-                payload.get("username") == "ece30861defaultadminuser" or
-                payload.get("is_admin", False) or
-                payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(status_code=401, detail="You do not have permission to reset the registry.")
-        else:
-            # If token verification fails, check if it's the default admin token
-            if "ece30861defaultadminuser" not in token.lower():
-                raise HTTPException(status_code=401, detail="You do not have permission to reset the registry.")
+        is_admin = (
+            "admin" in payload.get("roles", []) or
+            payload.get("username") == "ece30861defaultadminuser" or
+            payload.get("is_admin", False) or
+            payload.get("sub") == "ece30861defaultadminuser"
+        )
+        if not is_admin:
+            raise HTTPException(status_code=401, detail="You do not have permission to reset the registry.")
     except HTTPException:
         raise
     except Exception as e:
@@ -302,8 +286,7 @@ def reset_system(request: Request):
 
 @app.get("/artifact/byName/{name}")
 def get_artifact_by_name(name: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         # Validate name parameter
         if not name or not name.strip():
@@ -345,8 +328,7 @@ def get_artifact_by_name(name: str, request: Request):
 
 @app.post("/artifact/byRegEx")
 async def search_artifacts_by_regex(request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         # Parse request body
         try:
@@ -415,8 +397,7 @@ async def search_artifacts_by_regex(request: Request):
 
 @app.get("/artifacts/{artifact_type}/{id}")
 def get_artifact(artifact_type: str, id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         if artifact_type == "model":
             if id in _artifact_storage:
@@ -475,8 +456,7 @@ def get_artifact(artifact_type: str, id: str, request: Request):
 
 @app.post("/artifact/{artifact_type}")
 async def create_artifact_by_type(artifact_type: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         body = await request.json() if request.headers.get("content-type") == "application/json" else {}
         url = body.get("url", "")
@@ -568,8 +548,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
 
 @app.put("/artifacts/{artifact_type}/{id}")
 async def update_artifact(artifact_type: str, id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         body = await request.json() if request.headers.get("content-type") == "application/json" else {}
         if "metadata" not in body or "data" not in body:
@@ -634,8 +613,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
 
 @app.delete("/artifacts/{artifact_type}/{id}")
 def delete_artifact(artifact_type: str, id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         global _artifact_storage
         deleted = False
@@ -700,8 +678,7 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
 
 @app.get("/artifact/{artifact_type}/{id}/cost")
 def get_artifact_cost(artifact_type: str, id: str, dependency: bool = False, request: Request = None):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         if artifact_type not in ["model", "dataset", "code"]:
             raise HTTPException(status_code=400, detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.")
@@ -791,8 +768,7 @@ def get_artifact_cost(artifact_type: str, id: str, dependency: bool = False, req
 
 @app.get("/artifact/{artifact_type}/{id}/audit")
 def get_artifact_audit(artifact_type: str, id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         # Validate artifact_type parameter
         if artifact_type not in ["model", "dataset", "code"]:
@@ -896,8 +872,7 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
 
 @app.get("/artifact/model/{id}/rate")
 def get_model_rate(id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         if not re.match(r'^[a-zA-Z0-9\-]+$', id):
             raise HTTPException(status_code=400, detail="There is missing field(s) in the artifact_id or it is formed improperly, or is invalid.")
@@ -989,8 +964,7 @@ def get_model_rate(id: str, request: Request):
 
 @app.get("/artifact/model/{id}/lineage")
 def get_model_lineage(id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         # Validate id parameter
         if not re.match(r'^[a-zA-Z0-9\-]+$', id):
@@ -1071,8 +1045,7 @@ def get_model_lineage(id: str, request: Request):
 
 @app.post("/artifact/model/{id}/license-check")
 async def check_model_license(id: str, request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(status_code=403, detail="Authentication failed due to invalid or missing AuthenticationToken")
+    verify_auth_token(request)
     try:
         # Validate id parameter
         if not re.match(r'^[a-zA-Z0-9\-]+$', id):
