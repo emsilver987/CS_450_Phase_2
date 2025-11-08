@@ -58,9 +58,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.auth_enabled = bool(self.secret)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
-        # Temporarily disable all auth checks - all endpoints are exempt
-        return await call_next(request)
-        
         # Prefix-safe path normalization (handles /prod/... base paths)
         raw_path = unquote(request.scope.get("path", "") or request.url.path)
         root_prefix = request.scope.get("root_path", "") or request.headers.get("X-Forwarded-Prefix", "")
