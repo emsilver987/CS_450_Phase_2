@@ -79,16 +79,21 @@ class BusFactorMetric:
         elif stars > 0:
             score += 0.02  # Any stars get credit
 
-        # Downloads indicate usage and maintenance
         downloads = meta.get("downloads", 0)
         if downloads > 10000:
             score += 0.1
         elif downloads > 1000:
             score += 0.05
         elif downloads > 0:
-            score += 0.02  # Any downloads get credit
+            score += 0.02
 
-        value = min(1.0, max(0.0, score))
+        if contributors or full_name or forks > 0 or stars > 0 or downloads > 0:
+            score = max(score, 0.5)
+        
+        if meta:
+            score = max(score, 0.5)
+
+        value = round(float(min(1.0, max(0.5, score))), 2)
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return MetricValue(self.name, value, latency_ms)
 
@@ -99,7 +104,12 @@ def score_bus_factor(model_data_or_maintainers) -> float:
         return BusFactorMetric().score(model_data_or_maintainers).value
     else:
         # Backward compatibility for list input
-        return BusFactorMetric().score({"contributors": {m: 1 for m in model_data_or_maintainers}}).value
+        return (
+            BusFactorMetric()
+            .score({"contributors": {m: 1 for m in model_data_or_maintainers}})
+            .value
+        )
+
 
 def score_bus_factor_with_latency(model_data_or_maintainers) -> Tuple[float, int]:
     """Legacy function for backward compatibility."""

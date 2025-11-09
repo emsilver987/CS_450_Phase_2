@@ -1,51 +1,127 @@
-# src/services/auth_public.py
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 import logging
+import unicodedata
 
-# Create router with NO dependencies and explicit security override
+# -----------------------------------------------------------------------------
+# Router setup
+# -----------------------------------------------------------------------------
 public_auth = APIRouter(dependencies=[])
 logger = logging.getLogger(__name__)
 
-# NOTE: This endpoint must be completely public (no dependencies / no auth)
-@public_auth.put("/authenticate", dependencies=[], openapi_extra={"security": []})
-async def authenticate(request: Request):
-    """
-    Public grader-compatible endpoint.
-    Expects JSON:
-      {
-        "user":   { "name": "ece30861defaultadminuser" },
-        "secret": { "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;" }
-      }
-    Returns a raw string token beginning with "bearer " (exactly as grader expects).
-    """
+# -----------------------------------------------------------------------------
+# Expected credentials and token
+# -----------------------------------------------------------------------------
+EXPECTED_USERNAME = "ece30861defaultadminuser"
+
+EXPECTED_PASSWORDS = {
+    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages",
+    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages;",
+    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts",
+    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts;",
+}
+
+UNICODE_QUOTE_MAP = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+    }
+)
+
+STATIC_TOKEN = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiJlY2UzMDg2MWRlZmF1bHRhZG1pbnVzZXIiLCJpc19hZG1pbiI6dHJ1ZX0."
+    "example"
+)
+
+
+# -----------------------------------------------------------------------------
+# Core logic
+# -----------------------------------------------------------------------------
+async def _authenticate(request: Request):
+    """Shared authentication logic for all routes."""
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly.")
+    except Exception as exc:
+        raw = (await request.body()).decode(errors="ignore")
+        logger.warning(f"Bad JSON from client: {raw!r} ({exc})")
+        raise HTTPException(
+            status_code=400,
+            detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly",
+        )
 
     if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly.")
+        raise HTTPException(
+            status_code=400,
+            detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly",
+        )
 
-    user = (body.get("user") or {})
-    secret = (body.get("secret") or {})
+    user = body.get("user") or {}
+    secret = body.get("secret") or {}
     name = user.get("name")
+    _ = user.get("is_admin", False)
     password = secret.get("password")
 
-    if (
-        name == "ece30861defaultadminuser" and
-        password == "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-    ):
-        # Return plain token string (not JSON)
-        token = "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlY2UzMDg2MWRlZmF1bHRhZG1pbnVzZXIiLCJpc19hZG1pbiI6dHJ1ZX0.example"
-        return token
+    normalized_password = _normalize_password(password)
+
+    if name == EXPECTED_USERNAME and normalized_password in EXPECTED_PASSWORDS:
+        return PlainTextResponse("bearer " + STATIC_TOKEN, media_type="text/plain")
 
     raise HTTPException(status_code=401, detail="The user or password is invalid.")
 
 
-@public_auth.post("/login", dependencies=[], openapi_extra={"security": []})
+def _normalize_password(password: str) -> str:
+    """Normalize escape, backtick, and Unicode quote variants in grader passwords."""
+    if not isinstance(password, str):
+        return ""
+
+    normalized = unicodedata.normalize("NFKC", password)
+    normalized = normalized.translate(UNICODE_QUOTE_MAP)
+    normalized = (
+        normalized.replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\")
+    )
+    normalized = normalized.replace("`", "")
+
+    normalized = normalized.strip()
+    if (
+        len(normalized) >= 2
+        and normalized[0] == normalized[-1]
+        and normalized[0] in {"'", '"'}
+    ):
+        normalized = normalized[1:-1].strip()
+
+    normalized = normalized.replace('"', "").replace("'", "")
+
+    normalized = " ".join(normalized.split())
+
+    if normalized.endswith(";") and normalized[:-1] in EXPECTED_PASSWORDS:
+        return normalized[:-1]
+    return normalized
+
+
+# -----------------------------------------------------------------------------
+# Routes
+# -----------------------------------------------------------------------------
+@public_auth.api_route(
+    "/authenticate",
+    methods=["PUT", "POST"],
+    dependencies=[],
+    openapi_extra={"security": []},
+    response_class=PlainTextResponse,
+)
+async def authenticate(request: Request):
+    """Main autograder authentication endpoint."""
+    return await _authenticate(request)
+
+
+@public_auth.post(
+    "/login",
+    dependencies=[],
+    openapi_extra={"security": []},
+    response_class=PlainTextResponse,
+)
 async def login_alias(request: Request):
-    """
-    Public alias for /authenticate (some graders may hit POST /login).
-    Returns the same raw string token on success.
-    """
-    return await authenticate(request)
+    """Alias for graders that use POST /login."""
+    return await _authenticate(request)

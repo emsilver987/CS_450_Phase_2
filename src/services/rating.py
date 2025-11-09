@@ -37,7 +37,9 @@ class RateRequest(BaseModel):
     target: str
 
 
-def analyze_model_content(target: str, suppress_errors: bool = False) -> Optional[Dict[str, Any]]:
+def analyze_model_content(
+    target: str, suppress_errors: bool = False
+) -> Optional[Dict[str, Any]]:
     try:
         from ..services.s3_service import (
             extract_config_from_model,
@@ -47,15 +49,21 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
 
         model_content = None
         clean_model_id = target
-        
+
         # Check if this looks like a valid HuggingFace model ID (not a file path)
         is_valid_hf_id = (
-            (target.startswith("http://") or target.startswith("https://")) or
-            (not target.startswith("/") and not target.startswith("\\") and 
-             (":" not in target or target.startswith("http")) and
-             ("/" in target or "-" in target or target.replace("-", "").replace("_", "").isalnum()))
+            target.startswith("http://") or target.startswith("https://")
+        ) or (
+            not target.startswith("/")
+            and not target.startswith("\\")
+            and (":" not in target or target.startswith("http"))
+            and (
+                "/" in target
+                or "-" in target
+                or target.replace("-", "").replace("_", "").isalnum()
+            )
         )
-        
+
         if is_valid_hf_id:
             try:
                 if target.startswith("https://huggingface.co/"):
@@ -87,7 +95,7 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
                 f"Invalid model ID format: {target}. Expected HuggingFace model ID (e.g., 'username/model-name') or HTTP URL, not a file path."
             )
         effective_model_id = clean_model_id if clean_model_id != target else target
-        
+
         # Check if we have model content before proceeding
         if not model_content:
             if suppress_errors:
@@ -95,7 +103,7 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
             raise ValueError(
                 f"No model content found for {target} on HuggingFace. Cannot compute metrics without model data."
             )
-        
+
         # Sanitize model ID for file system (remove path separators, invalid chars)
         safe_model_id = (
             effective_model_id.replace("/", "_")
@@ -146,22 +154,41 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
                     if hf_meta.get("modelId"):
                         meta["full_name"] = hf_meta.get("modelId", effective_model_id)
                     # Extract description for better scoring
-                    description = hf_meta.get("description", "") or hf_meta.get("cardData", {}).get("description", "")
+                    description = hf_meta.get("description", "") or hf_meta.get(
+                        "cardData", {}
+                    ).get("description", "")
                     if description and not meta.get("readme_text"):
                         meta["readme_text"] = description
                     elif description and meta.get("readme_text"):
                         # Append description to readme if not already present
-                        if description.lower() not in meta.get("readme_text", "").lower():
-                            meta["readme_text"] = description + "\n\n" + meta.get("readme_text", "")
+                        if (
+                            description.lower()
+                            not in meta.get("readme_text", "").lower()
+                        ):
+                            meta["readme_text"] = (
+                                description + "\n\n" + meta.get("readme_text", "")
+                            )
+                    
+                    # Check description for GitHub URL early
+                    if description and not repo_url:
+                        from ..services.s3_service import extract_github_url_from_text
+                        repo_url = extract_github_url_from_text(description)
+                        if repo_url:
+                            print(f"[RATE] Found GitHub URL in description: {repo_url}")
                     # Extract tags/topics for better scoring
-                    tags = hf_meta.get("tags", []) or hf_meta.get("cardData", {}).get("tags", [])
+                    tags = hf_meta.get("tags", []) or hf_meta.get("cardData", {}).get(
+                        "tags", []
+                    )
                     if tags:
                         meta["tags"] = tags
-                    hf_license = hf_meta.get("license", "") or hf_meta.get("cardData", {}).get("license", "")
+                    hf_license = hf_meta.get("license", "") or hf_meta.get(
+                        "cardData", {}
+                    ).get("license", "")
                     if hf_license and not meta.get("license"):
                         meta["license"] = hf_license.lower()
                     repo_url = None
                     import re
+
                     if isinstance(hf_meta, dict):
                         github_field = hf_meta.get("github", "")
                         if github_field:
@@ -171,59 +198,86 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
                                 else:
                                     repo_url = f"https://github.com/{github_field}"
                             elif isinstance(github_field, dict):
-                                repo_url = github_field.get("url") or github_field.get("repo")
-                    if not repo_url:
-                        card_data = hf_meta.get("cardData", {})
-                        if isinstance(card_data, dict):
-                            readme_text = card_data.get("---", "")
-                            if isinstance(readme_text, str) and not meta.get("readme_text"):
-                                meta["readme_text"] = readme_text
-                            card_license = card_data.get("license", "")
-                            if card_license and not meta.get("license"):
-                                meta["license"] = card_license.lower()
-                            for key, value in card_data.items():
-                                if isinstance(value, str) and ("github.com" in value.lower() or "github" in key.lower()):
+                                repo_url = github_field.get("url") or github_field.get(
+                                    "repo"
+                                )
+                        
+                        if not repo_url:
+                            card_data = hf_meta.get("cardData", {})
+                            if isinstance(card_data, dict):
+                                readme_text = card_data.get("---", "")
+                                if isinstance(readme_text, str) and not meta.get(
+                                    "readme_text"
+                                ):
+                                    meta["readme_text"] = readme_text
+                                card_license = card_data.get("license", "")
+                                if card_license and not meta.get("license"):
+                                    meta["license"] = card_license.lower()
+                                for key, value in card_data.items():
+                                    if isinstance(value, str) and (
+                                        "github.com" in value.lower()
+                                        or "github" in key.lower()
+                                    ):
+                                        github_match = re.search(
+                                            r"https?://github\.com/[\w\-\.]+/[\w\-\.]+",
+                                            value,
+                                        )
+                                        if github_match:
+                                            repo_url = github_match.group(0)
+                                            break
+                                        elif "/" in value and len(value.split("/")) == 2:
+                                            potential_repo = value.strip()
+                                            if not potential_repo.startswith("http"):
+                                                repo_url = (
+                                                    f"https://github.com/{potential_repo}"
+                                                )
+                                                break
+                        
+                        if not repo_url:
+                            import json
+                            hf_meta_str = json.dumps(hf_meta)
+                            from ..services.s3_service import extract_github_url_from_text
+                            repo_url = extract_github_url_from_text(hf_meta_str)
+                            if repo_url:
+                                print(f"[RATE] Found GitHub URL in HuggingFace metadata: {repo_url}")
+                        
+                        if not repo_url:
+                            tags = hf_meta.get("tags", []) or []
+                            for tag in tags:
+                                if isinstance(tag, str) and "github.com" in tag.lower():
                                     github_match = re.search(
-                                        r"https?://github\.com/[\w\-\.]+/[\w\-\.]+", value
+                                        r"https?://github\.com/[\w\-\.]+/[\w\-\.]+",
+                                        tag,
                                     )
                                     if github_match:
                                         repo_url = github_match.group(0)
                                         break
-                                    elif "/" in value and len(value.split("/")) == 2:
-                                        potential_repo = value.strip()
-                                        if not potential_repo.startswith("http"):
-                                            repo_url = f"https://github.com/{potential_repo}"
-                                            break
+                        
+                        if not repo_url:
+                            model_index = hf_meta.get("model_index", "")
+                            if isinstance(model_index, str):
+                                from ..services.s3_service import extract_github_url_from_text
+                                repo_url = extract_github_url_from_text(model_index)
+                                if repo_url:
+                                    print(f"[RATE] Found GitHub URL in model_index: {repo_url}")
+                        if not repo_url:
+                            print(f"[RATE] Searching entire zip file for GitHub URL...")
+                            from ..services.s3_service import extract_github_url_from_zip
+                            repo_url = extract_github_url_from_zip(model_content)
+                            if repo_url:
+                                print(f"[RATE] Found GitHub URL in zip file: {repo_url}")
+                            else:
+                                print(f"[RATE] No GitHub URL found in zip file")
+                        
                         if not repo_url and meta.get("readme_text"):
                             readme = meta.get("readme_text", "")
-                            # More lenient regex to catch GitHub URLs in various formats
-                            # Handles: https://github.com/owner/repo, http://github.com/owner/repo
-                            # Also handles URLs with paths like /tree/main, /blob/main, etc.
-                            # Handles URLs without protocol: github.com/owner/repo
-                            # Handles markdown links: [text](https://github.com/owner/repo)
-                            # Handles URLs with underscores and hyphens in owner/repo names
-                            
-                            # First try markdown link syntax: [text](url) or [text](url "title")
-                            markdown_pattern = r"\[[^\]]*\]\((https?://(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)(?:/[^\s\)]*)?)"
-                            markdown_match = re.search(markdown_pattern, readme)
-                            if markdown_match:
-                                owner, repo = markdown_match.group(2), markdown_match.group(3)
-                                owner = owner.rstrip('.').strip()
-                                repo = repo.rstrip('.').strip()
-                                if owner and repo:
-                                    repo_url = f"https://github.com/{owner}/{repo}"
+                            print(f"[RATE] Extracting GitHub URL from README text (length: {len(readme)})")
+                            from ..services.s3_service import extract_github_url_from_text
+                            repo_url = extract_github_url_from_text(readme)
+                            if repo_url:
+                                print(f"[RATE] Found GitHub URL in README: {repo_url}")
                             else:
-                                # Fallback to direct URL matching
-                                github_pattern = r"(?:https?://)?(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)(?:/|$|\s|\)|\?|#|\"|'|`|>)"
-                                github_matches = re.findall(github_pattern, readme)
-                                if github_matches:
-                                    # Extract owner and repo, construct full URL
-                                    # Take the first match, clean up owner/repo (remove trailing dots, etc.)
-                                    owner, repo = github_matches[0]
-                                    owner = owner.rstrip('.').strip()
-                                    repo = repo.rstrip('.').strip()
-                                    if owner and repo:
-                                        repo_url = f"https://github.com/{owner}/{repo}"
+                                print(f"[RATE] No GitHub URL found in README text")
                     if repo_url:
                         meta["github_url"] = repo_url
                         meta["github"] = {"prs": [], "direct_commits": []}
@@ -256,12 +310,18 @@ def analyze_model_content(target: str, suppress_errors: bool = False) -> Optiona
                                 ):
                                     meta["readme_text"] = gh_meta.get("readme_text", "")
                                 if gh_meta.get("repo_files"):
-                                    meta["repo_files"] = meta.get("repo_files", set()) | gh_meta.get("repo_files", set())
+                                    meta["repo_files"] = meta.get(
+                                        "repo_files", set()
+                                    ) | gh_meta.get("repo_files", set())
                                 if gh_meta.get("github"):
                                     meta["github"] = gh_meta.get("github", {})
                         except Exception as gh_fetch_error:
-                            print(f"[RATE] Warning: Could not fetch GitHub metadata for {repo_url}: {gh_fetch_error}")
-                            print(f"[RATE] Note: github_url is set but GitHub API data unavailable (may be rate limited)")
+                            print(
+                                f"[RATE] Warning: Could not fetch GitHub metadata for {repo_url}: {gh_fetch_error}"
+                            )
+                            print(
+                                f"[RATE] Note: github_url is set but GitHub API data unavailable (may be rate limited)"
+                            )
                 if config:
                     base_model = (
                         config.get("_name_or_path")
@@ -401,7 +461,7 @@ def run_acme_metrics(
             print(f"Error running metric {metric_name}: {e}")
             results[metric_name] = MetricValue(metric_name, 0.0, 0)
     net_score, net_score_latency = compute_net_score(results)
-    scores = {"net_score": net_score, "aggregation_latency": net_score_latency / 1000.0}
+    scores = {"net_score": round(float(net_score), 2), "aggregation_latency": round(net_score_latency / 1000.0, 2)}
     metric_mapping = {
         "ramp_up_time": "ramp_up",
         "license": "license",
@@ -423,19 +483,32 @@ def run_acme_metrics(
             if hasattr(metric_value, "value"):
                 val = metric_value.value
                 if isinstance(val, dict) and len(val) > 0:
-                    scores[output_name] = float(sum(val.values()) / len(val))
+                    scores[output_name] = round(float(sum(val.values()) / len(val)), 2)
                 else:
-                    scores[output_name] = float(val) if val is not None else 0.0
+                    scores[output_name] = round(float(val) if val is not None else 0.0, 2)
+                if hasattr(metric_value, "latency_ms"):
+                    scores[f"{output_name}_latency"] = int(metric_value.latency_ms)
             elif isinstance(metric_value, dict) and len(metric_value) > 0:
-                scores[output_name] = float(
+                scores[output_name] = round(float(
                     sum(metric_value.values()) / len(metric_value)
-                )
+                ), 2)
             elif isinstance(metric_value, (int, float)):
-                scores[output_name] = float(metric_value)
+                scores[output_name] = round(float(metric_value), 2)
             else:
-                scores[output_name] = 0.0
+                scores[output_name] = round(0.0, 2)
         else:
-            scores[output_name] = 0.0
+            scores[output_name] = round(0.0, 2)
+    
+    if "size_score" in results:
+        size_result = results["size_score"]
+        if hasattr(size_result, "value") and isinstance(size_result.value, dict):
+            scores["size_score"] = {platform: round(float(score), 2) for platform, score in size_result.value.items()}
+        if hasattr(size_result, "latency_ms"):
+            scores["size_score_latency"] = int(size_result.latency_ms)
+    
+    if "net_score_latency" not in scores:
+        scores["net_score_latency"] = int(net_score_latency)
+    
     return scores
 
 

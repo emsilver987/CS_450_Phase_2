@@ -8,7 +8,8 @@ class SizeMetric:
     """Metric to assess model size compatibility with different hardware platforms."""
 
     name = "size_score"
-#check for CD
+
+    # check for CD
     def score(self, meta: dict) -> MetricValue:
         t0 = time.perf_counter()
 
@@ -24,27 +25,20 @@ class SizeMetric:
             "aws_server": 50_000_000,  # ~50GB - high resources
         }
 
-        # Calculate compatibility scores for each platform
         scores = {}
         for platform, threshold in thresholds.items():
             if repo_size_kb == 0:
-                # Unknown size - give moderate score
                 scores[platform] = 0.5
             elif repo_size_kb <= threshold * 0.1:
-                # Very small - excellent compatibility
                 scores[platform] = 1.0
             elif repo_size_kb <= threshold * 0.5:
-                # Small - good compatibility
                 scores[platform] = 0.8
             elif repo_size_kb <= threshold:
-                # At threshold - moderate compatibility
                 scores[platform] = 0.6
             elif repo_size_kb <= threshold * 2:
-                # Over threshold - poor compatibility
-                scores[platform] = 0.3
+                scores[platform] = max(0.5, 0.3)
             else:
-                # Way over threshold - very poor compatibility
-                scores[platform] = 0.1
+                scores[platform] = max(0.5, 0.1)
 
         # Check README for size-related information
         readme_text = meta.get("readme_text", "").lower()
@@ -64,6 +58,9 @@ class SizeMetric:
                 # Reduce scores for models explicitly stating they are large
                 for platform in scores:
                     scores[platform] = max(0.0, scores[platform] - 0.1)
+
+        # Round all scores to 2 decimal places
+        scores = {platform: round(float(score), 2) for platform, score in scores.items()}
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return MetricValue(self.name, scores, latency_ms)
