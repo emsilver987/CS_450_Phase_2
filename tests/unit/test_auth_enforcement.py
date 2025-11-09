@@ -37,8 +37,8 @@ def test_verify_auth_token_missing_header():
     with pytest.raises(HTTPException) as exc:
         index.verify_auth_token(request)
 
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "Unauthorized"
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Authentication failed due to invalid or missing AuthenticationToken"
 
 
 def test_verify_auth_token_invalid_token():
@@ -47,8 +47,8 @@ def test_verify_auth_token_invalid_token():
     with pytest.raises(HTTPException) as exc:
         index.verify_auth_token(request)
 
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "Unauthorized"
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Authentication failed due to invalid or missing AuthenticationToken"
 
 
 def test_verify_auth_token_valid_token_sets_state():
