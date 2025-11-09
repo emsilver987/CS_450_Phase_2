@@ -18,7 +18,11 @@ from pydantic import BaseModel
 from botocore.exceptions import ClientError
 from .routes.index import router as api_router
 from .services.auth_public import public_auth as authenticate_router
-from .services.auth_service import auth_public as auth_ns_public, auth_private as auth_ns_private
+from .services.auth_service import (
+    auth_public as auth_ns_public,
+    auth_private as auth_ns_private,
+    verify_jwt_token,
+)
 from .services.s3_service import list_models, upload_model, download_model, reset_registry, get_model_lineage_from_config, get_model_sizes, s3, ap_arn, model_ingestion
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import extract_model_license, extract_github_license, check_license_compatibility
@@ -105,7 +109,7 @@ def verify_auth_token(request: Request) -> bool:
     raw = raw.strip()
 
     if not raw:
-        return False
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
     if raw.lower().startswith("bearer "):
@@ -114,10 +118,13 @@ def verify_auth_token(request: Request) -> bool:
         # Also accept a raw JWT without the "Bearer " prefix
         token = raw.strip()
 
-    # Very light check: looks like a JWT (three parts with dots)
-    # (Replace with real verification when ready)
-    parts = token.split(".")
-    return len(parts) == 3 and all(parts)
+    payload = verify_jwt_token(token)
+
+    if not payload:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    request.state.auth = payload
+    return True
 
 
 @app.get("/health")
