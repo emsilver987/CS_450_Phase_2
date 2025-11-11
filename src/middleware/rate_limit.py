@@ -14,7 +14,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Lightweight in-memory rate limiter.
 
-    Not production-grade (no distributed store), but provides basic protection
+    Provides basic protection
     against enumeration or brute-force attempts by capping requests per client IP.
     """
 
