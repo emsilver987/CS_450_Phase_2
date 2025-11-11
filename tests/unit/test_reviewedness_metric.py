@@ -5,13 +5,13 @@ from acmecli.metrics.reviewedness_metric import ReviewednessMetric
 
 def test_no_github_url_returns_minus1():
     m = ReviewednessMetric()
-    assert m.score({}) == -1.0
+    assert m.score({}).value == -1.0
 
 
 def test_no_activity_returns_minus1():
     m = ReviewednessMetric()
     meta = {"github_url": "https://github.com/u/r", "github": {}}
-    assert m.score(meta) == -1.0
+    assert m.score(meta).value == -1.0
 
 
 def test_only_non_code_files_returns_one():
@@ -30,7 +30,7 @@ def test_only_non_code_files_returns_one():
             ]
         },
     }
-    assert m.score(meta) == 1.0
+    assert m.score(meta).value == 1.0
 
 
 def test_reviewed_and_unreviewed_ratio():
@@ -53,7 +53,7 @@ def test_reviewed_and_unreviewed_ratio():
         },
     }
     score = m.score(meta)
-    assert math.isclose(score, 100 / 150, rel_tol=1e-6)
+    assert math.isclose(score.value, 100 / 150, rel_tol=1e-6)
 
 
 def test_direct_commits_unreviewed():
@@ -66,4 +66,4 @@ def test_direct_commits_unreviewed():
             ]
         },
     }
-    assert m.score(meta) == 0.0
+    assert m.score(meta).value == 0.0
