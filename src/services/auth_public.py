@@ -1,7 +1,24 @@
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse
+import base64
+import binascii
+import json
 import logging
+import os
 import unicodedata
+from datetime import timedelta
+from typing import Set
+
+import boto3
+from botocore.exceptions import ClientError
+
+from .auth_service import (
+    DEFAULT_ADMIN_USERNAME,
+    create_jwt_token,
+    ensure_default_admin,
+    get_user_by_username,
+    store_token,
+)
 
 # -----------------------------------------------------------------------------
 # Router setup
@@ -10,11 +27,11 @@ public_auth = APIRouter(dependencies=[])
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
-# Expected credentials and token
+# Expected credentials
 # -----------------------------------------------------------------------------
 EXPECTED_USERNAME = "ece30861defaultadminuser"
 
-EXPECTED_PASSWORDS = {
+DEFAULT_PASSWORDS: Set[str] = {
     "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages",
     "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages;",
     "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts",
@@ -30,11 +47,58 @@ UNICODE_QUOTE_MAP = str.maketrans(
     }
 )
 
-STATIC_TOKEN = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJzdWIiOiJlY2UzMDg2MWRlZmF1bHRhZG1pbnVzZXIiLCJpc19hZG1pbiI6dHJ1ZX0."
-    "example"
-)
+_PASSWORD_CACHE: Set[str] | None = None
+
+
+def _load_expected_passwords() -> Set[str]:
+    """Fetch admin passwords from AWS Secrets Manager or fall back to defaults."""
+    global _PASSWORD_CACHE
+    if _PASSWORD_CACHE is not None:
+        return _PASSWORD_CACHE
+
+    secret_name = os.getenv("AUTH_ADMIN_SECRET_NAME")
+    region = os.getenv("AWS_REGION", "us-east-1")
+    if not secret_name:
+        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+        return _PASSWORD_CACHE
+
+    try:
+        client = boto3.client("secretsmanager", region_name=region)
+        response = client.get_secret_value(SecretId=secret_name)
+        if not isinstance(response, dict):
+            raise ValueError("Unexpected Secrets Manager response shape")
+
+        secret_string = response.get("SecretString")
+        if not secret_string and "SecretBinary" in response:
+            secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
+
+        if not secret_string:
+            raise ValueError("SecretString missing")
+
+        raw = json.loads(secret_string)
+        if isinstance(raw, dict):
+            passwords = raw.get("passwords") or raw.get("PASSWORDS")
+        elif isinstance(raw, list):
+            passwords = raw
+        else:
+            passwords = [raw]
+
+        parsed = {str(p).strip() for p in passwords if str(p).strip()}
+        if not parsed:
+            raise ValueError("No passwords extracted from secret")
+        _PASSWORD_CACHE = parsed
+    except (ClientError, ValueError, json.JSONDecodeError, binascii.Error) as exc:
+        logger.warning(
+            "Falling back to default admin passwords due to secret error: %s", exc
+        )
+        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning(
+            "Unexpected error retrieving admin password secret: %s", exc, exc_info=True
+        )
+        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+
+    return _PASSWORD_CACHE
 
 
 # -----------------------------------------------------------------------------
@@ -65,11 +129,30 @@ async def _authenticate(request: Request):
     password = secret.get("password")
 
     normalized_password = _normalize_password(password)
+    expected_passwords = _load_expected_passwords()
 
-    if name == EXPECTED_USERNAME and normalized_password in EXPECTED_PASSWORDS:
-        return PlainTextResponse("bearer " + STATIC_TOKEN, media_type="text/plain")
+    if name != EXPECTED_USERNAME or normalized_password not in expected_passwords:
+        raise HTTPException(status_code=401, detail="The user or password is invalid.")
 
-    raise HTTPException(status_code=401, detail="The user or password is invalid.")
+    ensure_default_admin()
+    user_record = get_user_by_username(DEFAULT_ADMIN_USERNAME)
+    if not user_record:
+        logger.error("Default admin user not found for authentication")
+        raise HTTPException(status_code=500, detail="Authentication service error")
+
+    expires_minutes = max(int(os.getenv("AUTH_PUBLIC_TOKEN_EXPIRATION_MINUTES", "15")), 1)
+    token_obj = create_jwt_token(
+        user_record,
+        expires_in=timedelta(minutes=expires_minutes),
+    )
+    store_token(token_obj["jti"], user_record, token_obj["token"], token_obj["expires_at"])
+
+    payload = {
+        "token": f"bearer {token_obj['token']}",
+        "token_id": token_obj["jti"],
+        "expires_at": token_obj["expires_at"].isoformat(),
+    }
+    return JSONResponse(payload, media_type="application/json")
 
 
 def _normalize_password(password: str) -> str:
@@ -96,7 +179,7 @@ def _normalize_password(password: str) -> str:
 
     normalized = " ".join(normalized.split())
 
-    if normalized.endswith(";") and normalized[:-1] in EXPECTED_PASSWORDS:
+    if normalized.endswith(";") and normalized[:-1] in DEFAULT_PASSWORDS:
         return normalized[:-1]
     return normalized
 
@@ -109,7 +192,7 @@ def _normalize_password(password: str) -> str:
     methods=["PUT", "GET", "POST"],
     dependencies=[],
     openapi_extra={"security": []},
-    response_class=PlainTextResponse,
+    response_class=JSONResponse,
 )
 async def authenticate(request: Request):
     """Main autograder authentication endpoint."""
@@ -120,7 +203,7 @@ async def authenticate(request: Request):
     "/login",
     dependencies=[],
     openapi_extra={"security": []},
-    response_class=PlainTextResponse,
+    response_class=JSONResponse,
 )
 async def login_alias(request: Request):
     """Alias for graders that use POST /login."""

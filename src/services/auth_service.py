@@ -85,9 +85,15 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_jwt_token(user_data: Dict[str, Any]) -> Dict[str, Any]:
+def create_jwt_token(
+    user_data: Dict[str, Any],
+    expires_in: Optional[timedelta] = None,
+) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expires_delta = (
+        expires_in if expires_in is not None else timedelta(hours=JWT_EXPIRATION_HOURS)
+    )
+    expires_at = now + expires_delta
     jti = secrets.token_urlsafe(16)
     payload = {
         "user_id": user_data["user_id"],
