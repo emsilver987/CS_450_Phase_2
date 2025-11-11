@@ -10,6 +10,15 @@ import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status
 
+# Set AWS environment variables if not already set (for uvicorn reload compatibility)
+# This ensures variables are available even when uvicorn reloader spawns new processes
+if not os.getenv("AWS_REGION"):
+    os.environ["AWS_REGION"] = "us-east-1"
+if not os.getenv("AWS_ACCOUNT_ID"):
+    os.environ["AWS_ACCOUNT_ID"] = "838693051036"
+if not os.getenv("S3_ACCESS_POINT_NAME"):
+    os.environ["S3_ACCESS_POINT_NAME"] = "cs450-s3"
+
 # from fastapi.security import HTTPBearer  # Not used - removed to prevent accidental security enforcement
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -38,6 +47,7 @@ from .services.s3_service import (
     s3,
     ap_arn,
     model_ingestion,
+    aws_available,
 )
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import (
@@ -143,6 +153,17 @@ async def startup_event():
         if hasattr(route, "path") and hasattr(route, "methods"):
             logger.info(f"Route: {list(route.methods)} {route.path}")
     logger.info("=== END REGISTERED ROUTES ===")
+    
+    # Check AWS availability status
+    logger.info(f"=== AWS STATUS ===")
+    logger.info(f"AWS Available: {aws_available}")
+    logger.info(f"S3 Client: {s3 is not None}")
+    logger.info(f"AP ARN: {ap_arn}")
+    logger.info(f"AWS_REGION env: {os.getenv('AWS_REGION')}")
+    logger.info(f"AWS_ACCOUNT_ID env: {os.getenv('AWS_ACCOUNT_ID')}")
+    logger.info(f"S3_ACCESS_POINT_NAME env: {os.getenv('S3_ACCESS_POINT_NAME')}")
+    logger.info(f"=== END AWS STATUS ===")
+    
     ensure_default_admin()
 
 
@@ -1985,3 +2006,33 @@ if STATIC_DIR.exists():
 templates = (
     Jinja2Templates(directory=str(TEMPLATES_DIR)) if TEMPLATES_DIR.exists() else None
 )
+
+# Log template status
+logger.info(f"=== TEMPLATE STATUS ===")
+logger.info(f"TEMPLATES_DIR: {TEMPLATES_DIR}")
+logger.info(f"TEMPLATES_DIR exists: {TEMPLATES_DIR.exists()}")
+logger.info(f"Templates object: {templates is not None}")
+
+# 5) Register frontend routes (home, directory, upload, etc.)
+if templates:
+    logger.info("Templates found - registering frontend routes")
+    from .routes.frontend import register_routes, set_templates
+    set_templates(templates)  # Set templates in frontend module
+    register_routes(app)
+    logger.info("Frontend routes registered")
+else:
+    logger.info("Templates not found - registering fallback root route")
+    # Fallback root route if templates don't exist
+    @app.get("/")
+    def root_fallback():
+        return {
+            "message": "ACME Registry API",
+            "endpoints": {
+                "health": "/health",
+                "directory": "/directory",
+                "upload": "/upload",
+                "admin": "/admin",
+                "api": "/api/hello"
+            }
+        }
+    logger.info("Fallback root route registered")

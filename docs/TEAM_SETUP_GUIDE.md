@@ -56,11 +56,11 @@ python -m src.index
 ### Option 2: AWS CloudFront (Production Environment)
 
 The application is already deployed and accessible at:
-- **Main Website**: https://d6zjk2j65mgd4.cloudfront.net/
-- **Package Directory**: https://d6zjk2j65mgd4.cloudfront.net/directory
-- **Upload Page**: https://d6zjk2j65mgd4.cloudfront.net/upload
-- **API Health Check**: https://d6zjk2j65mgd4.cloudfront.net/health
-- **API Packages List**: https://d6zjk2j65mgd4.cloudfront.net/api/packages
+- **Main Website**: https://d3evfv0v7o5aro.cloudfront.net/
+- **Package Directory**: https://d3evfv0v7o5aro.cloudfront.net/directory
+- **Upload Page**: https://d3evfv0v7o5aro.cloudfront.net/upload
+- **API Health Check**: https://d3evfv0v7o5aro.cloudfront.net/health
+- **API Packages List**: https://d3evfv0v7o5aro.cloudfront.net/api/packages
 
 ### Option 3: Docker Development
 

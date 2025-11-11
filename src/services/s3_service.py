@@ -28,20 +28,29 @@ access_point_name = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
 logger = logging.getLogger(__name__)
 
 # Initialize AWS clients with error handling for development
+print(f"[DEBUG] Initializing AWS - region={region}, access_point_name={access_point_name}, AWS_REGION env={os.getenv('AWS_REGION')}, AWS_ACCOUNT_ID env={os.getenv('AWS_ACCOUNT_ID')}")
 try:
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
+    print(f"[DEBUG] STS successful - account_id={account_id}")
     # Use the correct access point ARN format
     ap_arn = f"arn:aws:s3:{region}:{account_id}:accesspoint/{access_point_name}"
+    print(f"[DEBUG] Access point ARN: {ap_arn}")
     # Use regular S3 client - boto3 handles access points automatically
     s3 = boto3.client("s3", region_name=region)
     # Test if S3 client actually works with access point
+    print(f"[DEBUG] Testing S3 access point...")
     s3.list_objects_v2(Bucket=ap_arn, Prefix="models/", MaxKeys=1)
     aws_available = True
     print(f"AWS S3 connected successfully to access point {ap_arn}")
+    logger.info(f"AWS S3 connected successfully to access point {ap_arn}")
 except Exception as e:
     # AWS not available - set dummy values for development
+    import traceback
+    error_details = traceback.format_exc()
     print(f"AWS initialization failed: {e}")
+    print(f"[ERROR] Full traceback:\n{error_details}")
+    logger.error(f"AWS initialization failed: {e}", exc_info=True)
     sts = None
     account_id = os.getenv("AWS_ACCOUNT_ID", "")
     if account_id:
@@ -50,6 +59,7 @@ except Exception as e:
         ap_arn = None
     s3 = None
     aws_available = False
+    print(f"[DEBUG] aws_available set to False, ap_arn={ap_arn}")
 
 
 def parse_version(version_str: str) -> tuple:
@@ -236,7 +246,13 @@ def get_presigned_upload_url(
 def upload_model(
     file_content: bytes, model_id: str, version: str, debloat: bool = False
 ) -> Dict[str, str]:
+    # Debug logging
+    print(f"[DEBUG] upload_model called - aws_available={aws_available}, s3={s3 is not None}, ap_arn={ap_arn}")
+    logger.info(f"upload_model called - aws_available={aws_available}, s3={s3 is not None}, ap_arn={ap_arn}")
+    
     if not aws_available:
+        print(f"[ERROR] aws_available is False! s3={s3}, ap_arn={ap_arn}, region={region}, access_point_name={access_point_name}")
+        logger.error(f"aws_available is False! s3={s3}, ap_arn={ap_arn}, region={region}, access_point_name={access_point_name}")
         raise HTTPException(
             status_code=503,
             detail="AWS services not available. Please check your AWS configuration.",

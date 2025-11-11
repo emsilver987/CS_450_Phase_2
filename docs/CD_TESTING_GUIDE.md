@@ -77,10 +77,10 @@ aws ecr describe-images --repository-name validator-service
 **Test the deployed API:**
 ```bash
 # Test health endpoint
-curl https://d2r8ifqdir6hfe.cloudfront.net/api/health
+curl https://d3evfv0v7o5aro.cloudfront.net/api/health
 
 # Test package listing
-curl https://d2r8ifqdir6hfe.cloudfront.net/api/packages/list
+curl https://d3evfv0v7o5aro.cloudfront.net/api/packages/list
 ```
 
 ### **Step 5: Troubleshooting**

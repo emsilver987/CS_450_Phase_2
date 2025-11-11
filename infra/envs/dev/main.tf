@@ -29,6 +29,8 @@ locals {
     uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
     downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
   }
+  # Extract ALB DNS name from the service URL (remove http:// prefix)
+  alb_dns_name = replace(module.ecs.validator_service_url, "http://", "")
 }
 
 # module "s3" {
@@ -68,9 +70,20 @@ module "api_gateway" {
   ddb_tables_arnmap     = local.ddb_tables_arnmap
 }
 
+module "cloudfront" {
+  source          = "../../modules/cloudfront"
+  alb_dns_name    = local.alb_dns_name
+  api_gateway_url = module.api_gateway.api_gateway_url
+  aws_region      = var.aws_region
+}
+
 output "artifacts_bucket" { value = local.artifacts_bucket }
 output "group106_policy_arn" { value = module.iam.group106_policy_arn }
 output "ddb_tables" { value = local.ddb_tables_arnmap }
 output "validator_service_url" { value = module.ecs.validator_service_url }
 output "validator_cluster_arn" { value = module.ecs.validator_cluster_arn }
 output "ecr_repository_url" { value = module.ecs.ecr_repository_url }
+output "api_gateway_url" { value = module.api_gateway.api_gateway_url }
+output "cloudfront_domain_name" { value = module.cloudfront.cloudfront_domain_name }
+output "cloudfront_url" { value = module.cloudfront.cloudfront_url }
+output "cloudfront_distribution_id" { value = module.cloudfront.cloudfront_distribution_id }

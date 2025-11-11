@@ -7,8 +7,17 @@ services:
       - .env
     environment:
       - PORT=3000
+      - AWS_REGION=us-east-1
+      - AWS_ACCOUNT_ID=838693051036
+      - S3_ACCESS_POINT_NAME=cs450-s3
+      - PYTHONUNBUFFERED=1
     volumes:
       # Mount for development (hot reload)
       - ./src:/app/src
       - ./frontend:/app/frontend
+      # Mount AWS credentials from host (if available)
+      # Windows path format for Docker Desktop
+      - C:/Users/Taiwo/.aws:/root/.aws:ro
     restart: unless-stopped
+    # AWS credentials are mounted from host ~/.aws directory
+    # For production, use IAM roles instead

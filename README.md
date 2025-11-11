@@ -26,23 +26,23 @@ ACME CLI ingests lists of model repository URLs, pulls rich metadata from GitHub
 The application is deployed on AWS with the following URLs:
 
 **🌐 Production URLs:**
-- **Main Website**: `https://d6zjk2j65mgd4.cloudfront.net/`
-- **Package Directory**: `https://d6zjk2j65mgd4.cloudfront.net/directory`
-- **Upload Packages**: `https://d6zjk2j65mgd4.cloudfront.net/upload` *(Note: CloudFront POST requests need configuration fix)*
-- **Rate Packages**: `https://d6zjk2j65mgd4.cloudfront.net/rate`
-- **Admin Panel**: `https://d6zjk2j65mgd4.cloudfront.net/admin`
+- **Main Website**: `https://d3evfv0v7o5aro.cloudfront.net/`
+- **Package Directory**: `https://d3evfv0v7o5aro.cloudfront.net/directory`
+- **Upload Packages**: `https://d3evfv0v7o5aro.cloudfront.net/upload`
+- **Rate Packages**: `https://d3evfv0v7o5aro.cloudfront.net/rate`
+- **Admin Panel**: `https://d3evfv0v7o5aro.cloudfront.net/admin`
 
 **🔧 Direct AWS URLs (Bypass CloudFront):**
 - **Direct Upload**: `http://validator-lb-727503296.us-east-1.elb.amazonaws.com/upload`
 - **Direct Directory**: `http://validator-lb-727503296.us-east-1.elb.amazonaws.com/directory`
 
 **📡 API Endpoints:**
-- **Health Check**: `https://d6zjk2j65mgd4.cloudfront.net/health`
-- **API Hello**: `https://d6zjk2j65mgd4.cloudfront.net/api/hello`
-- **List Packages**: `GET https://d6zjk2j65mgd4.cloudfront.net/api/packages`
-- **Upload Package**: `POST https://d6zjk2j65mgd4.cloudfront.net/api/packages/models/{model_id}/versions/{version}/upload`
-- **Download Package**: `GET https://d6zjk2j65mgd4.cloudfront.net/api/packages/models/{model_id}/versions/{version}/download`
-- **Reset Registry**: `POST https://d6zjk2j65mgd4.cloudfront.net/api/packages/reset`
+- **Health Check**: `https://d3evfv0v7o5aro.cloudfront.net/health`
+- **API Hello**: `https://d3evfv0v7o5aro.cloudfront.net/api/hello`
+- **List Packages**: `GET https://d3evfv0v7o5aro.cloudfront.net/api/packages`
+- **Upload Package**: `POST https://d3evfv0v7o5aro.cloudfront.net/api/packages/models/{model_id}/versions/{version}/upload`
+- **Download Package**: `GET https://d3evfv0v7o5aro.cloudfront.net/api/packages/models/{model_id}/versions/{version}/download`
+- **Reset Registry**: `POST https://d3evfv0v7o5aro.cloudfront.net/api/packages/reset`
 
 ### Option 2: Local Development
 
@@ -341,8 +341,8 @@ aws ecs update-service --cluster validator-cluster --service validator-service -
 aws elbv2 describe-target-health --target-group-arn arn:aws:elasticloadbalancing:us-east-1:838693051036:targetgroup/validator-tg-3000/69d9076ad203b619
 
 # 4. Test endpoints after deployment
-curl https://d6zjk2j65mgd4.cloudfront.net/health
-curl -X POST -H "Content-Type: application/json" -d '{"target":"gpt2"}' https://d6zjk2j65mgd4.cloudfront.net/api/registry/models/gpt2/rate
+curl https://d3evfv0v7o5aro.cloudfront.net/health
+curl -X POST -H "Content-Type: application/json" -d '{"target":"gpt2"}' https://d3evfv0v7o5aro.cloudfront.net/api/registry/models/gpt2/rate
 ```
 
 **When to Use Each Command:**
