@@ -105,7 +105,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 # Register CORS middleware FIRST (will run LAST due to LIFO order)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://localhost",
+        "http://localhost",
+        "https://localhost:3000",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -357,7 +362,7 @@ async def list_artifacts(request: Request, offset: str = None):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_query or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_query or it is formed improperly, or is invalid.",
         )
 
 
@@ -396,7 +401,7 @@ def reset_system(request: Request):
         raise
     except Exception as e:
         logger.error(f"Error resetting registry: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Reset failed.")
 
 
 @app.get("/artifact/byName/{name:path}")
@@ -474,7 +479,7 @@ def get_artifact_by_name(name: str, request: Request):
         logger.error(f"Error getting artifact by name {name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_name or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_name or it is formed improperly, or is invalid.",
         )
 
 
@@ -579,7 +584,7 @@ async def search_artifacts_by_regex(request: Request):
         logger.error(f"Error searching artifacts by regex: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid.",
         )
 
 
@@ -684,7 +689,7 @@ def get_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -832,7 +837,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                         exc_info=True,
                     )
                     raise HTTPException(
-                        status_code=500, detail=f"Failed to ingest model: {str(e)}"
+                        status_code=500, detail="Failed to ingest model."
                     )
             else:
                 # Non-HuggingFace URL provided - use name if available, otherwise extract from URL
@@ -924,7 +929,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_data or it is formed improperly (must include a single url): {str(e)}",
+            detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
         )
 
 
@@ -1023,7 +1028,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -1100,7 +1105,7 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_type or artifact_id or invalid.",
         )
 
 
@@ -1218,7 +1223,7 @@ def get_artifact_cost(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"The artifact cost calculator encountered an error: {str(e)}",
+            detail="The artifact cost calculator encountered an error.",
         )
 
 
@@ -1361,7 +1366,7 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -1419,7 +1424,7 @@ def get_model_rate(id: str, request: Request):
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
+                detail="The artifact rating system encountered an error while computing at least one metric.",
             )
 
         # Build ModelRating response with all required fields
@@ -1473,7 +1478,7 @@ def get_model_rate(id: str, request: Request):
         logger.error(f"Error getting model rate for {id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
+            detail="The artifact rating system encountered an error while computing at least one metric.",
         )
 
 
