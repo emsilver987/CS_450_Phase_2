@@ -627,47 +627,51 @@ def extract_github_url_from_text(text: str) -> Optional[str]:
     
     # Try multiple patterns in order of specificity
     
-    # 1. Markdown link syntax: [text](https://github.com/owner/repo) or [text](url "title")
-    markdown_pattern = r"\[[^\]]*\]\((https?://(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)(?:/[^\s\)]*)?)"
-    markdown_match = re.search(markdown_pattern, text_normalized, re.IGNORECASE)
-    if markdown_match:
-        owner, repo = markdown_match.group(2), markdown_match.group(3)
-        owner = owner.rstrip(".").strip().rstrip("/")
-        repo = repo.rstrip(".").strip().rstrip("/")
-        if owner and repo:
-            return f"https://github.com/{owner}/{repo}"
-
-    # 2. Direct GitHub URLs: https://github.com/owner/repo
-    github_pattern = r"(?:https?://)?(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)(?:/|$|\s|\)|\?|#|\"|'|`|>|,|;|\.)"
-    github_matches = re.findall(github_pattern, text_normalized, re.IGNORECASE)
-    if github_matches:
-        # Take the first match, prefer full URLs over partial
-        for match in github_matches:
-            owner, repo = match
-            owner = owner.rstrip(".").strip().rstrip("/")
-            repo = repo.rstrip(".").strip().rstrip("/")
-            if owner and repo and len(owner) > 0 and len(repo) > 0:
-                return f"https://github.com/{owner}/{repo}"
-
-    # 3. GitHub URLs in code blocks or inline code
-    code_block_pattern = r"`(?:https?://)?(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)`"
-    code_matches = re.findall(code_block_pattern, text_normalized, re.IGNORECASE)
-    if code_matches:
-        owner, repo = code_matches[0]
-        owner = owner.rstrip(".").strip().rstrip("/")
-        repo = repo.rstrip(".").strip().rstrip("/")
-        if owner and repo:
-            return f"https://github.com/{owner}/{repo}"
-
-    # 4. GitHub URLs in HTML links: <a href="https://github.com/owner/repo">
-    html_pattern = r'<a[^>]*href=["\'](https?://(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+))["\']'
-    html_match = re.search(html_pattern, text_normalized, re.IGNORECASE)
-    if html_match:
-        owner, repo = html_match.group(3), html_match.group(4)
-        owner = owner.rstrip(".").strip().rstrip("/")
-        repo = repo.rstrip(".").strip().rstrip("/")
-        if owner and repo:
-            return f"https://github.com/{owner}/{repo}"
+    # 1. HTML hyperlink (e.g., <a href="https://github.com/owner/repo">Click here</a>)
+    # Using pattern: href=["'](.*?)["']
+    html_href_pattern = r'href=["\'](.*?)["\']'
+    html_matches = re.finditer(html_href_pattern, text_normalized, re.IGNORECASE)
+    for match in html_matches:
+        url = match.group(1).strip()
+        if url.startswith(('http://', 'https://')) and 'github.com' in url.lower():
+            # Extract owner/repo from GitHub URL
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+            if github_match:
+                owner, repo = github_match.groups()
+                owner = owner.rstrip(".").strip().rstrip("/")
+                repo = repo.rstrip(".").strip().rstrip("/")
+                if owner and repo:
+                    return f"https://github.com/{owner}/{repo}"
+    
+    # 2. Markdown hyperlink (e.g., [Click here](https://github.com/owner/repo))
+    # Using pattern: \]\((https?://[^\s)]+)\)
+    markdown_pattern = r'\]\((https?://[^\s)]+)\)'
+    markdown_matches = re.finditer(markdown_pattern, text_normalized, re.IGNORECASE)
+    for match in markdown_matches:
+        url = match.group(1).strip()
+        if 'github.com' in url.lower():
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+            if github_match:
+                owner, repo = github_match.groups()
+                owner = owner.rstrip(".").strip().rstrip("/")
+                repo = repo.rstrip(".").strip().rstrip("/")
+                if owner and repo:
+                    return f"https://github.com/{owner}/{repo}"
+    
+    # 3. Generic URL finder (any URL in plain text)
+    # Using pattern: https?://[^\s"'>)]+
+    generic_url_pattern = r'https?://[^\s"\'>)]+'
+    generic_matches = re.finditer(generic_url_pattern, text_normalized, re.IGNORECASE)
+    for match in generic_matches:
+        url = match.group(0).strip()
+        if 'github.com' in url.lower():
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+            if github_match:
+                owner, repo = github_match.groups()
+                owner = owner.rstrip(".").strip().rstrip("/")
+                repo = repo.rstrip(".").strip().rstrip("/")
+                if owner and repo:
+                    return f"https://github.com/{owner}/{repo}"
 
     # 5. GitHub URLs in plain text with common prefixes
     prefix_patterns = [
@@ -1072,32 +1076,76 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
 
             if config:
                 config_str = json.dumps(config)
-                github_patterns = [
-                    r"https?://(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)",
-                    r'"github"\s*:\s*"([^"]+)"',
-                    r'"repository"\s*:\s*"([^"]+)"',
-                    r'"repo"\s*:\s*"([^"]+)"',
-                    r"github\.com/([\w\-\.]+)/([\w\-\.]+)",
-                ]
-                for pattern in github_patterns:
-                    matches = re.findall(pattern, config_str, re.IGNORECASE)
-                    if matches:
-                        if isinstance(matches[0], tuple) and len(matches[0]) == 2:
-                            # Pattern matched owner/repo
-                            owner, repo = matches[0]
+                
+                # Pattern 1: HTML hyperlink in config.json (e.g., <a href="https://github.com/owner/repo">)
+                # Using pattern: href=["'](.*?)["']
+                html_href_pattern = r'href=["\'](.*?)["\']'
+                html_matches = re.finditer(html_href_pattern, config_str, re.IGNORECASE)
+                for match in html_matches:
+                    url = match.group(1).strip()
+                    if url.startswith(('http://', 'https://')) and 'github.com' in url.lower():
+                        github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+                        if github_match:
+                            owner, repo = github_match.groups()
                             repo_url = f"https://github.com/{owner}/{repo}"
-                        elif isinstance(matches[0], str):
-                            # Pattern matched URL string
-                            url_match = matches[0]
-                            if url_match.startswith("http"):
-                                repo_url = url_match
-                            elif "/" in url_match and len(url_match.split("/")) >= 2:
-                                parts = url_match.split("/")
-                                if "github.com" in parts:
-                                    idx = parts.index("github.com")
-                                    if idx + 2 < len(parts):
-                                        owner = parts[idx + 1]
-                                        repo = (
+                            break
+                
+                # Pattern 2: Markdown hyperlink in config.json (e.g., [text](https://github.com/owner/repo))
+                # Using pattern: \]\((https?://[^\s)]+)\)
+                if not repo_url:
+                    markdown_pattern = r'\]\((https?://[^\s)]+)\)'
+                    markdown_matches = re.finditer(markdown_pattern, config_str, re.IGNORECASE)
+                    for match in markdown_matches:
+                        url = match.group(1).strip()
+                        if 'github.com' in url.lower():
+                            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+                            if github_match:
+                                owner, repo = github_match.groups()
+                                repo_url = f"https://github.com/{owner}/{repo}"
+                                break
+                
+                # Pattern 3: Generic URL finder in config.json
+                # Using pattern: https?://[^\s"'>)]+
+                if not repo_url:
+                    generic_url_pattern = r'https?://[^\s"\'>)]+'
+                    generic_matches = re.finditer(generic_url_pattern, config_str, re.IGNORECASE)
+                    for match in generic_matches:
+                        url = match.group(0).strip()
+                        if 'github.com' in url.lower():
+                            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
+                            if github_match:
+                                owner, repo = github_match.groups()
+                                repo_url = f"https://github.com/{owner}/{repo}"
+                                break
+                
+                # Fallback: Legacy patterns for JSON fields
+                if not repo_url:
+                    github_patterns = [
+                        r"https?://(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                        r'"github"\s*:\s*"([^"]+)"',
+                        r'"repository"\s*:\s*"([^"]+)"',
+                        r'"repo"\s*:\s*"([^"]+)"',
+                        r"github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                    ]
+                    for pattern in github_patterns:
+                        matches = re.findall(pattern, config_str, re.IGNORECASE)
+                        if matches:
+                            if isinstance(matches[0], tuple) and len(matches[0]) == 2:
+                                # Pattern matched owner/repo
+                                owner, repo = matches[0]
+                                repo_url = f"https://github.com/{owner}/{repo}"
+                            elif isinstance(matches[0], str):
+                                # Pattern matched URL string
+                                url_match = matches[0]
+                                if url_match.startswith("http"):
+                                    repo_url = url_match
+                                elif "/" in url_match and len(url_match.split("/")) >= 2:
+                                    parts = url_match.split("/")
+                                    if "github.com" in parts:
+                                        idx = parts.index("github.com")
+                                        if idx + 2 < len(parts):
+                                            owner = parts[idx + 1]
+                                            repo = (
                                             parts[idx + 2]
                                             .split("/")[0]
                                             .split("?")[0]
@@ -1149,50 +1197,86 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                     ).get("license", "")
                     if hf_license and not meta.get("license"):
                         meta["license"] = hf_license.lower()
+                    
+                    # Check description for GitHub URL early
+                    if description and not repo_url:
+                        repo_url = extract_github_url_from_text(description)
+                        if repo_url:
+                            print(f"[INGEST] Found GitHub URL in description: {repo_url}")
 
                     if not repo_url:
                         if isinstance(hf_meta, dict):
                             github_field = hf_meta.get("github", "")
                             if github_field:
+                                print(f"[INGEST] Found github field in hf_meta: {github_field} (type: {type(github_field)})")
                                 if isinstance(github_field, str):
                                     if github_field.startswith("http"):
                                         repo_url = github_field
                                     else:
                                         repo_url = f"https://github.com/{github_field}"
+                                    print(f"[INGEST] Extracted GitHub URL from github field: {repo_url}")
                                 elif isinstance(github_field, dict):
                                     repo_url = github_field.get(
                                         "url"
                                     ) or github_field.get("repo")
-                        if not repo_url:
-                            card_data = hf_meta.get("cardData", {})
-                            if isinstance(card_data, dict):
-                                readme_text = card_data.get("---", "")
-                                if isinstance(readme_text, str) and not meta.get(
-                                    "readme_text"
-                                ):
-                                    meta["readme_text"] = readme_text
-                                card_license = card_data.get("license", "")
-                                if card_license and not meta.get("license"):
-                                    meta["license"] = card_license.lower()
-                                for key, value in card_data.items():
-                                    if isinstance(value, str) and (
-                                        "github.com" in value.lower()
-                                        or "github" in key.lower()
+                                    if repo_url:
+                                        print(f"[INGEST] Extracted GitHub URL from github dict: {repo_url}")
+                            
+                            if not repo_url:
+                                card_data = hf_meta.get("cardData", {})
+                                if isinstance(card_data, dict):
+                                    readme_text = card_data.get("---", "")
+                                    if isinstance(readme_text, str) and not meta.get(
+                                        "readme_text"
                                     ):
+                                        meta["readme_text"] = readme_text
+                                    card_license = card_data.get("license", "")
+                                    if card_license and not meta.get("license"):
+                                        meta["license"] = card_license.lower()
+                                    for key, value in card_data.items():
+                                        if isinstance(value, str) and (
+                                            "github.com" in value.lower()
+                                            or "github" in key.lower()
+                                        ):
+                                            github_match = re.search(
+                                                r"https?://github\.com/[\w\-\.]+/[\w\-\.]+",
+                                                value,
+                                            )
+                                            if github_match:
+                                                repo_url = github_match.group(0)
+                                                break
+                                            elif (
+                                                "/" in value and len(value.split("/")) == 2
+                                            ):
+                                                potential_repo = value.strip()
+                                                if not potential_repo.startswith("http"):
+                                                    repo_url = f"https://github.com/{potential_repo}"
+                                                break
+                            
+                            if not repo_url:
+                                hf_meta_str = json.dumps(hf_meta)
+                                repo_url = extract_github_url_from_text(hf_meta_str)
+                                if repo_url:
+                                    print(f"[INGEST] Found GitHub URL in HuggingFace metadata: {repo_url}")
+                            
+                            if not repo_url:
+                                tags = hf_meta.get("tags", []) or []
+                                for tag in tags:
+                                    if isinstance(tag, str) and "github.com" in tag.lower():
                                         github_match = re.search(
                                             r"https?://github\.com/[\w\-\.]+/[\w\-\.]+",
-                                            value,
+                                            tag,
                                         )
                                         if github_match:
                                             repo_url = github_match.group(0)
                                             break
-                                        elif (
-                                            "/" in value and len(value.split("/")) == 2
-                                        ):
-                                            potential_repo = value.strip()
-                                            if not potential_repo.startswith("http"):
-                                                repo_url = f"https://github.com/{potential_repo}"
-                                            break
+                            
+                            if not repo_url:
+                                model_index = hf_meta.get("model_index", "")
+                                if isinstance(model_index, str):
+                                    repo_url = extract_github_url_from_text(model_index)
+                                    if repo_url:
+                                        print(f"[INGEST] Found GitHub URL in model_index: {repo_url}")
 
                     if not repo_url:
                         print(f"[INGEST] Searching entire zip file for GitHub URL...")
@@ -1210,8 +1294,16 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                             print(f"[INGEST] Found GitHub URL in README: {repo_url}")
                         else:
                             print(f"[INGEST] No GitHub URL found in README text")
+                    
+                    if not repo_url:
+                        print(f"[INGEST] WARNING: No GitHub URL found after all extraction attempts")
+                        print(f"[INGEST] hf_meta keys: {list(hf_meta.keys()) if isinstance(hf_meta, dict) else 'N/A'}")
+                        if isinstance(hf_meta, dict):
+                            print(f"[INGEST] hf_meta.get('github'): {hf_meta.get('github')}")
+                    
                     if repo_url:
                         meta["github_url"] = repo_url
+                        print(f"[INGEST] Successfully set github_url: {repo_url}")
                         meta["github"] = {"prs": [], "direct_commits": []}
                         from ..acmecli.github_handler import fetch_github_metadata
 
@@ -1344,6 +1436,7 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
             result = metric_results.get(metric_name)
             score = 0.0
             if result is None:
+                print(f"[INGEST] WARNING: {metric_name} not found in metric_results. Available keys: {list(metric_results.keys())}")
                 failures.append(f"{metric_name}=MISSING")
                 metric_scores_dict[metric_name] = 0.0
                 continue
@@ -1352,8 +1445,10 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
             elif isinstance(result, (int, float)):
                 score = float(result)
             else:
+                print(f"[INGEST] WARNING: {metric_name} has unexpected type: {type(result)}, value: {result}")
                 score = 0.0
             metric_scores_dict[metric_name] = score
+            print(f"[INGEST] {metric_name} = {score:.2f}")
             if score < 0.5:
                 failures.append(f"{metric_name}={score:.2f}")
         if failures:
