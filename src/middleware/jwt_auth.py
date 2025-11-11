@@ -1,20 +1,40 @@
 from __future__ import annotations
 
+"""
+JWT enforcement middleware for the FastAPI application.
+
+Responsibilities:
+  * Normalize incoming request paths and headers before auth checks.
+  * Allow-through for the documented public endpoints (health checks, docs,
+    OpenAPI schema, and authentication bootstrap).
+  * Accept tokens from either the `Authorization` header (standard Bearer
+    scheme) or the spec's `X-Authorization` header.
+  * Delegate JWT decoding/validation to `verify_jwt_token`, attaching the claims
+    to `request.state.auth` for downstream handlers.
+  * Return `401 {"detail": "Unauthorized"}` for any missing, malformed, or
+    expired credentials, matching the OpenAPI spec documentation.
+
+This middleware intentionally keeps opinions minimal—revocation checks, role
+enforcement, and per-route authorization occur further down the stack.
+"""
+
 import os
 from typing import Iterable
 from urllib.parse import unquote
 
-import jwt
-from jwt import ExpiredSignatureError, InvalidTokenError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..services.auth_service import verify_jwt_token
 
 # Public endpoints that should bypass auth
+# NOTE: Keep this list aligned with the documented unauthenticated endpoints in
+#       `ece461_fall_2025_openapi_spec-2.yaml`. Each entry may represent either
+#       an exact path or a prefix (when ending with a slash).
 DEFAULT_EXEMPT: tuple[str, ...] = (
     "/health",
-    "/reset",
+    "/health/components",
     "/tracks",
     "/authenticate",
     "/docs",
@@ -22,9 +42,6 @@ DEFAULT_EXEMPT: tuple[str, ...] = (
     "/openapi.json",
     "/static/",
     "/favicon.ico",
-    "/api/hello",
-    "/api/packages/reset",
-    "/artifact/",  # Temporarily exempt all artifact endpoints
 )
 
 
@@ -39,10 +56,7 @@ def _is_exempt(path: str, exempt: Iterable[str]) -> bool:
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     """
-    JWT verifier aligned:
-      - HS256 with JWT_SECRET (matches src/services/auth_service.py)
-      - requires and verifies 'exp'
-      - attaches claims to request.state.user
+    JWT verifier aligned with `src/services/auth_service.py` configuration.
     """
 
     def __init__(self, app, exempt_paths: Iterable[str] = DEFAULT_EXEMPT) -> None:
@@ -53,13 +67,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.secret = os.getenv("JWT_SECRET")
         if self.algorithm != "HS256":
             raise ValueError("This middleware currently supports HS256 only.")
-        # Auth is optional: if JWT_SECRET is not set, skip auth checks
-        self.auth_enabled = bool(self.secret)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
-        # Temporarily disable all auth checks - all endpoints are exempt
-        return await call_next(request)
-
         # Prefix-safe path normalization (handles /prod/... base paths)
         raw_path = unquote(request.scope.get("path", "") or request.url.path)
         root_prefix = request.scope.get("root_path", "") or request.headers.get(
@@ -74,53 +83,27 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         if _is_exempt(path, self.exempt_paths):
             return await call_next(request)
 
-        auth = request.headers.get("Authorization")
-        if not auth or not auth.lower().startswith("bearer "):
-            return JSONResponse(
-                {"detail": "Missing or malformed Authorization header"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        token = auth.split(" ", 1)[1].strip()
-        try:
-            # Require exp; enforce issuer/audience with small clock skew
-            iss = os.getenv("JWT_ISSUER")
-            aud = os.getenv("JWT_AUDIENCE")
-            leeway = int(os.getenv("JWT_LEEWAY_SEC", "60"))
-
-            options = {"require": ["exp"], "verify_exp": True}
-            if not aud:
-                options["verify_aud"] = False
-
-            claims = jwt.decode(
-                token,
-                self.secret,
-                algorithms=[self.algorithm],
-                options=options,
-                issuer=iss if iss else None,
-                audience=aud if aud else None,
-                leeway=leeway,
-            )
-            request.state.user = claims
-        except ExpiredSignatureError:
-            return JSONResponse(
-                {"detail": "Token expired"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        except InvalidTokenError:
-            # Do not leak parsing/crypto details in response
-            return JSONResponse(
-                {"detail": "Invalid token"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        except Exception:
+        header = request.headers.get("Authorization") or request.headers.get(
+            "X-Authorization"
+        )
+        if not header:
             return JSONResponse(
                 {"detail": "Unauthorized"},
                 status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
             )
 
+        header = header.strip()
+        if header.lower().startswith("bearer "):
+            token = header.split(" ", 1)[1].strip()
+        else:
+            token = header
+
+        if not token:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+        payload = verify_jwt_token(token)
+        if not payload:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+        request.state.auth = payload
         return await call_next(request)
