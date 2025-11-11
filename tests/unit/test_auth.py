@@ -14,6 +14,11 @@ from fastapi import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+# --- Test setup -----------------------------------------------------------------
+# These tests exercise the real JWTAuthMiddleware + require_auth helper without
+# hitting AWS/GitHub, so we inject lightweight stubs for the heavy dependencies
+# that src.index pulls in during import.
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -23,22 +28,24 @@ sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.exceptions", MagicMock())
 sys.modules.setdefault("requests", MagicMock())
 
-mock_s3_service = types.ModuleType("src.services.s3_service")
-mock_s3_service.list_models = MagicMock(return_value={})
-mock_s3_service.upload_model = MagicMock()
-mock_s3_service.download_model = MagicMock()
-mock_s3_service.reset_registry = MagicMock()
-mock_s3_service.sync_model_lineage_to_neptune = MagicMock()
-mock_s3_service.sync_model_lineage_from_s3 = MagicMock()
-mock_s3_service.delete_model_from_neptune = MagicMock()
-mock_s3_service.sync_all_models_to_neptune = MagicMock()
-mock_s3_service.get_model_lineage_from_config = MagicMock(return_value={})
-mock_s3_service.get_model_sizes = MagicMock(return_value={})
-mock_s3_service.s3 = MagicMock()
-mock_s3_service.ap_arn = "mock"
-mock_s3_service.model_ingestion = MagicMock()
-sys.modules.setdefault("src.services.s3_service", mock_s3_service)
+# Stub S3 service functions used by routes so src.index imports cleanly.
+mock_s3 = types.ModuleType("src.services.s3_service")
+mock_s3.list_models = MagicMock(return_value={})
+mock_s3.upload_model = MagicMock()
+mock_s3.download_model = MagicMock()
+mock_s3.reset_registry = MagicMock()
+mock_s3.sync_model_lineage_to_neptune = MagicMock()
+mock_s3.sync_model_lineage_from_s3 = MagicMock()
+mock_s3.delete_model_from_neptune = MagicMock()
+mock_s3.sync_all_models_to_neptune = MagicMock()
+mock_s3.get_model_lineage_from_config = MagicMock(return_value={})
+mock_s3.get_model_sizes = MagicMock(return_value={})
+mock_s3.model_ingestion = MagicMock()
+mock_s3.s3 = MagicMock()
+mock_s3.ap_arn = "mock"
+sys.modules.setdefault("src.services.s3_service", mock_s3)
 
+# Stub rating service (used by /packages routes).
 mock_rating = types.ModuleType("src.services.rating")
 mock_rating.run_scorer = MagicMock()
 mock_rating.alias = MagicMock()
@@ -46,9 +53,10 @@ mock_rating.analyze_model_content = MagicMock()
 mock_rating.router = MagicMock()
 sys.modules.setdefault("src.services.rating", mock_rating)
 
+# Stub license compatibility service.
 mock_license = types.ModuleType("src.services.license_compatibility")
 mock_license.extract_model_license = MagicMock(return_value=None)
-mock_license.extract_github_license = MagicMock(return_value=None)
+mock_license.extract_github_license = MagicMock(returnValue=None)
 mock_license.check_license_compatibility = MagicMock(return_value=None)
 sys.modules.setdefault("src.services.license_compatibility", mock_license)
 
@@ -59,12 +67,15 @@ from src.services import auth_service
 
 @pytest.fixture(autouse=True)
 def set_jwt_secret(monkeypatch):
+    """Ensure a deterministic signing key for token generation."""
     monkeypatch.setattr(auth_service, "JWT_SECRET", "test-secret")
     return "test-secret"
 
 
 @pytest.fixture()
 def middleware() -> JWTAuthMiddleware:
+    """Instantiate the middleware with a dummy ASGI app and default exemptions."""
+
     async def dummy_app(scope, receive, send):
         pass
 
@@ -77,7 +88,11 @@ def middleware() -> JWTAuthMiddleware:
     )
 
 
+# --- Helpers --------------------------------------------------------------------
+
+
 def _make_request(path: str = "/protected", headers: dict[str, str] | None = None) -> Request:
+    """Construct a Starlette Request with the supplied headers."""
     scope = {
         "type": "http",
         "method": "GET",
@@ -94,6 +109,8 @@ def _make_request(path: str = "/protected", headers: dict[str, str] | None = Non
 
 
 def _dispatch(middleware: JWTAuthMiddleware, request: Request) -> JSONResponse:
+    """Run the request through the middleware and return the downstream response."""
+
     async def _run() -> JSONResponse:
         async def _call_next(req: Request) -> JSONResponse:
             return JSONResponse({"ok": True})
@@ -103,7 +120,11 @@ def _dispatch(middleware: JWTAuthMiddleware, request: Request) -> JSONResponse:
     return asyncio.run(_run())
 
 
+# --- Tests ----------------------------------------------------------------------
+
+
 def test_require_auth_missing_header(middleware: JWTAuthMiddleware):
+    """Requests without any auth header should be rejected with 401."""
     request = _make_request()
 
     response = _dispatch(middleware, request)
@@ -117,6 +138,7 @@ def test_require_auth_missing_header(middleware: JWTAuthMiddleware):
 
 
 def test_require_auth_invalid_token(middleware: JWTAuthMiddleware):
+    """Malformed tokens must also result in 401 responses."""
     request = _make_request(headers={"Authorization": "Bearer invalid.jwt.token"})
 
     response = _dispatch(middleware, request)
@@ -130,6 +152,7 @@ def test_require_auth_invalid_token(middleware: JWTAuthMiddleware):
 
 
 def test_require_auth_valid_token(middleware: JWTAuthMiddleware):
+    """A valid JWT should populate request.state.auth for downstream handlers."""
     payload = {
         "user_id": "user-1",
         "username": "alice",
