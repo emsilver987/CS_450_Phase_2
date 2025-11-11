@@ -14,6 +14,10 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+# These tests focus on the JWTAuthMiddleware in isolation. We stub external
+# dependencies (boto3, etc.) so the middleware can be imported and executed
+# without needing real AWS access or network calls.
+
 if TYPE_CHECKING:  # pragma: no cover
     from src.middleware.jwt_auth import JWTAuthMiddleware
 
@@ -30,6 +34,7 @@ def _ensure_project_path() -> None:
 
 
 def _make_jwt(secret: str | None = None, **overrides) -> str:
+    """Mint a JWT with default claims for testing, allowing overrides."""
     now = datetime.now(UTC)
     payload = {
         "user_id": "user-123",
@@ -44,6 +49,7 @@ def _make_jwt(secret: str | None = None, **overrides) -> str:
 
 
 def _build_scope(path: str, headers: dict[str, str] | None = None) -> dict:
+    """Construct a minimal ASGI scope for the middleware to consume."""
     raw_headers = []
     if headers:
         raw_headers = [
@@ -67,6 +73,7 @@ def _build_scope(path: str, headers: dict[str, str] | None = None) -> dict:
 
 
 async def _call_next(request: Request) -> Response:
+    """Downstream ASGI call that returns whatever the middleware stores."""
     return JSONResponse({"auth": getattr(request.state, "auth", None)})
 
 
@@ -79,6 +86,8 @@ def _dispatch(
     path: str,
     headers: dict[str, str] | None = None,
 ) -> Response:
+    """Helper to run the middleware synchronously for test assertions."""
+
     async def _run() -> Response:
         scope = _build_scope(path, headers)
         request = Request(scope, _receive)
@@ -89,6 +98,7 @@ def _dispatch(
 
 @pytest.fixture(scope="module")
 def auth_components() -> Type["JWTAuthMiddleware"]:
+    """Reload middleware/auth modules with a known JWT secret for tests."""
     _ensure_project_path()
     sys.modules.setdefault("boto3", MagicMock())
     os.environ.setdefault("JWT_SECRET", "test-secret")
@@ -108,6 +118,7 @@ def auth_components() -> Type["JWTAuthMiddleware"]:
 
 @pytest.fixture()
 def middleware(auth_components: Type["JWTAuthMiddleware"]) -> "JWTAuthMiddleware":
+    """Return a fresh middleware instance for each test."""
     middleware_cls = auth_components
 
     async def dummy_app(scope, receive, send):
