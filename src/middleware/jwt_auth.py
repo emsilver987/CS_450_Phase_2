@@ -1,23 +1,4 @@
 from __future__ import annotations
-
-"""
-JWT enforcement middleware for the FastAPI application.
-
-Responsibilities:
-  * Normalize incoming request paths and headers before auth checks.
-  * Allow-through for the documented public endpoints (health checks, docs,
-    OpenAPI schema, and authentication bootstrap).
-  * Accept tokens from either the `Authorization` header (standard Bearer
-    scheme) or the spec's `X-Authorization` header.
-  * Delegate JWT decoding/validation to `verify_jwt_token`, attaching the claims
-    to `request.state.auth` for downstream handlers.
-  * Return `401 {"detail": "Unauthorized"}` for any missing, malformed, or
-    expired credentials, matching the OpenAPI spec documentation.
-
-This middleware intentionally keeps opinions minimal—revocation checks, role
-enforcement, and per-route authorization occur further down the stack.
-"""
-
 import os
 from typing import Iterable
 from urllib.parse import unquote
@@ -29,9 +10,7 @@ from starlette.responses import JSONResponse
 from ..services.auth_service import verify_jwt_token
 
 # Public endpoints that should bypass auth
-# NOTE: Keep this list aligned with the documented unauthenticated endpoints in
-#       `ece461_fall_2025_openapi_spec-2.yaml`. Each entry may represent either
-#       an exact path or a prefix (when ending with a slash).
+
 DEFAULT_EXEMPT: tuple[str, ...] = (
     "/health",
     "/health/components",
