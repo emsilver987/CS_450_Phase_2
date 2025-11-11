@@ -4,7 +4,6 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import sys
-from typing import Any
 from unittest.mock import MagicMock
 import types
 
@@ -41,6 +40,12 @@ mock_s3.sync_all_models_to_neptune = MagicMock()
 mock_s3.get_model_lineage_from_config = MagicMock(return_value={})
 mock_s3.get_model_sizes = MagicMock(return_value={})
 mock_s3.model_ingestion = MagicMock()
+mock_s3.sanitize_model_id = MagicMock(side_effect=lambda value: value)
+mock_s3.store_model_metadata = MagicMock()
+mock_s3.get_model_metadata = MagicMock(return_value={})
+mock_s3.store_generic_artifact_metadata = MagicMock()
+mock_s3.get_generic_artifact_metadata = MagicMock(return_value={})
+mock_s3.aws_available = MagicMock(return_value=True)
 mock_s3.s3 = MagicMock()
 mock_s3.ap_arn = "mock"
 sys.modules.setdefault("src.services.s3_service", mock_s3)
@@ -56,13 +61,13 @@ sys.modules.setdefault("src.services.rating", mock_rating)
 # Stub license compatibility service.
 mock_license = types.ModuleType("src.services.license_compatibility")
 mock_license.extract_model_license = MagicMock(return_value=None)
-mock_license.extract_github_license = MagicMock(returnValue=None)
+mock_license.extract_github_license = MagicMock(return_value=None)
 mock_license.check_license_compatibility = MagicMock(return_value=None)
 sys.modules.setdefault("src.services.license_compatibility", mock_license)
 
-import src.index as index
-from src.middleware.jwt_auth import JWTAuthMiddleware
-from src.services import auth_service
+import src.index as index  # noqa: E402
+from src.middleware.jwt_auth import JWTAuthMiddleware  # noqa: E402
+from src.services import auth_service  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +96,9 @@ def middleware() -> JWTAuthMiddleware:
 # --- Helpers --------------------------------------------------------------------
 
 
-def _make_request(path: str = "/protected", headers: dict[str, str] | None = None) -> Request:
+def _make_request(
+    path: str = "/protected", headers: dict[str, str] | None = None
+) -> Request:
     """Construct a Starlette Request with the supplied headers."""
     scope = {
         "type": "http",
@@ -100,7 +107,9 @@ def _make_request(path: str = "/protected", headers: dict[str, str] | None = Non
         "headers": [],
     }
     for key, value in (headers or {}).items():
-        scope["headers"].append((key.lower().encode("latin-1"), value.encode("latin-1")))
+        scope["headers"].append(
+            (key.lower().encode("latin-1"), value.encode("latin-1"))
+        )
 
     async def receive():
         return {"type": "http.request"}
@@ -161,7 +170,9 @@ def test_require_auth_valid_token(middleware: JWTAuthMiddleware):
         "exp": int((datetime.now(UTC) + timedelta(minutes=5)).timestamp()),
         "jti": "token-id",
     }
-    token = jwt.encode(payload, auth_service.JWT_SECRET, algorithm=auth_service.JWT_ALGORITHM)
+    token = jwt.encode(
+        payload, auth_service.JWT_SECRET, algorithm=auth_service.JWT_ALGORITHM
+    )
     request = _make_request(headers={"Authorization": f"Bearer {token}"})
 
     response = _dispatch(middleware, request)
@@ -171,4 +182,3 @@ def test_require_auth_valid_token(middleware: JWTAuthMiddleware):
     assert auth_payload["username"] == "alice"
     assert auth_payload["roles"] == ["admin"]
     assert auth_payload["jti"] == "token-id"
-

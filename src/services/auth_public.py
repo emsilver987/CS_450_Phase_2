@@ -37,6 +37,11 @@ DEFAULT_PASSWORDS: Set[str] = {
     "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts",
     "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts;",
 }
+DEFAULT_TOKEN_EXPIRATION_MINUTES = 15
+MALFORMED_REQUEST_DETAIL = (
+    "There is missing field(s) in the AuthenticationRequest or it is formed "
+    "improperly"
+)
 
 UNICODE_QUOTE_MAP = str.maketrans(
     {
@@ -113,13 +118,13 @@ async def _authenticate(request: Request):
         logger.warning(f"Bad JSON from client: {raw!r} ({exc})")
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly",
+            detail=MALFORMED_REQUEST_DETAIL,
         )
 
     if not isinstance(body, dict):
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the AuthenticationRequest or it is formed improperly",
+            detail=MALFORMED_REQUEST_DETAIL,
         )
 
     user = body.get("user") or {}
@@ -140,19 +145,36 @@ async def _authenticate(request: Request):
         logger.error("Default admin user not found for authentication")
         raise HTTPException(status_code=500, detail="Authentication service error")
 
-    expires_minutes = max(int(os.getenv("AUTH_PUBLIC_TOKEN_EXPIRATION_MINUTES", "15")), 1)
+    expiration_raw = os.getenv(
+        "AUTH_PUBLIC_TOKEN_EXPIRATION_MINUTES", str(DEFAULT_TOKEN_EXPIRATION_MINUTES)
+    )
+    try:
+        expires_minutes = max(int(expiration_raw), 1)
+    except ValueError:
+        logger.warning(
+            "Invalid AUTH_PUBLIC_TOKEN_EXPIRATION_MINUTES value %r; "
+            "defaulting to %d.",
+            expiration_raw,
+            DEFAULT_TOKEN_EXPIRATION_MINUTES,
+        )
+        expires_minutes = DEFAULT_TOKEN_EXPIRATION_MINUTES
     token_obj = create_jwt_token(
         user_record,
         expires_in=timedelta(minutes=expires_minutes),
     )
-    store_token(token_obj["jti"], user_record, token_obj["token"], token_obj["expires_at"])
+    store_token(
+        token_obj["jti"],
+        user_record,
+        token_obj["token"],
+        token_obj["expires_at"],
+    )
 
     payload = {
         "token": f"bearer {token_obj['token']}",
         "token_id": token_obj["jti"],
         "expires_at": token_obj["expires_at"].isoformat(),
     }
-    return JSONResponse(payload, media_type="application/json")
+    return JSONResponse(payload)
 
 
 def _normalize_password(password: str) -> str:

@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 from typing import Any
 from unittest.mock import MagicMock
+import types
 
 import pytest
 from fastapi import HTTPException
@@ -21,7 +22,31 @@ sys.modules.setdefault("boto3", MagicMock())
 sys.modules.setdefault("botocore", MagicMock())
 sys.modules.setdefault("botocore.exceptions", MagicMock())
 
+mock_s3 = types.ModuleType("src.services.s3_service")
+mock_s3.list_models = MagicMock(return_value={})
+mock_s3.upload_model = MagicMock()
+mock_s3.download_model = MagicMock()
+mock_s3.reset_registry = MagicMock()
+mock_s3.sync_model_lineage_to_neptune = MagicMock()
+mock_s3.sync_model_lineage_from_s3 = MagicMock()
+mock_s3.delete_model_from_neptune = MagicMock()
+mock_s3.sync_all_models_to_neptune = MagicMock()
+mock_s3.get_model_lineage_from_config = MagicMock(return_value={})
+mock_s3.get_model_sizes = MagicMock(return_value={})
+mock_s3.model_ingestion = MagicMock()
+mock_s3.sanitize_model_id = MagicMock(side_effect=lambda value: value)
+mock_s3.store_model_metadata = MagicMock()
+mock_s3.get_model_metadata = MagicMock(return_value={})
+mock_s3.store_generic_artifact_metadata = MagicMock()
+mock_s3.get_generic_artifact_metadata = MagicMock(return_value={})
+mock_s3.aws_available = MagicMock(return_value=True)
+mock_s3.s3 = MagicMock()
+mock_s3.ap_arn = "mock"
+sys.modules.setdefault("src.services.s3_service", mock_s3)
+
 auth_public = importlib.import_module("src.services.auth_public")
+if not hasattr(auth_public, "sanitize_model_id"):
+    sys.modules.setdefault("src.services.s3_service", MagicMock())
 
 
 def _build_request(body: dict[str, Any]) -> Request:
