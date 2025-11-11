@@ -8,6 +8,7 @@ import uvicorn
 import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status
+from typing import Any
 
 # from fastapi.security import HTTPBearer  # Not used - removed to prevent accidental security enforcement
 from fastapi.staticfiles import StaticFiles
@@ -17,15 +18,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from botocore.exceptions import ClientError
 from .routes.index import router as api_router
-from .services.auth_public import (
-    public_auth as authenticate_router,
-    STATIC_TOKEN as PUBLIC_STATIC_TOKEN,
-)
+from .services.auth_public import public_auth as authenticate_router
 from .services.auth_service import (
     auth_public as auth_ns_public,
     auth_private as auth_ns_private,
     ensure_default_admin,
     purge_tokens,
+    verify_jwt_token,
 )
 from .services.s3_service import (
     list_models,
@@ -154,29 +153,42 @@ async def startup_event():
 _artifact_storage = {}
 
 
-def verify_auth_token(request: Request) -> bool:
-    """Verify auth token from either Authorization or X-Authorization header"""
-    raw = (
-        request.headers.get("authorization")
-        or request.headers.get("x-authorization")
-        or ""
+def _extract_token(request: Request) -> str:
+    header = request.headers.get("authorization") or request.headers.get(
+        "x-authorization"
     )
-    raw = raw.strip()
+    if not header:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if not raw:
-        return False
-
-    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
-    if raw.lower().startswith("bearer "):
-        token = raw.split(" ", 1)[1].strip()
+    header = header.strip()
+    if header.lower().startswith("bearer "):
+        token = header.split(" ", 1)[1].strip()
     else:
-        # Also accept a raw JWT without the "Bearer " prefix
-        token = raw.strip()
+        token = header
 
-    # Very light check: looks like a JWT (three parts with dots)
-    # (Replace with real verification when ready)
-    parts = token.split(".")
-    return len(parts) == 3 and all(parts)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return token
+
+
+def require_auth(request: Request) -> dict[str, Any]:
+    """Validate the incoming request using JWT auth."""
+    token = _extract_token(request)
+    payload = verify_jwt_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    request.state.auth = payload
+    return payload
+
+
+def verify_auth_token(request: Request) -> bool:
+    """Legacy helper used by existing endpoints; returns False on auth failure."""
+    try:
+        require_auth(request)
+        return True
+    except HTTPException:
+        return False
 
 
 @app.get("/health")
@@ -351,56 +363,26 @@ async def list_artifacts(request: Request, offset: str = None):
 
 @app.delete("/reset")
 def reset_system(request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
     try:
-        from .services.auth_service import verify_jwt_token
-
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-    except HTTPException:
+        auth_payload = require_auth(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication failed due to invalid or missing AuthenticationToken",
+            ) from exc
         raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for reset: {str(e)}")
+
+    is_admin = (
+        "admin" in auth_payload.get("roles", [])
+        or auth_payload.get("username") == "ece30861defaultadminuser"
+        or auth_payload.get("is_admin", False)
+        or auth_payload.get("sub") == "ece30861defaultadminuser"
+    )
+    if not is_admin:
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the registry."
+            status_code=401,
+            detail="You do not have permission to reset the registry.",
         )
 
     try:

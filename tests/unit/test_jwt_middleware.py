@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 from datetime import UTC, datetime, timedelta
@@ -18,9 +19,6 @@ from starlette.responses import JSONResponse, Response
 # dependencies (boto3, etc.) so the middleware can be imported and executed
 # without needing real AWS access or network calls.
 
-if TYPE_CHECKING:  # pragma: no cover
-    from src.middleware.jwt_auth import JWTAuthMiddleware
-
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -28,9 +26,8 @@ if str(ROOT) not in sys.path:
 sys.modules.setdefault("boto3", MagicMock())
 
 
-def _ensure_project_path() -> None:
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
+if TYPE_CHECKING:  # pragma: no cover
+    from src.middleware.jwt_auth import JWTAuthMiddleware
 
 
 def _make_jwt(secret: str | None = None, **overrides) -> str:
@@ -96,23 +93,38 @@ def _dispatch(
     return asyncio.run(_run())
 
 
+def test_middleware_without_secret_raises(monkeypatch) -> None:
+    """The middleware should fail fast when no signing secret is configured."""
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+
+    import src.services.auth_service as auth_service
+
+    importlib.reload(auth_service)
+    monkeypatch.setattr(auth_service, "JWT_SECRET", "", raising=False)
+
+    jwt_auth = importlib.import_module("src.middleware.jwt_auth")
+    jwt_auth = importlib.reload(jwt_auth)
+
+    async def dummy_app(scope, receive, send):
+        pass
+
+    with pytest.raises(RuntimeError):
+        jwt_auth.JWTAuthMiddleware(dummy_app)
+
+
 @pytest.fixture(scope="module")
 def auth_components() -> Type["JWTAuthMiddleware"]:
     """Reload middleware/auth modules with a known JWT secret for tests."""
-    _ensure_project_path()
     sys.modules.setdefault("boto3", MagicMock())
     os.environ.setdefault("JWT_SECRET", "test-secret")
 
     import src.services.auth_service as auth_service
 
-    from importlib import reload
-
-    reload(auth_service)
+    importlib.reload(auth_service)
     auth_service.JWT_SECRET = os.environ["JWT_SECRET"]
 
-    import src.middleware.jwt_auth as jwt_auth
-
-    reload(jwt_auth)
+    jwt_auth = importlib.import_module("src.middleware.jwt_auth")
+    jwt_auth = importlib.reload(jwt_auth)
     return jwt_auth.JWTAuthMiddleware
 
 

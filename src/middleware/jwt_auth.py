@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..services import auth_service
 from ..services.auth_service import verify_jwt_token
 
 # Public endpoints that should bypass auth
@@ -16,6 +17,7 @@ DEFAULT_EXEMPT: tuple[str, ...] = (
     "/health/components",
     "/tracks",
     "/authenticate",
+    "/login",
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -43,7 +45,13 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.exempt_paths = tuple(exempt_paths)
 
         self.algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-        self.secret = os.getenv("JWT_SECRET")
+        self.secret = os.getenv("JWT_SECRET") or auth_service.JWT_SECRET
+
+        if not self.secret:
+            raise RuntimeError(
+                "JWT_SECRET is not configured. Set the JWT_SECRET environment variable."
+            )
+
         if self.algorithm != "HS256":
             raise ValueError("This middleware currently supports HS256 only.")
 
