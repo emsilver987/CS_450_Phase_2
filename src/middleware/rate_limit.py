@@ -25,6 +25,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         requests: int = 120,
         window_seconds: int = 60,
         key_func: Callable[[Request], str] | None = None,
+        cleanup_interval: int | None = None,
     ):
         super().__init__(app)
         self.requests = max(1, requests)
@@ -32,6 +33,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.key_func = key_func or self._default_key
         self._hits: Dict[str, Deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
+        self._cleanup_interval = max(1, cleanup_interval or self.window)
+        self._expiration_window = self.window * 2
+        self._last_cleanup = time.monotonic()
 
     @staticmethod
     def _default_key(request: Request) -> str:
@@ -46,6 +50,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         earliest = now - self.window
 
         async with self._lock:
+            self._maybe_cleanup(now)
             timestamps = self._hits[identifier]
 
             # Trim timestamps outside the window
@@ -64,4 +69,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             timestamps.append(now)
 
+            if not timestamps:
+                # Ensure we don't keep empty deques around for inactive clients
+                self._hits.pop(identifier, None)
+
         return await call_next(request)
+
+    def _maybe_cleanup(self, now: float) -> None:
+        """Remove stale client entries to keep in-memory usage bounded."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+
+        expiration_cutoff = now - self._expiration_window
+        stale_keys = [
+            key
+            for key, timestamps in list(self._hits.items())
+            if not timestamps or timestamps[-1] < expiration_cutoff
+        ]
+
+        for key in stale_keys:
+            self._hits.pop(key, None)
+
+        self._last_cleanup = now
