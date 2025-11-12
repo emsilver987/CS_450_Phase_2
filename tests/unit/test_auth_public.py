@@ -139,3 +139,20 @@ def test_authenticate_invalid_credentials(monkeypatch: pytest.MonkeyPatch):
         asyncio.run(auth_public._authenticate(request))
 
     assert exc_info.value.status_code == 401
+
+
+def test_load_expected_passwords_raises_in_production(monkeypatch: pytest.MonkeyPatch):
+    auth_public._PASSWORD_CACHE = None
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("AUTH_ADMIN_SECRET_NAME", "secret-name")
+
+    mock_client = MagicMock()
+    mock_client.get_secret_value.side_effect = RuntimeError("boom")
+
+    mock_boto3 = MagicMock()
+    mock_boto3.client.return_value = mock_client
+
+    monkeypatch.setattr(auth_public, "boto3", mock_boto3)
+
+    with pytest.raises(RuntimeError):
+        auth_public._load_expected_passwords()

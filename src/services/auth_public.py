@@ -98,9 +98,11 @@ def _load_expected_passwords() -> Set[str]:
         )
         _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning(
+        logger.error(
             "Unexpected error retrieving admin password secret: %s", exc, exc_info=True
         )
+        if os.getenv("ENVIRONMENT", "development").lower() == "production":
+            raise
         _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
 
     return _PASSWORD_CACHE
