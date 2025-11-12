@@ -141,6 +141,8 @@ Thumbs.db
 # Project specific
 pytest_output.log
 *.log
+test_results_*.json
+TEST_RESULTS_SUMMARY.md
 
 #zips
 *.zip

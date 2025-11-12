@@ -15,9 +15,17 @@ services:
       # Mount for development (hot reload)
       - ./src:/app/src
       - ./frontend:/app/frontend
-      # Mount AWS credentials from host (if available)
-      # Windows path format for Docker Desktop
-      - C:/Users/Taiwo/.aws:/root/.aws:ro
+      # Mount AWS credentials from host (optional, for local development)
+      # Uncomment ONE of the lines below that matches your system:
+      # 
+      # For Linux/Mac (uses ${HOME} environment variable):
+      # - ${HOME}/.aws:/root/.aws:ro
+      #
+      # For Windows (replace YourUsername with your actual username):
+      # - C:/Users/YourUsername/.aws:/root/.aws:ro
+      #
+      # Or set AWS_CREDENTIALS_PATH in .env file and use:
+      # - ${AWS_CREDENTIALS_PATH}:/root/.aws:ro
+      #
+      # Note: In production (AWS ECS), use IAM roles instead of mounting credentials
     restart: unless-stopped
-    # AWS credentials are mounted from host ~/.aws directory
-    # For production, use IAM roles instead
