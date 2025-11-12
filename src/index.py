@@ -362,7 +362,7 @@ async def list_artifacts(request: Request, offset: str = None):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_query or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_query or it is formed improperly, or is invalid.",
         )
 
 
