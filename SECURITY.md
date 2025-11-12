@@ -81,6 +81,8 @@ dispatch, and weekly (`cron: 0 1 * * 1`). It contains four jobs:
   _Actions_ tab (`security-reports`, `trivy-results`).
 - **Security tab**: Both CodeQL and Trivy SARIF uploads appear under _Security →
   Code scanning alerts_ for long-term tracking.
+- **Manual scans**: The latest OWASP ZAP report is checked in at
+  `security/owasp-zap-report.html` for offline review.
 
 ### Error Handling Practices
 
