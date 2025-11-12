@@ -39,7 +39,7 @@ DEFAULT_PASSWORDS: Set[str] = {
 }
 DEFAULT_TOKEN_EXPIRATION_MINUTES = 15
 MALFORMED_REQUEST_DETAIL = (
-    "There is missing field(s) in the AuthenticationRequest or it is formed "
+    "There are missing fields in the AuthenticationRequest or it is formed "
     "improperly"
 )
 
