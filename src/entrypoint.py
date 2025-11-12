@@ -2,45 +2,47 @@ from __future__ import annotations
 
 import os
 
-from fastapi import Request, Response
+import logging
 
 from src.index import app as _app
 from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
 from src.middleware.rate_limit import RateLimitMiddleware
 
-# Wrap the original app without modifying existing files
 app = _app
 
-# Apply rate limiting unless explicitly disabled
-disable_rate_limit = os.getenv("DISABLE_RATE_LIMIT", "").lower() == "true"
-rate_limit_requests = int(os.getenv("RATE_LIMIT_REQUESTS", "120"))
-rate_limit_window = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
-if not disable_rate_limit:
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests=rate_limit_requests,
-        window_seconds=rate_limit_window,
-    )
-
-# Always enable JWT middleware unless explicitly disabled
-disable_auth = os.getenv("DISABLE_AUTH", "").lower() == "true"
-if not disable_auth:
+enable_auth = os.getenv("ENABLE_AUTH", "").lower() == "true"
+jwt_secret = os.getenv("JWT_SECRET")
+if enable_auth or jwt_secret:
     app.add_middleware(JWTAuthMiddleware, exempt_paths=DEFAULT_EXEMPT)
 
+rate_limit_requests_default = 120
+rate_limit_window_default = 60
+logger = logging.getLogger(__name__)
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    """
-    Inject baseline security headers on every response.
-
-    - Strict-Transport-Security ensures browsers stick to HTTPS once they see it.
-    - X-Content-Type-Options prevents MIME sniffing of JSON/HTML payloads.
-    - Cache-Control avoids caching sensitive API responses at the edge/browser.
-    """
-    response: Response = await call_next(request)
-    response.headers.setdefault(
-        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+try:
+    rate_limit_requests_env = os.getenv(
+        "RATE_LIMIT_REQUESTS", str(rate_limit_requests_default)
     )
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("Cache-Control", "no-store")
-    return response
+    rate_limit_requests = int(rate_limit_requests_env)
+    if rate_limit_requests < 1:
+        raise ValueError("RATE_LIMIT_REQUESTS must be positive")
+except ValueError as exc:
+    logger.warning("Invalid RATE_LIMIT_REQUESTS value; using default: %s", exc)
+    rate_limit_requests = rate_limit_requests_default
+
+try:
+    rate_limit_window_env = os.getenv(
+        "RATE_LIMIT_WINDOW_SECONDS", str(rate_limit_window_default)
+    )
+    rate_limit_window = int(rate_limit_window_env)
+    if rate_limit_window < 1:
+        raise ValueError("RATE_LIMIT_WINDOW_SECONDS must be positive")
+except ValueError as exc:
+    logger.warning("Invalid RATE_LIMIT_WINDOW_SECONDS value; using default: %s", exc)
+    rate_limit_window = rate_limit_window_default
+
+app.add_middleware(
+    RateLimitMiddleware,
+    requests=rate_limit_requests,
+    window_seconds=rate_limit_window,
+)

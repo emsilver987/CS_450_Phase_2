@@ -16,6 +16,10 @@ from the automated scans.
   120 requests per 60 seconds per client IP). Adjust with environment variables:
   `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, or disable with
   `DISABLE_RATE_LIMIT=true` for trusted environments only.
+- Environment guardrails:
+  - `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS` are validated on startup.
+    Invalid or non-positive values trigger a warning and fall back to the defaults,
+    preventing crashes from misconfigured environment variables.
 - Admin/grader passwords are sourced from AWS Secrets Manager when
   `AUTH_ADMIN_SECRET_NAME` is set and the runtime IAM role has
   `secretsmanager:GetSecretValue`.
@@ -26,7 +30,7 @@ from the automated scans.
   - If the secret name is not provided or `GetSecretValue` fails in non-production
     environments, the code logs the failure and falls back to the built-in
     `DEFAULT_PASSWORDS`. This keeps local environments functional.
-- Production hardening:
+- Production:
   - Any unexpected error retrieving the secret now logs at **error** level and
     re-raises when `ENVIRONMENT=production`, preventing silent fallback to default
     credentials. Monitor CloudWatch for the corresponding error log and remediate
