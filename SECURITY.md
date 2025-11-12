@@ -84,6 +84,15 @@ dispatch, and weekly (`cron: 0 1 * * 1`). It contains four jobs:
 - **Manual scans**: The latest OWASP ZAP report is checked in at
   `security/owasp-zap-report.html` for offline review.
 
+### Outstanding Actions
+
+- The application now injects security headers (`Strict-Transport-Security`,
+  `X-Content-Type-Options`, `Cache-Control`) in `src/entrypoint.py`, but the
+  production deployment at
+  `https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod/` still returns
+  responses without them. Redeploy the service (or update the upstream gateway)
+  and re-run `curl -I` or OWASP ZAP to verify the headers are active.
+
 ### Error Handling Practices
 
 - Application logs (CloudWatch or local stdout) receive full stack traces via
