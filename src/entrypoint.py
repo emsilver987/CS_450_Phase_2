@@ -5,7 +5,7 @@ import os
 from src.index import app as _app
 from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
 
-# Wrap the original app without modifying existing files
+# Wrap the original app without modifying the existing files
 app = _app
 
 # Only add JWT middleware if auth is explicitly enabled
