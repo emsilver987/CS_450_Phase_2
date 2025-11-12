@@ -1,4 +1,4 @@
-name: Security Scans
+name: CI/Security Scans
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-  schedule:
-    - cron: "0 1 * * 1"
 
 permissions:
   contents: read
