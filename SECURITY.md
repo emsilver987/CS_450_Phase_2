@@ -59,7 +59,7 @@ from the automated scans.
 ## CI/CD Security Scans
 
 The workflow `.github/workflows/ci.yml` runs on push, pull request, manual
-dispatch, and weekly (`cron: 0 1 * * 1`). It contains four jobs:
+dispatch. It contains four jobs:
 
 1. **Unit Tests (`test`)** – sanity check via `./run install && ./run test`.
 2. **CodeQL (`codeql`)** – static analysis uploaded to the repository
