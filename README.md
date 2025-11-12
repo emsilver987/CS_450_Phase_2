@@ -446,7 +446,7 @@ aws ecs describe-services --cluster validator-cluster --services validator-servi
 
 ## Operational Notes and Limitations
 
-- ## Authentication Overview
+## Authentication Overview
 
 The API follows the authentication contract laid out in
 `ece461_fall_2025_openapi_spec-2.yaml`. A dedicated middleware layer
