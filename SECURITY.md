@@ -23,9 +23,14 @@ from the automated scans.
     - List: `["NewAdminPassword123!"]`
     - Object: `{"passwords": ["NewAdminPassword123!"]}`
 - Development fallback:
-  - If the secret name is not provided or `GetSecretValue` fails, the code logs a
-    warning and falls back to the built-in `DEFAULT_PASSWORDS`. This keeps local
-    environments functional but **must not** be used in production.
+  - If the secret name is not provided or `GetSecretValue` fails in non-production
+    environments, the code logs the failure and falls back to the built-in
+    `DEFAULT_PASSWORDS`. This keeps local environments functional.
+- Production hardening:
+  - Any unexpected error retrieving the secret now logs at **error** level and
+    re-raises when `ENVIRONMENT=production`, preventing silent fallback to default
+    credentials. Monitor CloudWatch for the corresponding error log and remediate
+    IAM or Secrets Manager issues immediately.
 
 ### Required Environment Variables
 
