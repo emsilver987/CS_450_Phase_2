@@ -20,6 +20,7 @@ from botocore.exceptions import ClientError
 from .routes.index import router as api_router
 from .services.auth_public import public_auth as authenticate_router
 from .services.auth_service import (
+    DEFAULT_ADMIN_USERNAME,
     auth_public as auth_ns_public,
     auth_private as auth_ns_private,
     ensure_default_admin,
@@ -172,8 +173,43 @@ async def startup_event():
 _artifact_storage = {}
 
 
+def _format_error_detail(
+    base_message: str, exception: Exception | None = None
+) -> str:
+    """
+    Format error message with optional exception details for debugging.
+
+    In development, includes exception details. In production,
+    returns base message only.
+    """
+    is_production = (
+        os.getenv("ENVIRONMENT", "development").lower() == "production"
+    )
+    if exception and not is_production:
+        return f"{base_message}: {str(exception)}"
+    return base_message
+
+
 def _extract_token(request: Request) -> str:
     return extract_token_or_401(request.headers)
+
+
+def is_admin_user(auth_payload: dict[str, Any]) -> bool:
+    """
+    Check if the authenticated user has admin privileges.
+
+    Checks multiple fields for admin status:
+    - roles list contains "admin"
+    - username matches DEFAULT_ADMIN_USERNAME
+    - is_admin flag is True
+    - sub (subject) matches DEFAULT_ADMIN_USERNAME
+    """
+    return (
+        "admin" in auth_payload.get("roles", [])
+        or auth_payload.get("username") == DEFAULT_ADMIN_USERNAME
+        or auth_payload.get("is_admin", False)
+        or auth_payload.get("sub") == DEFAULT_ADMIN_USERNAME
+    )
 
 
 def require_auth(request: Request) -> dict[str, Any]:
@@ -382,13 +418,7 @@ def reset_system(request: Request):
             ) from exc
         raise
 
-    is_admin = (
-        "admin" in auth_payload.get("roles", [])
-        or auth_payload.get("username") == "ece30861defaultadminuser"
-        or auth_payload.get("is_admin", False)
-        or auth_payload.get("sub") == "ece30861defaultadminuser"
-    )
-    if not is_admin:
+    if not is_admin_user(auth_payload):
         raise HTTPException(
             status_code=401,
             detail="You do not have permission to reset the registry.",
@@ -484,7 +514,10 @@ def get_artifact_by_name(name: str, request: Request):
         logger.error(f"Error getting artifact by name {name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -589,7 +622,10 @@ async def search_artifacts_by_regex(request: Request):
         logger.error(f"Error searching artifacts by regex: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_regex or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -694,7 +730,10 @@ def get_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -934,7 +973,10 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
+                e,
+            ),
         )
 
 
@@ -1033,7 +1075,10 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -1110,7 +1155,10 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -1371,7 +1419,10 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
