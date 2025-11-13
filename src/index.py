@@ -48,9 +48,6 @@ from .services.s3_service import (
     ap_arn,
     model_ingestion,
     aws_available,
-    sanitize_model_id,
-    store_model_metadata,
-    get_model_metadata,
 )
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import (
@@ -2263,13 +2260,32 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 TEMPLATES_DIR = FRONTEND_DIR / "templates"
 STATIC_DIR = FRONTEND_DIR / "static"
+
+# Debug: Print to stdout (will appear in logs)
+print("=== FRONTEND DEBUG ===")
+print(f"ROOT: {ROOT}")
+print(f"FRONTEND_DIR: {FRONTEND_DIR}")
+print(f"FRONTEND_DIR exists: {FRONTEND_DIR.exists()}")
+print(f"TEMPLATES_DIR: {TEMPLATES_DIR}")
+print(f"TEMPLATES_DIR exists: {TEMPLATES_DIR.exists()}")
+print(f"STATIC_DIR: {STATIC_DIR}")
+print(f"STATIC_DIR exists: {STATIC_DIR.exists()}")
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    print("✅ Static files mounted at /static")
+else:
+    print("❌ Static directory not found!")
+
 templates = (
     Jinja2Templates(directory=str(TEMPLATES_DIR)) if TEMPLATES_DIR.exists() else None
 )
 
-# Log template status
+# Log template status (both print and logger for redundancy)
+print(f"=== TEMPLATE STATUS ===")
+print(f"TEMPLATES_DIR: {TEMPLATES_DIR}")
+print(f"TEMPLATES_DIR exists: {TEMPLATES_DIR.exists()}")
+print(f"Templates object: {templates is not None}")
 logger.info(f"=== TEMPLATE STATUS ===")
 logger.info(f"TEMPLATES_DIR: {TEMPLATES_DIR}")
 logger.info(f"TEMPLATES_DIR exists: {TEMPLATES_DIR.exists()}")
@@ -2277,12 +2293,15 @@ logger.info(f"Templates object: {templates is not None}")
 
 # 5) Register frontend routes (home, directory, upload, etc.)
 if templates:
+    print("✅ Templates found - registering frontend routes")
     logger.info("Templates found - registering frontend routes")
     from .routes.frontend import register_routes, set_templates
     set_templates(templates)  # Set templates in frontend module
     register_routes(app)
+    print("✅ Frontend routes registered")
     logger.info("Frontend routes registered")
 else:
+    print("❌ Templates not found - registering fallback root route")
     logger.info("Templates not found - registering fallback root route")
     # Fallback root route if templates don't exist
     @app.get("/")
@@ -2297,4 +2316,5 @@ else:
                 "api": "/api/hello"
             }
         }
+    print("✅ Fallback root route registered")
     logger.info("Fallback root route registered")

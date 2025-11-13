@@ -105,7 +105,7 @@ Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Check ECS logs: aws logs tail /ecs/validator-service --follow --region $REGION" -ForegroundColor White
 Write-Host "  2. Look for debug messages about frontend paths" -ForegroundColor White
-Write-Host "  3. Test CloudFront: https://d3evfv0v7o5aro.cloudfront.net" -ForegroundColor White
+Write-Host "  3. Test CloudFront: https://d2ogznjhftutmv.cloudfront.net" -ForegroundColor White
 Write-Host ""
 
 
