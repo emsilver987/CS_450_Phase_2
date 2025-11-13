@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 # This ensures brute-force attacks are rate-limited even if they fail auth
 disable_rate_limit = os.getenv("DISABLE_RATE_LIMIT", "").lower() == "true"
 rate_limit_requests_default = 120
+rate_limit_requests_max = 10000
 rate_limit_window_default = 60
+rate_limit_window_max = 3600
 
 if not disable_rate_limit:
     try:
@@ -26,6 +28,10 @@ if not disable_rate_limit:
         rate_limit_requests = int(rate_limit_requests_env)
         if rate_limit_requests < 1:
             raise ValueError("RATE_LIMIT_REQUESTS must be positive")
+        if rate_limit_requests > rate_limit_requests_max:
+            raise ValueError(
+                f"RATE_LIMIT_REQUESTS exceeds maximum of {rate_limit_requests_max}"
+            )
     except (ValueError, TypeError) as exc:
         logger.warning(
             "Invalid RATE_LIMIT_REQUESTS value; using default: %s", exc
@@ -39,6 +45,10 @@ if not disable_rate_limit:
         rate_limit_window = int(rate_limit_window_env)
         if rate_limit_window < 1:
             raise ValueError("RATE_LIMIT_WINDOW_SECONDS must be positive")
+        if rate_limit_window > rate_limit_window_max:
+            raise ValueError(
+                f"RATE_LIMIT_WINDOW_SECONDS exceeds maximum of {rate_limit_window_max}"
+            )
     except (ValueError, TypeError) as exc:
         logger.warning(
             "Invalid RATE_LIMIT_WINDOW_SECONDS value; using default: %s", exc
