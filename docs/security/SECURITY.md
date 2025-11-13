@@ -353,7 +353,7 @@ dispatch. It contains four jobs:
 4. **Trivy Scan (`trivy-scan`)**:
    - Caches the vulnerability DB.
    - Produces `trivy-results.sarif` (filesystem scan ignoring unfixed CVEs).
-   - Uploads SARIF to GitHub’s Security tab and as a downloadable artifact.
+   - Uploads SARIF to GitHub's Security tab and as a downloadable artifact.
    - Installs `jq` and fails the job when any High/Critical items are present.
 
 ### Where to Find Reports
@@ -378,3 +378,4 @@ dispatch. It contains four jobs:
   avoid embedding raw exception messages to reduce information disclosure.
 - When adding new endpoints, follow the same pattern: log the detailed error,
   return a generic, user-friendly explanation to the caller.
+
