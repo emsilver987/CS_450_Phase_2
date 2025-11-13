@@ -45,6 +45,7 @@ from .services.s3_service import (
 )
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import (
+from .utils.auth import extract_token_or_401
     extract_model_license,
     extract_github_license,
     check_license_compatibility,
@@ -159,21 +160,7 @@ _artifact_storage = {}
 
 
 def _extract_token(request: Request) -> str:
-    header = request.headers.get("authorization") or request.headers.get(
-        "x-authorization"
-    )
-    if not header:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    header = header.strip()
-    if header.lower().startswith("bearer "):
-        token = header.split(" ", 1)[1].strip()
-    else:
-        token = header
-
-    if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return token
+    return extract_token_or_401(request.headers)
 
 
 def require_auth(request: Request) -> dict[str, Any]:
