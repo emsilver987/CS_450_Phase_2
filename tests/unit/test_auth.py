@@ -23,8 +23,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 sys.modules.setdefault("boto3", MagicMock())
-sys.modules.setdefault("botocore", MagicMock())
-sys.modules.setdefault("botocore.exceptions", MagicMock())
+# Don't mock botocore.exceptions - we need the real ClientError for exception handling
+# sys.modules.setdefault("botocore", MagicMock())
+# sys.modules.setdefault("botocore.exceptions", MagicMock())
 sys.modules.setdefault("requests", MagicMock())
 
 # Stub S3 service functions used by routes so src.index imports cleanly.
@@ -73,6 +74,7 @@ from src.services import auth_service  # noqa: E402
 @pytest.fixture(autouse=True)
 def set_jwt_secret(monkeypatch):
     """Ensure a deterministic signing key for token generation."""
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setattr(auth_service, "JWT_SECRET", "test-secret")
     return "test-secret"
 
