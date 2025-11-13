@@ -91,14 +91,28 @@ def _load_expected_passwords() -> Set[str]:
             raw = json.loads(secret_string)
             if isinstance(raw, dict):
                 passwords = raw.get("passwords") or raw.get("PASSWORDS")
+                if passwords is None:
+                    raise ValueError("No password entries found in secret dict")
             elif isinstance(raw, list):
                 passwords = raw
             else:
                 passwords = [raw]
 
-            parsed = {str(p).strip() for p in passwords if str(p).strip()}
+            if not isinstance(passwords, list):
+                raise ValueError("Passwords payload must be a list")
+
+            parsed: Set[str] = set()
+            for entry in passwords:
+                if not isinstance(entry, str):
+                    raise ValueError(f"Password entry is not a string: {entry!r}")
+                candidate = entry.strip()
+                if candidate:
+                    parsed.add(candidate)
+
             if not parsed:
-                raise ValueError("No passwords extracted from secret")
+                raise ValueError(
+                    "No valid non-empty password strings extracted from secret"
+                )
             _PASSWORD_CACHE = parsed
         except (ClientError, ValueError, json.JSONDecodeError, binascii.Error) as exc:
             logger.warning(
