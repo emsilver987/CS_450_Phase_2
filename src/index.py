@@ -1110,7 +1110,7 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There are missing fields in the artifact_type or artifact_id or invalid.",
+            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
