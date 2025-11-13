@@ -69,13 +69,13 @@ jobs:
       - name: Install security tooling
         run: |
           python -m pip install --upgrade pip==24.2
-          python -m pip install pip-audit==2.7.3
-          python -m pip install cyclonedx-bom==4.1.0
+          python -m pip install pip-audit==2.7.3 cyclonedx-bom==4.1.0
+          echo "python user base: $(python -m site --user-base)"
+          # Persist the user-base bin to PATH for later steps
+          echo "$(python -m site --user-base)/bin" >> $GITHUB_PATH
           python -m pip --version
           pip-audit --version
-          # Verify cyclonedx-bom is installed
           python -m pip show cyclonedx-bom
-          # Verify cyclonedx-bom command is accessible
           cyclonedx-bom --version
 
       - name: Run pip-audit (record results)
