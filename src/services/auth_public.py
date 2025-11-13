@@ -69,7 +69,16 @@ def _load_expected_passwords() -> Set[str]:
 
         secret_name = os.getenv("AUTH_ADMIN_SECRET_NAME")
         region = os.getenv("AWS_REGION", "us-east-1")
+        is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
         if not secret_name:
+            if is_production:
+                logger.error(
+                    "AUTH_ADMIN_SECRET_NAME not set in production; "
+                    "refusing to use defaults"
+                )
+                raise ValueError(
+                    "AUTH_ADMIN_SECRET_NAME must be configured in production"
+                )
             _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
             return _PASSWORD_CACHE
 
@@ -115,6 +124,14 @@ def _load_expected_passwords() -> Set[str]:
                 )
             _PASSWORD_CACHE = parsed
         except (ClientError, ValueError, json.JSONDecodeError, binascii.Error) as exc:
+            if is_production:
+                logger.error(
+                    "Secrets Manager error in production; "
+                    "refusing to fall back to defaults: %s",
+                    exc,
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "Falling back to default admin passwords due to secret error: %s", exc
             )
@@ -125,7 +142,7 @@ def _load_expected_passwords() -> Set[str]:
                 exc,
                 exc_info=True,
             )
-            if os.getenv("ENVIRONMENT", "development").lower() == "production":
+            if is_production:
                 raise
             _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
 
