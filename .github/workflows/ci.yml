@@ -70,13 +70,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip==24.2
           python -m pip install pip-audit==2.7.3 cyclonedx-bom==4.1.0
-          echo "python user base: $(python -m site --user-base)"
-          # Persist the user-base bin to PATH for later steps
-          echo "$(python -m site --user-base)/bin" >> $GITHUB_PATH
           python -m pip --version
           pip-audit --version
           python -m pip show cyclonedx-bom
-          cyclonedx-bom --version
+          # Find where cyclonedx-bom was installed
+          CYCLONEDX_LOCATION=$(python -m pip show -f cyclonedx-bom | grep -E "^\s+Location:" | awk '{print $2}' || python -c "import site; print(site.getusersitepackages())")
+          SCRIPT_LOCATION=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))" || echo "$(python -m site --user-base)/bin")
+          echo "Package location: $CYCLONEDX_LOCATION"
+          echo "Scripts location: $SCRIPT_LOCATION"
+          # Add scripts directory to PATH for subsequent steps
+          echo "$SCRIPT_LOCATION" >> $GITHUB_PATH
+          # Also try user-base as fallback
+          USER_BASE=$(python -m site --user-base)
+          echo "$USER_BASE/bin" >> $GITHUB_PATH
+          # Verify installation
+          if command -v cyclonedx-bom &> /dev/null; then
+            echo "✓ cyclonedx-bom found in PATH"
+            cyclonedx-bom --version
+          elif [ -f "$SCRIPT_LOCATION/cyclonedx-bom" ]; then
+            echo "✓ cyclonedx-bom found at $SCRIPT_LOCATION/cyclonedx-bom"
+            "$SCRIPT_LOCATION/cyclonedx-bom" --version
+          elif [ -f "$USER_BASE/bin/cyclonedx-bom" ]; then
+            echo "✓ cyclonedx-bom found at $USER_BASE/bin/cyclonedx-bom"
+            "$USER_BASE/bin/cyclonedx-bom" --version
+          else
+            echo "::warning::cyclonedx-bom executable not found, but package is installed"
+            echo "Will attempt to locate it in the next step"
+          fi
 
       - name: Run pip-audit (record results)
         run: |
@@ -86,8 +106,27 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: |
           # Generate SBOM using cyclonedx-bom command
-          # The command should be in PATH after pip install with setup-python action
-          cyclonedx-bom -o sbom.json
+          # Try multiple locations to find the executable
+          SCRIPT_LOC=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))" 2>/dev/null || echo "")
+          USER_BASE=$(python -m site --user-base)
+
+          # Try different possible locations
+          if command -v cyclonedx-bom &> /dev/null; then
+            echo "Using cyclonedx-bom from PATH"
+            cyclonedx-bom -o sbom.json
+          elif [ -n "$SCRIPT_LOC" ] && [ -f "$SCRIPT_LOC/cyclonedx-bom" ]; then
+            echo "Using cyclonedx-bom from $SCRIPT_LOC"
+            "$SCRIPT_LOC/cyclonedx-bom" -o sbom.json
+          elif [ -f "$USER_BASE/bin/cyclonedx-bom" ]; then
+            echo "Using cyclonedx-bom from $USER_BASE/bin"
+            "$USER_BASE/bin/cyclonedx-bom" -o sbom.json
+          else
+            echo "::error::cyclonedx-bom not found in any expected location"
+            echo "Searched: PATH, $SCRIPT_LOC, $USER_BASE/bin"
+            python -m pip show cyclonedx-bom
+            python -c "import sysconfig; print('Scripts:', sysconfig.get_path('scripts'))"
+            exit 1
+          fi
 
       - name: Upload security reports
         uses: actions/upload-artifact@v4
