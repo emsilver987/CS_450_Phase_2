@@ -50,10 +50,16 @@ def parse_authorization_token(header_value: str | None) -> str:
 def extract_token_or_401(headers: Mapping[str, str]) -> str:
     """
     Convenience wrapper that raises ``HTTPException(401)`` on parsing failure.
+
+    Includes WWW-Authenticate header per RFC 7235.
     """
     try:
         header_value = get_authorization_header(headers)
         return parse_authorization_token(header_value)
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail="Unauthorized") from exc
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 

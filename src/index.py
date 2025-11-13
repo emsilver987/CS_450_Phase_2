@@ -45,11 +45,11 @@ from .services.s3_service import (
 )
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import (
-from .utils.auth import extract_token_or_401
     extract_model_license,
     extract_github_license,
     check_license_compatibility,
 )
+from .utils.auth import extract_token_or_401
 
 # bearer = HTTPBearer(auto_error=True)  # Unused - removed to prevent any accidental security enforcement
 logging.basicConfig(level=logging.INFO)
@@ -104,14 +104,27 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 # Register CORS middleware FIRST (will run LAST due to LIFO order)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# Configure allowed origins from environment variable or default to localhost
+cors_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+if cors_origins_env:
+    # Parse comma-separated list of origins
+    allowed_origins = [
+        origin.strip()
+        for origin in cors_origins_env.split(",")
+        if origin.strip()
+    ]
+else:
+    # Default to localhost for development
+    allowed_origins = [
         "https://localhost",
         "http://localhost",
         "https://localhost:3000",
         "http://localhost:3000",
-    ],
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -168,7 +181,11 @@ def require_auth(request: Request) -> dict[str, Any]:
     token = _extract_token(request)
     payload = verify_jwt_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     request.state.auth = payload
     return payload
@@ -375,6 +392,7 @@ def reset_system(request: Request):
         raise HTTPException(
             status_code=401,
             detail="You do not have permission to reset the registry.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
@@ -403,7 +421,7 @@ def get_artifact_by_name(name: str, request: Request):
         if not name or not name.strip():
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_name or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
             )
 
         # Search for models with matching name
@@ -466,7 +484,7 @@ def get_artifact_by_name(name: str, request: Request):
         logger.error(f"Error getting artifact by name {name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_name or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
         )
 
 
@@ -491,7 +509,7 @@ async def search_artifacts_by_regex(request: Request):
         except Exception:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         # Handle array or object body
@@ -502,7 +520,7 @@ async def search_artifacts_by_regex(request: Request):
         else:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         # Validate regex field
@@ -510,7 +528,7 @@ async def search_artifacts_by_regex(request: Request):
         if not regex_pattern or not isinstance(regex_pattern, str):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         # Validate regex pattern
@@ -519,7 +537,7 @@ async def search_artifacts_by_regex(request: Request):
         except re.error:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         compiled_pattern = re.compile(regex_pattern)
@@ -571,7 +589,7 @@ async def search_artifacts_by_regex(request: Request):
         logger.error(f"Error searching artifacts by regex: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid.",
         )
 
 
@@ -676,7 +694,7 @@ def get_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -710,7 +728,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
         except Exception as json_error:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+                detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
             )
         
         # Extract url from body (required field per ArtifactData schema)
@@ -718,7 +736,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
         if not url or not isinstance(url, str) or not url.strip():
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+                detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
             )
         
         # Extract version if provided (for backward compatibility with model ingestion)
@@ -860,7 +878,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
             if not url:
                 raise HTTPException(
                     status_code=400,
-                    detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+                    detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
                 )
 
             artifact_id = sanitize_model_id(artifact_name)
@@ -916,7 +934,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+            detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
         )
 
 
@@ -936,18 +954,18 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         if "metadata" not in body or "data" not in body:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         metadata = body.get("metadata", {})
         if metadata.get("id") != id:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if not metadata.get("name"):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if artifact_type == "model":
             # Check if artifact exists by trying to find it in S3
@@ -979,7 +997,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
             if not url:
                 raise HTTPException(
                     status_code=400,
-                    detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
+                    detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
                 )
 
             # For models, we would need to re-ingest with the new URL, but for now just acknowledge the update
@@ -997,7 +1015,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
                     if not url:
                         raise HTTPException(
                             status_code=400,
-                            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
+                            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
                         )
                     _artifact_storage[id] = {
                         "name": metadata.get("name", artifact.get("name", id)),
@@ -1015,7 +1033,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -1092,7 +1110,7 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_type or artifact_id or invalid.",
+            detail="There are missing fields in the artifact_type or artifact_id or invalid.",
         )
 
 
@@ -1109,12 +1127,12 @@ def get_artifact_cost(
         if artifact_type not in ["model", "dataset", "code"]:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if artifact_type == "model":
             found = False
@@ -1226,14 +1244,14 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         if artifact_type not in ["model", "dataset", "code"]:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
 
         # Validate id parameter
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
 
         # Build audit trail
@@ -1353,7 +1371,7 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
         )
 
 
@@ -1368,7 +1386,7 @@ def get_model_rate(id: str, request: Request):
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_id or it is formed improperly, or is invalid.",
             )
         found = False
         if id in _artifact_storage:

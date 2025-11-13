@@ -10,8 +10,9 @@ from the automated scans.
 - The application authenticates graders through `/authenticate` and `/login`. JWT
   middleware is enabled by default (set `DISABLE_AUTH=true` to opt out), so auth
   checks run before each protected request.
-- CORS is restricted to trusted localhost origins (`localhost`, `localhost:3000`);
-  update `allow_origins` in `src/index.py` if additional frontends need access.
+- CORS is configured via the `ALLOWED_ORIGINS` environment variable (comma-separated list
+  of origins). Defaults to localhost variants for development. Set this in production
+  to allow your frontend domains (e.g., `ALLOWED_ORIGINS=https://app.example.com,https://www.example.com`).
 - Basic rate limiting is enforced globally via `RateLimitMiddleware` (default:
   120 requests per 60 seconds per client IP). Adjust with environment variables:
   `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, or disable with
