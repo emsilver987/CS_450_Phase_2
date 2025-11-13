@@ -58,8 +58,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.auth_enabled = bool(self.secret)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
-        # Temporarily disable all auth checks - all endpoints are exempt
-        return await call_next(request)
+        # If auth is not enabled (no JWT_SECRET), skip auth checks
+        if not self.auth_enabled:
+            return await call_next(request)
 
         # Prefix-safe path normalization (handles /prod/... base paths)
         raw_path = unquote(request.scope.get("path", "") or request.url.path)
@@ -72,9 +73,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             else raw_path
         )
 
+        # Check if path is exempt from authentication
         if _is_exempt(path, self.exempt_paths):
             return await call_next(request)
 
+        # Require Authorization header
         header_value = get_authorization_header(request.headers)
         try:
             token = parse_authorization_token(header_value)
@@ -84,6 +87,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        # Validate JWT token
         try:
             # Require exp; enforce issuer/audience with small clock skew
             iss = os.getenv("JWT_ISSUER")
@@ -103,6 +108,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 audience=aud if aud else None,
                 leeway=leeway,
             )
+            # Attach claims to request state for use in route handlers
             request.state.user = claims
         except ExpiredSignatureError:
             return JSONResponse(
