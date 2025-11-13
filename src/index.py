@@ -36,12 +36,12 @@ from .services.s3_service import (
     get_model_sizes,
     s3,
     ap_arn,
-    model_ingestion,
-    sanitize_model_id,
-    store_model_metadata,
-    get_model_metadata,
-    store_generic_artifact_metadata,
-    get_generic_artifact_metadata,
+    model_ingestion, 
+    # sanitize_model_id,
+    #store_model_metadata,
+    #get_model_metadata,
+    #store_generic_artifact_metadata,
+    #get_generic_artifact_metadata,
     aws_available,
 )
 from .services.rating import run_scorer, alias, analyze_model_content
@@ -49,6 +49,7 @@ from .services.license_compatibility import (
     extract_model_license,
     extract_github_license,
     check_license_compatibility,
+    
 )
 from .utils.auth import extract_token_or_401
 
