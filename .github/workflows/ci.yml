@@ -75,8 +75,8 @@ jobs:
           pip-audit --version
           # Verify cyclonedx-bom is installed
           python -m pip show cyclonedx-bom
-          # Verify cyclonedx-bom is accessible (use python -m for reliability)
-          python -m cyclonedx_bom --version
+          # Verify cyclonedx-bom command is accessible
+          cyclonedx-bom --version
 
       - name: Run pip-audit (record results)
         run: |
@@ -85,8 +85,9 @@ jobs:
 
       - name: Generate CycloneDX SBOM
         run: |
-          # Use python -m for reliability (works regardless of PATH configuration)
-          python -m cyclonedx_bom -o sbom.json
+          # Generate SBOM using cyclonedx-bom command
+          # The command should be in PATH after pip install with setup-python action
+          cyclonedx-bom -o sbom.json
 
       - name: Upload security reports
         uses: actions/upload-artifact@v4
