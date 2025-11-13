@@ -20,6 +20,9 @@ from the automated scans.
   - `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS` are validated on startup.
     Invalid or non-positive values trigger a warning and fall back to the defaults,
     preventing crashes from misconfigured environment variables.
+- Authorization parsing is centralized in `src/utils/auth.py`, ensuring all
+  components (middleware and legacy endpoints) interpret bearer tokens
+  consistently and apply identical validation rules.
 - Admin/grader passwords are sourced from AWS Secrets Manager when
   `AUTH_ADMIN_SECRET_NAME` is set and the runtime IAM role has
   `secretsmanager:GetSecretValue`.

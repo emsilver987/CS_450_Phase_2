@@ -156,3 +156,10 @@ def test_load_expected_passwords_raises_in_production(monkeypatch: pytest.Monkey
 
     with pytest.raises(RuntimeError):
         auth_public._load_expected_passwords()
+
+
+def test_normalize_password_keeps_trailing_semicolon():
+    original = "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages;"
+    normalized = auth_public._normalize_password(original)
+    assert normalized.endswith(";")
+    assert normalized != original[:-1]

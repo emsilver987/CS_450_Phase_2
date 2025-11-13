@@ -5,6 +5,7 @@ import binascii
 import json
 import logging
 import os
+import threading
 import unicodedata
 from datetime import timedelta
 from typing import Set
@@ -53,6 +54,7 @@ UNICODE_QUOTE_MAP = str.maketrans(
 )
 
 _PASSWORD_CACHE: Set[str] | None = None
+_PASSWORD_CACHE_LOCK = threading.Lock()
 
 
 def _load_expected_passwords() -> Set[str]:
@@ -61,49 +63,59 @@ def _load_expected_passwords() -> Set[str]:
     if _PASSWORD_CACHE is not None:
         return _PASSWORD_CACHE
 
-    secret_name = os.getenv("AUTH_ADMIN_SECRET_NAME")
-    region = os.getenv("AWS_REGION", "us-east-1")
-    if not secret_name:
-        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+    with _PASSWORD_CACHE_LOCK:
+        if _PASSWORD_CACHE is not None:
+            return _PASSWORD_CACHE
+
+        secret_name = os.getenv("AUTH_ADMIN_SECRET_NAME")
+        region = os.getenv("AWS_REGION", "us-east-1")
+        if not secret_name:
+            _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+            return _PASSWORD_CACHE
+
+        try:
+            client = boto3.client("secretsmanager", region_name=region)
+            response = client.get_secret_value(SecretId=secret_name)
+            if not isinstance(response, dict):
+                raise ValueError("Unexpected Secrets Manager response shape")
+
+            secret_string = response.get("SecretString")
+            if not secret_string and "SecretBinary" in response:
+                secret_string = base64.b64decode(response["SecretBinary"]).decode(
+                    "utf-8"
+                )
+
+            if not secret_string:
+                raise ValueError("SecretString missing")
+
+            raw = json.loads(secret_string)
+            if isinstance(raw, dict):
+                passwords = raw.get("passwords") or raw.get("PASSWORDS")
+            elif isinstance(raw, list):
+                passwords = raw
+            else:
+                passwords = [raw]
+
+            parsed = {str(p).strip() for p in passwords if str(p).strip()}
+            if not parsed:
+                raise ValueError("No passwords extracted from secret")
+            _PASSWORD_CACHE = parsed
+        except (ClientError, ValueError, json.JSONDecodeError, binascii.Error) as exc:
+            logger.warning(
+                "Falling back to default admin passwords due to secret error: %s", exc
+            )
+            _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Unexpected error retrieving admin password secret: %s",
+                exc,
+                exc_info=True,
+            )
+            if os.getenv("ENVIRONMENT", "development").lower() == "production":
+                raise
+            _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
+
         return _PASSWORD_CACHE
-
-    try:
-        client = boto3.client("secretsmanager", region_name=region)
-        response = client.get_secret_value(SecretId=secret_name)
-        if not isinstance(response, dict):
-            raise ValueError("Unexpected Secrets Manager response shape")
-
-        secret_string = response.get("SecretString")
-        if not secret_string and "SecretBinary" in response:
-            secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
-
-        if not secret_string:
-            raise ValueError("SecretString missing")
-
-        raw = json.loads(secret_string)
-        if isinstance(raw, dict):
-            passwords = raw.get("passwords") or raw.get("PASSWORDS")
-        elif isinstance(raw, list):
-            passwords = raw
-        else:
-            passwords = [raw]
-
-        parsed = {str(p).strip() for p in passwords if str(p).strip()}
-        if not parsed:
-            raise ValueError("No passwords extracted from secret")
-        _PASSWORD_CACHE = parsed
-    except (ClientError, ValueError, json.JSONDecodeError, binascii.Error) as exc:
-        logger.warning(
-            "Falling back to default admin passwords due to secret error: %s", exc
-        )
-        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.error(
-            "Unexpected error retrieving admin password secret: %s", exc, exc_info=True
-        )
-        if os.getenv("ENVIRONMENT", "development").lower() == "production":
-            raise
-        _PASSWORD_CACHE = set(DEFAULT_PASSWORDS)
 
     return _PASSWORD_CACHE
 
@@ -203,8 +215,6 @@ def _normalize_password(password: str) -> str:
 
     normalized = " ".join(normalized.split())
 
-    if normalized.endswith(";") and normalized[:-1] in DEFAULT_PASSWORDS:
-        return normalized[:-1]
     return normalized
 
 
