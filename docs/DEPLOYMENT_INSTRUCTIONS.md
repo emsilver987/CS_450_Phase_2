@@ -54,7 +54,7 @@
    ```
 
    Or test manually:
-   - CloudFront: `https://d2ogznjhftutmv.cloudfront.net/`
+   - CloudFront: `https://d2g16qb8nf355g.cloudfront.net/`
    - ALB: `http://validator-lb-727503296.us-east-1.elb.amazonaws.com/`
 
 ## What Was Fixed
