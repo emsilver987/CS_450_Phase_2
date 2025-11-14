@@ -70,11 +70,33 @@ def analyze_model_content(
                     clean_model_id = target.replace("https://huggingface.co/", "")
                 elif target.startswith("http://huggingface.co/"):
                     clean_model_id = target.replace("http://huggingface.co/", "")
-                if clean_model_id != target:
-                    model_content = download_from_huggingface(clean_model_id, "main")
-                elif not target.startswith("http"):
-                    # Try to download if it looks like a HuggingFace model ID
-                    model_content = download_from_huggingface(clean_model_id, "main")
+                
+                # If the model ID contains underscores but no slashes, it might be a sanitized ID
+                # Try converting the first underscore to a slash (org_model -> org/model)
+                if "/" not in clean_model_id and "_" in clean_model_id:
+                    # Try to convert sanitized ID back to original format
+                    # Pattern: org_model-name -> org/model-name
+                    parts = clean_model_id.split("_", 1)
+                    if len(parts) == 2 and parts[0] and parts[1]:
+                        potential_original_id = f"{parts[0]}/{parts[1]}"
+                        try:
+                            # Try with the converted ID first
+                            model_content = download_from_huggingface(potential_original_id, "main")
+                            clean_model_id = potential_original_id
+                            print(f"[RATE] Converted sanitized ID '{target}' to '{clean_model_id}' for HuggingFace query")
+                        except (HTTPException, ValueError, Exception) as conv_error:
+                            # If conversion fails, we'll try the original sanitized ID as fallback
+                            print(f"[RATE] Conversion failed for '{potential_original_id}', will try original ID: {conv_error}")
+                            # Keep clean_model_id as the sanitized version for fallback attempt
+                            pass
+                
+                # If we still don't have model content, try with the current clean_model_id
+                if not model_content:
+                    if clean_model_id != target:
+                        model_content = download_from_huggingface(clean_model_id, "main")
+                    elif not target.startswith("http"):
+                        # Try to download if it looks like a HuggingFace model ID
+                        model_content = download_from_huggingface(clean_model_id, "main")
             except (HTTPException, ValueError) as hf_error:
                 if suppress_errors:
                     return None

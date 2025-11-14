@@ -26,5 +26,10 @@ EXPOSE 3000
 ENV PORT=3000
 ENV PYTHONUNBUFFERED=1
 
+# AWS Configuration (can be overridden at runtime)
+ENV AWS_REGION=us-east-1
+ENV AWS_ACCOUNT_ID=838693051036
+ENV S3_ACCESS_POINT_NAME=cs450-s3
+
 # Command to run the application (wrapped entrypoint to attach JWT middleware)
 CMD ["uvicorn", "src.entrypoint:app", "--host", "0.0.0.0", "--port", "3000"]
