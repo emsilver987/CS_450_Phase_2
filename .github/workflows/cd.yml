@@ -153,7 +153,7 @@ jobs:
             --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount,deployments:deployments[*].{id:id,status:status,runningCount:runningCount,desiredCount:desiredCount}}' \
             --output table
           
-          echo "Starting wait for ACTIVE deployment to stabilize (max 15 minutes)..."
+          echo "Starting wait for PRIMARY deployment to stabilize (max 15 minutes)..."
           MAX_ATTEMPTS=60
           ATTEMPT=0
           SLEEP_INTERVAL=15
@@ -162,26 +162,17 @@ jobs:
             ATTEMPT=$((ATTEMPT + 1))
             echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Checking service status..."
             
-            # Get the new ACTIVE deployment (the one that's not being decommissioned)
-            # During deployment, PRIMARY has desiredCount=0 (old deployment), ACTIVE has desiredCount=1 (new deployment)
-            # Use service-level counts which reflect the target state
+            # Get PRIMARY deployment status
             RUNNING_COUNT=$(aws ecs describe-services \
               --cluster $ECS_CLUSTER \
               --services $ECS_SERVICE \
-              --query 'services[0].runningCount' \
+              --query 'services[0].deployments[?status==`PRIMARY`].runningCount | [0]' \
               --output text)
             
             DESIRED_COUNT=$(aws ecs describe-services \
               --cluster $ECS_CLUSTER \
               --services $ECS_SERVICE \
-              --query 'services[0].desiredCount' \
-              --output text)
-            
-            # Also get the latest ACTIVE deployment ID for reference
-            LATEST_ACTIVE_DEPLOYMENT=$(aws ecs describe-services \
-              --cluster $ECS_CLUSTER \
-              --services $ECS_SERVICE \
-              --query 'services[0].deployments[?status==`ACTIVE`] | sort_by(@, &createdAt) | [-1].id' \
+              --query 'services[0].deployments[?status==`PRIMARY`].desiredCount | [0]' \
               --output text)
             
             if [ -z "$RUNNING_COUNT" ] || [ "$RUNNING_COUNT" == "None" ]; then
@@ -191,46 +182,16 @@ jobs:
               DESIRED_COUNT=0
             fi
             
-            echo "Service status: $RUNNING_COUNT/$DESIRED_COUNT tasks running (target: $DESIRED_COUNT)"
-            if [ ! -z "$LATEST_ACTIVE_DEPLOYMENT" ] && [ "$LATEST_ACTIVE_DEPLOYMENT" != "None" ]; then
-              echo "Latest ACTIVE deployment: $LATEST_ACTIVE_DEPLOYMENT"
-            fi
+            echo "PRIMARY deployment: $RUNNING_COUNT/$DESIRED_COUNT tasks running"
             
-            # Check for stopped tasks to diagnose failures
-            if [ "$RUNNING_COUNT" -lt "$DESIRED_COUNT" ] && [ "$DESIRED_COUNT" -gt 0 ]; then
-              # Check for PENDING tasks (tasks that are trying to start)
-              PENDING_TASKS=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status PENDING --max-items 3 --query 'taskArns' --output text)
-              if [ ! -z "$PENDING_TASKS" ] && [ "$PENDING_TASKS" != "None" ]; then
-                echo "Found PENDING tasks (starting up)..."
-                PENDING_COUNT=$(echo "$PENDING_TASKS" | wc -w)
-                echo "  $PENDING_COUNT task(s) in PENDING state"
-              fi
-              
-              # Check for stopped tasks (tasks that failed)
-              STOPPED_TASKS=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status STOPPED --max-items 3 --query 'taskArns' --output text)
-              if [ ! -z "$STOPPED_TASKS" ] && [ "$STOPPED_TASKS" != "None" ]; then
-                echo "Found stopped tasks, checking reasons..."
-                for TASK_ARN in $STOPPED_TASKS; do
-                  if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
-                    echo "  Analyzing stopped task: $TASK_ARN"
-                    aws ecs describe-tasks \
-                      --cluster $ECS_CLUSTER \
-                      --tasks $TASK_ARN \
-                      --query 'tasks[0].{lastStatus:lastStatus,stoppedReason:stoppedReason,stopCode:stopCode,containers:containers[*].{name:name,lastStatus:lastStatus,reason:reason,exitCode:exitCode}}' \
-                      --output table
-                  fi
-                done
-              fi
-            fi
-            
-            # Check if ACTIVE deployment is stable
+            # Check if PRIMARY deployment is stable
             if [ "$RUNNING_COUNT" -eq "$DESIRED_COUNT" ] && [ "$DESIRED_COUNT" -gt 0 ]; then
               # Verify at least one task is healthy
               TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status RUNNING --query 'taskArns[0]' --output text)
               if [ "$TASK_ARN" != "None" ] && [ ! -z "$TASK_ARN" ]; then
                 HEALTH_STATUS=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --query 'tasks[0].healthStatus' --output text)
                 if [ "$HEALTH_STATUS" == "HEALTHY" ]; then
-                  echo "✅ Service stabilized successfully! $RUNNING_COUNT/$DESIRED_COUNT tasks running and healthy."
+                  echo "Service stabilized successfully! PRIMARY deployment has $RUNNING_COUNT/$DESIRED_COUNT tasks running and healthy."
                   aws ecs describe-services \
                     --cluster $ECS_CLUSTER \
                     --services $ECS_SERVICE \
@@ -255,21 +216,7 @@ jobs:
             --services $ECS_SERVICE \
             --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount,deployments:deployments[*].{id:id,status:status,runningCount:runningCount,desiredCount:desiredCount}}' \
             --output table
-          echo "Checking stopped tasks for failure reasons..."
-          STOPPED_TASKS=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status STOPPED --max-items 5 --query 'taskArns' --output text)
-          if [ ! -z "$STOPPED_TASKS" ] && [ "$STOPPED_TASKS" != "None" ]; then
-            for TASK_ARN in $STOPPED_TASKS; do
-              if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
-                echo "Task: $TASK_ARN"
-                aws ecs describe-tasks \
-                  --cluster $ECS_CLUSTER \
-                  --tasks $TASK_ARN \
-                  --query 'tasks[0].{lastStatus:lastStatus,stoppedReason:stoppedReason,stopCode:stopCode,containers:containers[*].{name:name,lastStatus:lastStatus,reason:reason,exitCode:exitCode}}' \
-                  --output table
-              fi
-            done
-          fi
-          echo "Checking running task status..."
+          echo "Checking task status..."
           TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status RUNNING --query 'taskArns[0]' --output text)
           if [ "$TASK_ARN" != "None" ] && [ ! -z "$TASK_ARN" ]; then
             aws ecs describe-tasks \
