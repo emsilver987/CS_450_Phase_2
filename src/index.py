@@ -5,10 +5,10 @@ import os
 import json
 from starlette.datastructures import UploadFile
 import uvicorn
-import random
 import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status
+from typing import Any
 
 # from fastapi.security import HTTPBearer  # Not used - removed to prevent accidental security enforcement
 from fastapi.staticfiles import StaticFiles
@@ -18,15 +18,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from botocore.exceptions import ClientError
 from .routes.index import router as api_router
-from .services.auth_public import (
-    public_auth as authenticate_router,
-    STATIC_TOKEN as PUBLIC_STATIC_TOKEN,
-)
+from .services.auth_public import public_auth as authenticate_router
 from .services.auth_service import (
+    DEFAULT_ADMIN_USERNAME,
     auth_public as auth_ns_public,
     auth_private as auth_ns_private,
     ensure_default_admin,
     purge_tokens,
+    verify_jwt_token,
 )
 from .services.s3_service import (
     list_models,
@@ -37,14 +36,22 @@ from .services.s3_service import (
     get_model_sizes,
     s3,
     ap_arn,
-    model_ingestion,
+    model_ingestion, 
+    # sanitize_model_id,
+    # store_model_metadata,
+    # get_model_metadata,
+    # store_generic_artifact_metadata,
+    # get_generic_artifact_metadata,
+    aws_available,
 )
 from .services.rating import run_scorer, alias, analyze_model_content
 from .services.license_compatibility import (
     extract_model_license,
     extract_github_license,
     check_license_compatibility,
+    
 )
+from .utils.auth import extract_token_or_401
 
 # bearer = HTTPBearer(auto_error=True)  # Unused - removed to prevent any accidental security enforcement
 logging.basicConfig(level=logging.INFO)
@@ -99,9 +106,27 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 # Register CORS middleware FIRST (will run LAST due to LIFO order)
+# Configure allowed origins from environment variable or default to localhost
+cors_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+if cors_origins_env:
+    # Parse comma-separated list of origins
+    allowed_origins = [
+        origin.strip()
+        for origin in cors_origins_env.split(",")
+        if origin.strip()
+    ]
+else:
+    # Default to localhost for development
+    allowed_origins = [
+        "https://localhost",
+        "http://localhost",
+        "https://localhost:3000",
+        "http://localhost:3000",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,29 +174,67 @@ async def startup_event():
 _artifact_storage = {}
 
 
-def verify_auth_token(request: Request) -> bool:
-    """Verify auth token from either Authorization or X-Authorization header"""
-    raw = (
-        request.headers.get("authorization")
-        or request.headers.get("x-authorization")
-        or ""
+def _format_error_detail(
+    base_message: str, exception: Exception | None = None
+) -> str:
+    """
+    Format error message with optional exception details for debugging.
+
+    In development, includes exception details. In production,
+    returns base message only.
+    """
+    is_production = (
+        os.getenv("ENVIRONMENT", "development").lower() == "production"
     )
-    raw = raw.strip()
+    if exception and not is_production:
+        return f"{base_message}: {str(exception)}"
+    return base_message
 
-    if not raw:
+
+def _extract_token(request: Request) -> str:
+    return extract_token_or_401(request.headers)
+
+
+def is_admin_user(auth_payload: dict[str, Any]) -> bool:
+    """
+    Check if the authenticated user has admin privileges.
+
+    Checks multiple fields for admin status:
+    - roles list contains "admin"
+    - username matches DEFAULT_ADMIN_USERNAME
+    - is_admin flag is True
+    - sub (subject) matches DEFAULT_ADMIN_USERNAME
+    """
+    return (
+        "admin" in auth_payload.get("roles", [])
+        or auth_payload.get("username") == DEFAULT_ADMIN_USERNAME
+        or auth_payload.get("is_admin", False)
+        or auth_payload.get("sub") == DEFAULT_ADMIN_USERNAME
+    )
+
+
+def require_auth(request: Request) -> dict[str, Any]:
+    """Validate the incoming request using JWT auth."""
+    token = _extract_token(request)
+    payload = verify_jwt_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    request.state.auth = payload
+    return payload
+
+
+def verify_auth_token(request: Request) -> bool:
+    """Legacy helper used by existing endpoints; returns False on auth failure."""
+    try:
+        require_auth(request)
+        return True
+    except HTTPException:
         return False
-
-    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
-    if raw.lower().startswith("bearer "):
-        token = raw.split(" ", 1)[1].strip()
-    else:
-        # Also accept a raw JWT without the "Bearer " prefix
-        token = raw.strip()
-
-    # Very light check: looks like a JWT (three parts with dots)
-    # (Replace with real verification when ready)
-    parts = token.split(".")
-    return len(parts) == 3 and all(parts)
 
 
 @app.get("/health")
@@ -340,62 +403,27 @@ async def list_artifacts(request: Request, offset: str = None):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_query or it is formed improperly, or is invalid: {str(e)}",
+            detail="There are missing fields in the artifact_query or it is formed improperly, or is invalid.",
         )
 
 
 @app.delete("/reset")
 def reset_system(request: Request):
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
     try:
-        from .services.auth_service import verify_jwt_token
-
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-    except HTTPException:
+        auth_payload = require_auth(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication failed due to invalid or missing AuthenticationToken",
+            ) from exc
         raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for reset: {str(e)}")
+
+    if not is_admin_user(auth_payload):
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the registry."
+            status_code=401,
+            detail="You do not have permission to reset the registry.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
@@ -409,10 +437,10 @@ def reset_system(request: Request):
         raise
     except Exception as e:
         logger.error(f"Error resetting registry: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Reset failed.")
 
 
-@app.get("/artifact/byName/{name}")
+@app.get("/artifact/byName/{name:path}")
 def get_artifact_by_name(name: str, request: Request):
     if not verify_auth_token(request):
         raise HTTPException(
@@ -424,64 +452,58 @@ def get_artifact_by_name(name: str, request: Request):
         if not name or not name.strip():
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_name or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
             )
 
         # Search for models with matching name
         escaped_name = re.escape(name)
-        name_pattern = f"^{escaped_name}$"
+        sanitized_name = sanitize_model_id(name)
+        name_pattern = f"^{re.escape(sanitized_name)}$"
         result = list_models(name_regex=name_pattern, limit=1000)
         artifacts = []
+        seen_ids = set()
 
-        # Track which artifact_ids we've already added to avoid duplicates
-        seen_artifact_ids = set()
-        
-        # Add models from S3 - find their artifact_ids from storage
         for model in result.get("models", []):
-            model_name = model.get("name", "")
-            if model_name == name:  # Exact match
-                # Find artifact_id(s) for this model name in storage
-                found_ids = []
-                for artifact_id, artifact in _artifact_storage.items():
-                    if artifact.get("name") == model_name and artifact.get("type") == "model":
-                        if artifact_id not in seen_artifact_ids:
-                            found_ids.append(artifact_id)
-                            seen_artifact_ids.add(artifact_id)
-                
-                # If we found artifact_ids, use them; otherwise use model name as fallback
-                if found_ids:
-                    for artifact_id in found_ids:
-                        artifacts.append(
-                            {
-                                "name": model_name,
-                                "id": artifact_id,
-                                "type": "model",
-                            }
-                        )
-                else:
-                    # Fallback: use model name as id if no artifact_id found
-                    fallback_id = model.get("id", model_name)
-                    if fallback_id not in seen_artifact_ids:
-                        seen_artifact_ids.add(fallback_id)
-                        artifacts.append(
-                            {
-                                "name": model_name,
-                                "id": fallback_id,
-                                "type": "model",
-                            }
-                        )
-
-        # Add artifacts from storage (all artifact types including models)
-        for artifact_id, artifact in _artifact_storage.items():
-            if artifact.get("name") == name and artifact_id not in seen_artifact_ids:  # Exact match
-                seen_artifact_ids.add(artifact_id)
+            model_id = model.get("name")
+            metadata = get_model_metadata(model_id) or {}
+            display_name = metadata.get("name", name)
+            if display_name == name:
                 artifacts.append(
                     {
-                        "name": artifact.get("name", artifact_id),
-                        "id": artifact_id,
-                        "type": artifact.get("type", "model"),
+                        "name": display_name,
+                        "id": metadata.get("id", model_id),
+                        "type": metadata.get("type", "model"),
                     }
                 )
+                seen_ids.add(metadata.get("id", model_id))
+
+        if aws_available:
+            candidate_id = sanitize_model_id(name)
+            for artifact_type in ["dataset", "code"]:
+                metadata = get_generic_artifact_metadata(artifact_type, candidate_id)
+                if metadata and metadata.get("name") == name:
+                    artifacts.append(
+                        {
+                            "name": metadata.get("name", name),
+                            "id": metadata.get("id", candidate_id),
+                            "type": metadata.get("type", artifact_type),
+                        }
+                    )
+                    seen_ids.add(metadata.get("id", candidate_id))
+                    _artifact_storage[metadata.get("id", candidate_id)] = metadata
+
+        # Add artifacts from storage (non-model artifacts or cached models)
+        if not aws_available:
+            for artifact_id, artifact in _artifact_storage.items():
+                if artifact.get("name") == name and artifact_id not in seen_ids:
+                    artifacts.append(
+                        {
+                            "name": artifact.get("name", artifact_id),
+                            "id": artifact_id,
+                            "type": artifact.get("type", "model"),
+                        }
+                    )
+                    seen_ids.add(artifact_id)
 
         if not artifacts:
             raise HTTPException(status_code=404, detail="No such artifact.")
@@ -493,7 +515,10 @@ def get_artifact_by_name(name: str, request: Request):
         logger.error(f"Error getting artifact by name {name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_name or it is formed improperly, or is invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_name or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -506,90 +531,19 @@ async def search_artifacts_by_regex(request: Request):
         )
     try:
         # Parse request body
-        body = {}
-        content_type = request.headers.get("content-type", "").lower()
-        logger.info(f"Content-Type: {content_type}")
-        
-        # Read raw body first (before any parsing attempts)
-        raw_body_bytes = await request.body()
-        raw_body_str = raw_body_bytes.decode('utf-8', errors='ignore') if raw_body_bytes else ""
-        logger.info(f"Raw request body (length: {len(raw_body_bytes)}): {raw_body_str}")
-        
-        # Parse based on content type
         try:
-            if "application/json" in content_type:
-                if raw_body_str:
-                    try:
-                        body = json.loads(raw_body_str)
-                        logger.info(f"Parsed JSON body: {body}")
-                    except json.JSONDecodeError as json_err:
-                        logger.error(f"JSON decode error: {str(json_err)}")
-                        logger.error(f"Malformed JSON body: {repr(raw_body_str)}")
-                        # Try to fix common JSON issues (missing quotes, etc.)
-                        try:
-                            # Try to fix JavaScript-style object notation
-                            # Pattern: {regex: value} -> {"regex": "value"}
-                            fixed_json = raw_body_str.strip()
-                            # If it looks like {regex: ...} without quotes, try to fix it
-                            if re.match(r'^\s*\{[^"]*regex[^"]*:', fixed_json):
-                                # Try to extract regex value and reconstruct proper JSON
-                                regex_match = re.search(r'regex\s*:\s*([^}]+)', fixed_json)
-                                if regex_match:
-                                    regex_value = regex_match.group(1).strip().strip('"\'')
-                                    fixed_json = f'{{"regex": "{regex_value}"}}'
-                                    logger.info(f"Attempting to fix JSON: {fixed_json}")
-                                    body = json.loads(fixed_json)
-                                    logger.info(f"Successfully parsed fixed JSON body: {body}")
-                                else:
-                                    raise HTTPException(
-                                        status_code=400,
-                                        detail=f"Invalid JSON in request body: {str(json_err)}. Received: {repr(raw_body_str[:100])}. Please use proper JSON format: {{\"regex\": \"pattern\"}}",
-                                    )
-                            else:
-                                raise HTTPException(
-                                    status_code=400,
-                                    detail=f"Invalid JSON in request body: {str(json_err)}. Received: {repr(raw_body_str[:100])}. Please use proper JSON format: {{\"regex\": \"pattern\"}}",
-                                )
-                        except json.JSONDecodeError:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Invalid JSON in request body: {str(json_err)}. Received: {repr(raw_body_str[:100])}. Please use proper JSON format: {{\"regex\": \"pattern\"}}",
-                            )
-                else:
-                    logger.error("Empty request body")
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Request body is empty. Please provide a JSON object with a 'regex' field.",
-                    )
-            else:
-                # Try form data
-                try:
-                    form = await request.form()
-                    body = dict(form)
-                    logger.info(f"Parsed form body: {body}")
-                except:
-                    # If form parsing fails, try to parse raw body as JSON anyway
-                    if raw_body_str and raw_body_str.strip().startswith('{'):
-                        try:
-                            body = json.loads(raw_body_str)
-                            logger.info(f"Parsed raw body as JSON: {body}")
-                        except json.JSONDecodeError:
-                            raise HTTPException(
-                                status_code=400,
-                                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
-                            )
-                    else:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
-                        )
-        except HTTPException:
-            raise
-        except Exception as parse_error:
-            logger.error(f"Error parsing request body: {str(parse_error)}", exc_info=True)
+            body = (
+                await request.json()
+                if request.headers.get("content-type") == "application/json"
+                else {}
+            )
+            if not isinstance(body, dict):
+                form = await request.form()
+                body = dict(form)
+        except Exception:
             raise HTTPException(
                 status_code=400,
-                detail=f"There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid. Error: {str(parse_error)}",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         # Handle array or object body
@@ -598,71 +552,54 @@ async def search_artifacts_by_regex(request: Request):
         elif isinstance(body, dict):
             search_criteria = body
         else:
-            logger.error(f"Invalid body type: {type(body)}, value: {body}")
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
-        logger.info(f"Search criteria: {search_criteria}")
-        
         # Validate regex field
         regex_pattern = search_criteria.get("regex")
         if not regex_pattern or not isinstance(regex_pattern, str):
-            logger.error(f"Missing or invalid regex field. search_criteria: {search_criteria}")
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
 
         # Validate regex pattern
         try:
             re.compile(regex_pattern)
-        except re.error as regex_error:
-            logger.error(f"Invalid regex pattern '{regex_pattern}': {str(regex_error)}")
+        except re.error:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
+                detail="There are missing fields in the artifact_regex or it is formed improperly, or is invalid",
             )
+
+        compiled_pattern = re.compile(regex_pattern)
 
         # Search for models matching regex
         artifacts = []
-        seen_artifact_ids = set()
         try:
-            result = list_models(name_regex=regex_pattern, limit=1000)
-            for model in result.get("models", []):
-                model_name = model.get("name", "")
-                # Find artifact_id for this model name in storage
-                artifact_id = None
-                for stored_id, stored_artifact in _artifact_storage.items():
-                    if stored_artifact.get("name") == model_name and stored_artifact.get("type") == "model":
-                        artifact_id = stored_id
-                        break
-                
-                # Use found artifact_id or fallback to model name
-                if not artifact_id:
-                    artifact_id = model.get("id", model_name)
-                
-                if artifact_id not in seen_artifact_ids:
-                    seen_artifact_ids.add(artifact_id)
+            models_response = list_models(limit=1000)
+            for model in models_response.get("models", []):
+                model_id = model.get("name")
+                metadata = get_model_metadata(model_id) or {}
+                candidate_name = metadata.get("name", model_id)
+                if compiled_pattern.search(candidate_name):
                     artifacts.append(
                         {
-                            "name": model_name,
-                            "id": artifact_id,
-                            "type": "model",
+                            "name": candidate_name,
+                            "id": metadata.get("id", model_id),
+                            "type": metadata.get("type", "model"),
                         }
                     )
         except Exception as e:
-            logger.warning(
-                f"Error searching models with regex {regex_pattern}: {str(e)}"
-            )
+            logger.warning(f"Error searching models with regex {regex_pattern}: {str(e)}")
 
         # Search artifacts in storage matching regex
         for artifact_id, artifact in _artifact_storage.items():
             artifact_name = artifact.get("name", artifact_id)
             try:
-                if re.search(regex_pattern, artifact_name) and artifact_id not in seen_artifact_ids:
-                    seen_artifact_ids.add(artifact_id)
+                if compiled_pattern.search(artifact_name):
                     artifacts.append(
                         {
                             "name": artifact_name,
@@ -686,7 +623,10 @@ async def search_artifacts_by_regex(request: Request):
         logger.error(f"Error searching artifacts by regex: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_regex or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -700,23 +640,24 @@ def get_artifact(artifact_type: str, id: str, request: Request):
         )
     try:
         if artifact_type == "model":
-            # First, check if id is in _artifact_storage (primary storage for artifact_id lookups)
-            if id in _artifact_storage:
-                artifact = _artifact_storage[id]
-                if artifact.get("type") == "model":
-                    return {
-                        "metadata": {
-                            "name": artifact.get("name", id),
-                            "id": id,
-                            "type": artifact_type,
-                        },
-                        "data": {
-                            "url": artifact.get(
-                                "url", f"https://huggingface.co/{artifact.get('name', id)}"
-                            )
-                        },
-                    }
-            # If not found in storage, try to find by model name (id might be a model name)
+            artifact = _artifact_storage.get(id)
+            if not artifact:
+                artifact = get_model_metadata(id)
+                if artifact:
+                    _artifact_storage[id] = artifact
+            if artifact:
+                return {
+                    "metadata": {
+                        "name": artifact.get("name", id),
+                        "id": id,
+                        "type": artifact_type,
+                    },
+                    "data": {
+                        "url": artifact.get(
+                            "url", f"https://huggingface.co/{artifact.get('name', id)}"
+                        )
+                    },
+                }
             version = None
             found = False
             try:
@@ -763,8 +704,14 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                 "data": {"url": f"https://huggingface.co/{id}"},
             }
         else:
-            if id in _artifact_storage:
-                artifact = _artifact_storage[id]
+            artifact = None
+            if aws_available:
+                artifact = get_generic_artifact_metadata(artifact_type, id)
+                if artifact:
+                    _artifact_storage[id] = artifact
+            if not artifact and not aws_available:
+                artifact = _artifact_storage.get(id)
+            if artifact:
                 return {
                     "metadata": {
                         "name": artifact.get("name", id),
@@ -772,9 +719,7 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                         "type": artifact_type,
                     },
                     "data": {
-                        "url": artifact.get(
-                            "url", f"https://example.com/{artifact_type}/{id}"
-                        )
+                        "url": artifact.get("url"),
                     },
                 }
             raise HTTPException(status_code=404, detail="Artifact does not exist.")
@@ -786,127 +731,11 @@ def get_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
-
-
-@app.post("/artifact/ingest")
-async def post_artifact_ingest(request: Request):
-    """
-    Ingest an artifact by name and version (form data).
-    This is a convenience endpoint that accepts form data for model ingestion.
-    """
-    global _artifact_storage
-    
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-    
-    try:
-        # Parse form data
-        form = await request.form()
-        name = form.get("name")
-        version = form.get("version", "main")
-        artifact_type = form.get("type", "model")
-        
-        # Validate name parameter
-        if not name or not name.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Name parameter is required. Provide 'name' in form data.",
-            )
-        
-        name = name.strip()
-        
-        # For models, use model_ingestion
-        if artifact_type == "model":
-            try:
-                # Check if artifact already exists
-                try:
-                    existing = list_models(
-                        name_regex=f"^{re.escape(name)}$", limit=1
-                    )
-                    if existing.get("models"):
-                        raise HTTPException(
-                            status_code=409, detail="Artifact exists already."
-                        )
-                except HTTPException:
-                    raise
-                except:
-                    pass
-                
-                # Ingest and rate the model
-                model_ingestion(name, version)
-                rating = analyze_model_content(name)
-                net_score = (
-                    alias(rating, "net_score", "NetScore", "netScore") or 0.0
-                )
-                if net_score < 0.5:
-                    raise HTTPException(
-                        status_code=424,
-                        detail="Artifact is not registered due to the disqualified rating.",
-                    )
-                
-                # Generate artifact ID and store metadata
-                artifact_id = str(random.randint(1000000000, 9999999999))
-                url = f"https://huggingface.co/{name}"
-                _artifact_storage[artifact_id] = {
-                    "name": name,
-                    "type": artifact_type,
-                    "version": version,
-                    "id": artifact_id,
-                    "url": url,
-                }
-                
-                return {
-                    "message": "Ingest successful",
-                    "details": {
-                        "name": name,
-                        "type": artifact_type,
-                        "version": version,
-                        "id": artifact_id,
-                        "url": url,
-                    },
-                }
-            except HTTPException:
-                raise
-            except Exception as model_error:
-                logger.error(
-                    f"Error in model_ingestion for {name}: {str(model_error)}",
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Model ingestion failed: {str(model_error)}",
-                )
-        else:
-            # For non-model artifacts, just store metadata
-            artifact_id = str(random.randint(1000000000, 9999999999))
-            url = f"https://example.com/{artifact_type}/{name}"
-            _artifact_storage[artifact_id] = {
-                "name": name,
-                "type": artifact_type,
-                "version": version,
-                "id": artifact_id,
-                "url": url,
-            }
-            return {
-                "message": "Ingest successful",
-                "details": {
-                    "name": name,
-                    "type": artifact_type,
-                    "version": version,
-                    "id": artifact_id,
-                    "url": url,
-                },
-            }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in POST /artifact/ingest endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
 
 
 @app.post("/artifact/{artifact_type}")
@@ -917,13 +746,13 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
     For models: Downloads, validates, rates, and uploads to S3.
     For datasets/code: Validates and stores artifact metadata.
     """
-    global _artifact_storage
-    
     if not verify_auth_token(request):
         raise HTTPException(
             status_code=403,
             detail="Authentication failed due to invalid or missing AuthenticationToken",
         )
+
+    global _artifact_storage
     
     # Validate artifact_type
     if artifact_type not in ["model", "dataset", "code"]:
@@ -939,7 +768,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
         except Exception as json_error:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+                detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
             )
         
         # Extract url from body (required field per ArtifactData schema)
@@ -947,7 +776,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
         if not url or not isinstance(url, str) or not url.strip():
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_data or it is formed improperly (must include a single url).",
+                detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
             )
         
         # Extract version if provided (for backward compatibility with model ingestion)
@@ -992,7 +821,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                 # Check if artifact already exists
                 try:
                     existing = list_models(
-                        name_regex=f"^{re.escape(model_id)}$", limit=1
+                        name_regex=f"^{re.escape(sanitize_model_id(model_id))}$", limit=1
                     )
                     if existing.get("models"):
                         raise HTTPException(
@@ -1019,16 +848,17 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                             detail="Artifact is not registered due to the disqualified rating.",
                         )
 
-                    # Generate artifact ID and return success (per Artifact schema)
-                    artifact_id = str(random.randint(1000000000, 9999999999))
-                    # Store artifact metadata in _artifact_storage keyed by artifact_id
-                    _artifact_storage[artifact_id] = {
+                    artifact_id = sanitize_model_id(model_id)
+                    metadata_entry = {
                         "name": model_id,
                         "type": artifact_type,
                         "version": version,
                         "id": artifact_id,
                         "url": url,
+                        "source": "huggingface",
                     }
+                    _artifact_storage[artifact_id] = metadata_entry
+                    store_model_metadata(model_id, metadata_entry)
                     return Response(
                         content=json.dumps(
                             {
@@ -1052,20 +882,22 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                         exc_info=True,
                     )
                     raise HTTPException(
-                        status_code=500, detail=f"Failed to ingest model: {str(e)}"
+                        status_code=500, detail="Failed to ingest model."
                     )
             else:
                 # Non-HuggingFace URL provided - use name if available, otherwise extract from URL
                 model_id = name if name else (url.split("/")[-1] if url else f"{artifact_type}-new")
-                artifact_id = str(random.randint(1000000000, 9999999999))
-                # Store artifact metadata in _artifact_storage keyed by artifact_id
-                _artifact_storage[artifact_id] = {
+                artifact_id = sanitize_model_id(model_id)
+                metadata_entry = {
                     "name": model_id,
                     "type": artifact_type,
                     "version": version,
                     "id": artifact_id,
                     "url": url,
+                    "source": "direct",
                 }
+                _artifact_storage[artifact_id] = metadata_entry
+                store_model_metadata(model_id, metadata_entry)
                 return Response(
                     content=json.dumps(
                         {
@@ -1083,37 +915,41 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
         elif artifact_type in ["dataset", "code"]:
             # For dataset and code artifacts, perform ingestion
             artifact_name = name if name else (url.split("/")[-1] if url else f"{artifact_type}-new")
-            
-            # Check if artifact already exists
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
+                )
+
+            artifact_id = sanitize_model_id(artifact_name)
+            existing_metadata = (
+                get_generic_artifact_metadata(artifact_type, artifact_id)
+                if aws_available
+                else None
+            )
+            if existing_metadata:
+                raise HTTPException(status_code=409, detail="Artifact exists already.")
             for existing_id, existing_artifact in _artifact_storage.items():
-                if (
+                if existing_artifact.get("type") == artifact_type and (
                     existing_artifact.get("url") == url
-                    and existing_artifact.get("type") == artifact_type
-                ) or (
-                    existing_artifact.get("name") == artifact_name
-                    and existing_artifact.get("type") == artifact_type
+                    or existing_artifact.get("name") == artifact_name
                 ):
                     raise HTTPException(
                         status_code=409, detail="Artifact exists already."
                     )
-            
-            # If URL not provided but name is, construct URL
-            if not url:
-                url = f"https://example.com/{artifact_type}/{artifact_name}"
-            
-            # For dataset/code ingestion, we validate and store
-            # In a full implementation, you might download, validate structure, etc.
-            # For now, we perform basic validation and storage
-            artifact_id = str(random.randint(1000000000, 9999999999))
-            
-            _artifact_storage[artifact_id] = {
+
+            metadata_entry = {
                 "name": artifact_name,
                 "type": artifact_type,
                 "version": version,
                 "id": artifact_id,
                 "url": url,
+                "source": "direct",
             }
-            
+
+            _artifact_storage[artifact_id] = metadata_entry
+            store_generic_artifact_metadata(artifact_type, artifact_id, metadata_entry)
+
             return Response(
                 content=json.dumps(
                     {
@@ -1138,7 +974,10 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_data or it is formed improperly (must include a single url): {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_data or it is formed improperly (must include a single url).",
+                e,
+            ),
         )
 
 
@@ -1158,18 +997,18 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         if "metadata" not in body or "data" not in body:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         metadata = body.get("metadata", {})
         if metadata.get("id") != id:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if not metadata.get("name"):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if artifact_type == "model":
             # Check if artifact exists by trying to find it in S3
@@ -1201,7 +1040,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
             if not url:
                 raise HTTPException(
                     status_code=400,
-                    detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
+                    detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
                 )
 
             # For models, we would need to re-ingest with the new URL, but for now just acknowledge the update
@@ -1219,7 +1058,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
                     if not url:
                         raise HTTPException(
                             status_code=400,
-                            detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
+                            detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
                         )
                     _artifact_storage[id] = {
                         "name": metadata.get("name", artifact.get("name", id)),
@@ -1237,7 +1076,10 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -1314,7 +1156,10 @@ def delete_artifact(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -1331,12 +1176,12 @@ def get_artifact_cost(
         if artifact_type not in ["model", "dataset", "code"]:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
         if artifact_type == "model":
             found = False
@@ -1432,7 +1277,7 @@ def get_artifact_cost(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"The artifact cost calculator encountered an error: {str(e)}",
+            detail="The artifact cost calculator encountered an error.",
         )
 
 
@@ -1448,14 +1293,14 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         if artifact_type not in ["model", "dataset", "code"]:
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
 
         # Validate id parameter
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
             )
 
         # Build audit trail
@@ -1575,7 +1420,10 @@ def get_artifact_audit(artifact_type: str, id: str, request: Request):
         )
         raise HTTPException(
             status_code=400,
-            detail=f"There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid: {str(e)}",
+            detail=_format_error_detail(
+                "There are missing fields in the artifact_type or artifact_id or it is formed improperly, or is invalid.",
+                e,
+            ),
         )
 
 
@@ -1590,7 +1438,7 @@ def get_model_rate(id: str, request: Request):
         if not re.match(r"^[a-zA-Z0-9\-]+$", id):
             raise HTTPException(
                 status_code=400,
-                detail="There is missing field(s) in the artifact_id or it is formed improperly, or is invalid.",
+                detail="There are missing fields in the artifact_id or it is formed improperly, or is invalid.",
             )
         found = False
         if id in _artifact_storage:
@@ -1633,7 +1481,7 @@ def get_model_rate(id: str, request: Request):
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
+                detail="The artifact rating system encountered an error while computing at least one metric.",
             )
 
         # Build ModelRating response with all required fields
@@ -1687,7 +1535,7 @@ def get_model_rate(id: str, request: Request):
         logger.error(f"Error getting model rate for {id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
+            detail="The artifact rating system encountered an error while computing at least one metric.",
         )
 
 

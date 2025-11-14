@@ -4,6 +4,7 @@ import boto3
 import uuid
 import zipfile
 import io
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -58,11 +59,13 @@ class PackageInfo(BaseModel):
     created_at: str
     updated_at: str
     size_bytes: int
+    sha256_hash: Optional[str] = None
 
 
 class DownloadUrlResponse(BaseModel):
     url: str
     expires_at: str
+    sha256_hash: Optional[str] = None
 
 
 def verify_token(
@@ -253,6 +256,11 @@ async def commit_upload(
             MultipartUpload={"Parts": parts},
         )
 
+        # Download the completed file to compute SHA-256 hash
+        response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
+        file_content = response["Body"].read()
+        sha256_hash = hashlib.sha256(file_content).hexdigest()
+
         # Store package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
         pkg_key = f"{upload_info['pkg_name']}/{upload_info['version']}"
@@ -266,9 +274,8 @@ async def commit_upload(
             "allowed_groups": upload_info["allowed_groups"],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "size_bytes": sum(
-                int(part["ETag"].split("-")[1]) for part in parts if "-" in part["ETag"]
-            ),
+            "size_bytes": len(file_content),
+            "sha256_hash": sha256_hash,
         }
 
         packages_table.put_item(Item=package_item)
@@ -344,9 +351,10 @@ async def get_download_url(
     pkg_name: str,
     version: str,
     ttl_seconds: int = Query(300, ge=60, le=3600),
+    verify_hash: bool = Query(True, description="Verify SHA-256 hash during download"),
     user: Dict[str, Any] = Depends(verify_token),
 ):
-    """Get presigned download URL"""
+    """Get presigned download URL with SHA-256 hash verification"""
     try:
         # Get package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
@@ -368,6 +376,21 @@ async def get_download_url(
 
         # Generate presigned URL
         s3_key = f"packages/{pkg_name}/{version}/package.zip"
+        
+        # If hash verification is requested and hash exists, download and verify
+        if verify_hash and package.get("sha256_hash"):
+            # Download the file to verify hash
+            file_response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
+            file_content = file_response["Body"].read()
+            computed_hash = hashlib.sha256(file_content).hexdigest()
+            stored_hash = package.get("sha256_hash")
+            
+            if computed_hash.lower() != stored_hash.lower():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Hash verification failed. Expected: {stored_hash}, Got: {computed_hash}"
+                )
+            logging.info(f"Hash verification successful for {pkg_name} v{version}")
 
         url = s3.generate_presigned_url(
             "get_object",
@@ -376,8 +399,17 @@ async def get_download_url(
         )
 
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+        
+        response_data = {
+            "url": url,
+            "expires_at": expires_at.isoformat()
+        }
+        
+        # Include hash in response if available
+        if package.get("sha256_hash"):
+            response_data["sha256_hash"] = package.get("sha256_hash")
 
-        return DownloadUrlResponse(url=url, expires_at=expires_at.isoformat())
+        return DownloadUrlResponse(**response_data)
 
     except HTTPException:
         raise
@@ -412,6 +444,7 @@ async def list_packages(
                     created_at=item["created_at"],
                     updated_at=item["updated_at"],
                     size_bytes=item.get("size_bytes", 0),
+                    sha256_hash=item.get("sha256_hash"),
                 )
             )
 

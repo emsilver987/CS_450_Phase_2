@@ -85,9 +85,15 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_jwt_token(user_data: Dict[str, Any]) -> Dict[str, Any]:
+def create_jwt_token(
+    user_data: Dict[str, Any],
+    expires_in: Optional[timedelta] = None,
+) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expires_delta = (
+        expires_in if expires_in is not None else timedelta(hours=JWT_EXPIRATION_HOURS)
+    )
+    expires_at = now + expires_delta
     jti = secrets.token_urlsafe(16)
     payload = {
         "user_id": user_data["user_id"],
@@ -311,7 +317,11 @@ async def register_user(user_data: UserRegistration):
 async def login_user(login_data: UserLogin):
     user = get_user_by_username(login_data.username)
     if not user or not verify_password(login_data.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token_obj = create_jwt_token(user)  # {token, jti, expires_at}
     store_token(token_obj["jti"], user, token_obj["token"], token_obj["expires_at"])
     return TokenResponse(
@@ -327,10 +337,18 @@ async def get_current_user(
 ):
     payload = verify_jwt_token(credentials.credentials)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     item = consume_token_use(payload["jti"])
     if not item:
-        raise HTTPException(status_code=401, detail="Token expired or exhausted")
+        raise HTTPException(
+            status_code=401,
+            detail="Token expired or exhausted",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return TokenInfo(
         token_id=payload["jti"],
         user_id=item["user_id"],
@@ -346,6 +364,10 @@ async def get_current_user(
 async def logout_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     payload = verify_jwt_token(credentials.credentials)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     dynamodb.Table(TOKENS_TABLE).delete_item(Key={"token_id": payload["jti"]})
     return {"message": "Logged out successfully"}

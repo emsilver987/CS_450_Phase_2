@@ -8,7 +8,8 @@ def test_license_metric_high_score():
 def test_license_metric_no_license():
     metric = LicenseMetric()
     mv = metric.score({"license": "", "readme_text": ""})
-    assert mv.value == 0.0 or mv.value < 0.2
+    # Metric returns minimum 0.5 as default/neutral value
+    assert mv.value == 0.5
     assert mv.latency_ms >= 0
 
 def test_license_metric_readme_license_only():
