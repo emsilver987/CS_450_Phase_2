@@ -5,6 +5,8 @@ project: how authentication secrets are handled, how the application falls back
 during development, what to do during incidents, and where to find the output
 from the automated scans.
 
+> **See Also:** [Security Implementations Guide](./SECURITY_IMPLEMENTATIONS.md) for detailed documentation on SHA-256 hash verification, S3 SSE-KMS encryption, and Terraform configuration.
+
 ## Authentication & Secrets
 
 - The application authenticates graders through `/authenticate` and `/login`. JWT

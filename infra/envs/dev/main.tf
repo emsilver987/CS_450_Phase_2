@@ -21,7 +21,7 @@ provider "aws" {
 }
 
 locals {
-  artifacts_bucket = "pkg-artifacts"
+  artifacts_bucket = var.artifacts_bucket
   ddb_tables_arnmap = {
     users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
     tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
@@ -32,10 +32,11 @@ locals {
   }
 }
 
-# module "s3" {
-#   source         = "../../modules/s3"
-#   artifacts_name = var.artifacts_bucket
-# }
+module "s3" {
+  source         = "../../modules/s3"
+  artifacts_name = local.artifacts_bucket
+  kms_key_arn    = module.monitoring.kms_key_arn
+}
 
 module "ddb" {
   source = "../../modules/dynamodb"

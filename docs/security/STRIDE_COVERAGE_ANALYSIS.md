@@ -62,19 +62,22 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation                  | Status                 | Notes                                                   |
-| --------------------------- | ---------------------- | ------------------------------------------------------- |
-| S3 Encryption               | ⚠️ **Partial**         | Uses AES256 (not SSE-KMS) in `infra/modules/s3/main.tf` |
-| S3 Versioning               | ❌ **Not Found**       | No versioning configuration in Terraform                |
-| Presigned URLs              | ✅ **Implemented**     | 300s TTL enforced in `package_service.py`               |
-| DynamoDB Conditional Writes | ✅ **Implemented**     | `UpdateExpression` used in multiple places              |
-| SHA-256 Hash Verification   | ❌ **Not Implemented** | No hash computation or verification found in codebase   |
+| Mitigation                  | Status             | Notes                                                                     |
+| --------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| S3 Encryption               | ✅ **Implemented** | Uses SSE-KMS with customer-managed KMS key in `infra/modules/s3/main.tf`  |
+| S3 Versioning               | ❌ **Not Found**   | No versioning configuration in Terraform                                  |
+| Presigned URLs              | ✅ **Implemented** | 300s TTL enforced in `package_service.py`                                 |
+| DynamoDB Conditional Writes | ✅ **Implemented** | `UpdateExpression` used in multiple places                                |
+| SHA-256 Hash Verification   | ✅ **Implemented** | Hash computed during upload, stored in DynamoDB, verified during download |
+
+### Resolved Issues:
+
+1. ✅ **SHA-256 hash verification** - Hash computation during upload, storage in DynamoDB, and verification during download (Implemented in `src/services/s3_service.py` and `src/services/package_service.py`)
+2. ✅ **S3 SSE-KMS encryption** - S3 bucket now uses SSE-KMS with customer-managed KMS key (Updated in `infra/modules/s3/main.tf`)
 
 ### Critical Issues:
 
-1. **SHA-256 hash verification is missing** - Documented but not implemented
-2. S3 uses AES256 instead of SSE-KMS as documented
-3. S3 versioning not enabled
+1. S3 versioning not enabled
 
 ---
 
@@ -232,14 +235,14 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### High Priority
 
-1. **Implement SHA-256 hash verification** - Add hash computation during upload and verification during download
+1. ~~**Implement SHA-256 hash verification**~~ - ✅ **COMPLETED**: Hash computation during upload, storage in DynamoDB, and verification during download
 2. **Configure AWS WAF** - Add WAF rules to API Gateway
 3. **Add security headers middleware** - Implement HSTS, X-Content-Type-Options, etc.
 4. **Migrate JWT secret to Secrets Manager/KMS** - Replace `JWT_SECRET` env var with KMS-managed secret
 
 ### Medium Priority
 
-5. **Upgrade S3 encryption to SSE-KMS** - Change from AES256 to KMS
+5. ~~**Upgrade S3 encryption to SSE-KMS**~~ - ✅ **COMPLETED**: S3 bucket now uses SSE-KMS with customer-managed KMS key
 6. **Enable S3 versioning** - Add versioning configuration
 7. **Configure CloudWatch alarms** - Set up auto-scaling alarms
 8. **Enforce admin MFA** - Add MFA requirement to admin IAM policies
@@ -257,3 +260,8 @@ This document analyzes the actual implementation status of STRIDE security mitig
 - This analysis compares documented mitigations in `docs/security/stride-threat-model.md` against actual codebase implementation
 - Some mitigations may be implemented at the AWS account level rather than in Terraform (e.g., CloudTrail)
 - The validator service timeout is well-implemented and documented in `SECURITY.md`
+
+## Related Documentation
+
+- [Security Implementations Guide](./SECURITY_IMPLEMENTATIONS.md) - Detailed documentation on SHA-256 hash verification, S3 SSE-KMS encryption, and Terraform configuration
+- [Security Operations Guide](./SECURITY.md) - Security operations and incident response procedures
