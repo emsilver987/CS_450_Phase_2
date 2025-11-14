@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Implemented SHA-256 hash verification** for package integrity: Hash computation during upload (both simple and multipart), storage in DynamoDB package metadata, and optional verification during download. Hash is included in API responses for client-side verification. Implemented in `src/services/s3_service.py` and `src/services/package_service.py`. See [SECURITY_IMPLEMENTATIONS.md](./SECURITY_IMPLEMENTATIONS.md) for details.
+- **Migrated S3 encryption from AES256 to SSE-KMS**: Updated S3 bucket configuration to use customer-managed KMS key (`alias/acme-main-key`) for enhanced security, auditability, and compliance. IAM policies enforce KMS encryption for all S3 operations. Configuration updated in `infra/modules/s3/main.tf`. See [SECURITY_IMPLEMENTATIONS.md](./SECURITY_IMPLEMENTATIONS.md) for details.
+- **Updated Terraform variables with defaults**: Added default values for `aws_region` (`us-east-1`) and `artifacts_bucket` (`pkg-artifacts`) to eliminate prompts during `terraform plan`. Variables can still be overridden via command line or `terraform.tfvars` files. Updated in `infra/envs/dev/variables.tf` and `infra/envs/dev/main.tf`.
+
+## Previous Releases
+
 - Improved`RateLimitMiddleware` cleanup to prevent unbounded memory growth by pruning stale client entries and purging empty per-client structures.
 - Improved rate-limiter concurrency by introducing per-client `asyncio.Lock` instances while keeping a lightweight global gate for cleanup.
 - Added production safeguards for admin-secret retrieval: admin/grader passwords are sourced from AWS Secrets Manager when `AUTH_ADMIN_SECRET_NAME` is set and the runtime IAM role has `secretsmanager:GetSecretValue`. All AWS Secrets Manager errors (including missing secret name, ClientError, parsing failures) now log at error level and fail fast in production (when `ENVIRONMENT=production`) instead of falling back to default passwords, preventing attackers from forcing use of well-known credentials. In non-production environments, failures log and fall back to built-in `DEFAULT_PASSWORDS` to keep local environments functional.
