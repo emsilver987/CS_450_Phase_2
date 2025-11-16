@@ -49,6 +49,7 @@ resource "aws_cloudfront_distribution" "main" {
       origin_ssl_protocols   = ["TLSv1.2"]
     }
 
+    # Forward protocol information so FastAPI knows it's HTTPS
     custom_header {
       name  = "X-Forwarded-Proto"
       value = "https"
@@ -70,6 +71,8 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   # Default behavior - Frontend pages (ALB origin)
+  # This catches all routes not matched by more specific patterns above
+  # Must forward all headers including Authorization, X-Authorization for API calls
   default_cache_behavior {
     allowed_methods  = ["HEAD", "DELETE", "POST", "GET", "OPTIONS", "PUT", "PATCH"]
     cached_methods   = ["GET", "HEAD"]
@@ -78,6 +81,8 @@ resource "aws_cloudfront_distribution" "main" {
 
     forwarded_values {
       query_string = true
+      # Forward ALL headers to ensure API authentication (Authorization, X-Authorization) works
+      # Also forwards Content-Type, Accept, and other headers needed for proper API behavior
       headers      = ["*"]
       cookies {
         forward = "all"
@@ -91,6 +96,7 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   # Behavior for static assets - cache longer
+  # Must come before default behavior (more specific paths first)
   ordered_cache_behavior {
     path_pattern     = "/static/*"
     allowed_methods  = ["HEAD", "GET", "OPTIONS"]
@@ -100,7 +106,8 @@ resource "aws_cloudfront_distribution" "main" {
 
     forwarded_values {
       query_string = false
-      headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
+      # Forward all headers to ensure proper CORS and content-type handling
+      headers      = ["*"]
       cookies {
         forward = "none"
       }
@@ -437,6 +444,50 @@ resource "aws_cloudfront_distribution" "main" {
   ordered_cache_behavior {
     path_pattern     = "/tracks*"
     allowed_methods  = ["HEAD", "GET", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "alb-origin"
+    compress         = true
+
+    forwarded_values {
+      query_string = true
+      headers      = ["*"]
+      cookies {
+        forward = "all"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 0
+    max_ttl                = 0
+  }
+
+  # Behavior for license-check endpoint - no cache
+  ordered_cache_behavior {
+    path_pattern     = "/license-check*"
+    allowed_methods  = ["HEAD", "DELETE", "POST", "GET", "OPTIONS", "PUT", "PATCH"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "alb-origin"
+    compress         = true
+
+    forwarded_values {
+      query_string = true
+      headers      = ["*"]
+      cookies {
+        forward = "all"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 0
+    max_ttl                = 0
+  }
+
+  # Behavior for package endpoints - no cache
+  ordered_cache_behavior {
+    path_pattern     = "/package/*"
+    allowed_methods  = ["HEAD", "DELETE", "POST", "GET", "OPTIONS", "PUT", "PATCH"]
     cached_methods   = ["GET", "HEAD"]
     target_origin_id = "alb-origin"
     compress         = true
