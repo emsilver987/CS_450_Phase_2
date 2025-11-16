@@ -25,6 +25,17 @@ DEFAULT_EXEMPT: tuple[str, ...] = (
     "/api/hello",
     "/api/packages/reset",
     "/artifact/",  # Temporarily exempt all artifact endpoints
+    # Frontend routes - public access
+    "/",
+    "/directory",
+    "/upload",
+    "/rate",
+    "/admin",
+    "/ingest",
+    "/lineage",
+    "/size-cost",
+    "/license-check",
+    "/download/",
 )
 
 
