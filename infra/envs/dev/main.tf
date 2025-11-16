@@ -28,6 +28,7 @@ locals {
     packages  = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/packages"
     uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
     downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
+    artifacts = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/artifacts"
   }
   # Extract ALB DNS name from the service URL (remove http:// prefix)
   alb_dns_name = replace(module.ecs.validator_service_url, "http://", "")
@@ -38,9 +39,9 @@ locals {
 #   artifacts_name = var.artifacts_bucket
 # }
 
-# module "ddb" {
-#   source = "../../modules/dynamodb"
-# }
+module "ddb" {
+  source = "../../modules/dynamodb"
+}
 
 module "monitoring" {
   source                = "../../modules/monitoring"
