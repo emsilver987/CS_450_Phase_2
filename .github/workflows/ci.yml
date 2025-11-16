@@ -101,12 +101,12 @@ jobs:
       - name: Run pip-audit (record results)
         run: |
           set -o pipefail
-          pip-audit --severity HIGH --strict --format json --output pip-audit-report.json || true
+          pip-audit --strict --format json --output pip-audit-report.json || true
 
       - name: Generate CycloneDX SBOM
         run: |
           # Generate SBOM using cyclonedx-bom command
-          # Try multiple locations to find the executable
+          # Try multiple locations to find the executable, fallback to python -m
           SCRIPT_LOC=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))" 2>/dev/null || echo "")
           USER_BASE=$(python -m site --user-base)
 
@@ -121,11 +121,8 @@ jobs:
             echo "Using cyclonedx-bom from $USER_BASE/bin"
             "$USER_BASE/bin/cyclonedx-bom" -o sbom.json
           else
-            echo "::error::cyclonedx-bom not found in any expected location"
-            echo "Searched: PATH, $SCRIPT_LOC, $USER_BASE/bin"
-            python -m pip show cyclonedx-bom
-            python -c "import sysconfig; print('Scripts:', sysconfig.get_path('scripts'))"
-            exit 1
+            echo "::warning::cyclonedx-bom CLI not found, using python -m cyclonedx_bom"
+            python -m cyclonedx_bom -o sbom.json
           fi
 
       - name: Upload security reports
