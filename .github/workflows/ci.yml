@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 jobs:
   install:
     runs-on: ubuntu-latest
@@ -32,3 +37,158 @@ jobs:
         run: ./run install
       - name: Run tests
         run: ./run test
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  dependency-security:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install --upgrade pip
+            pip install -r requirements.txt
+          fi
+
+      - name: Install pip-audit and cyclonedx-bom
+        run: |
+          pip install pip-audit==2.7.0 cyclonedx-bom==4.1.0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --format json --output pip-audit-report.json --desc || true
+          if [ -f pip-audit-report.json ]; then
+            HIGH_VULNS=$(jq '[.vulnerabilities[] | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' pip-audit-report.json)
+            if [ "$HIGH_VULNS" -gt 0 ]; then
+              echo "❌ Found $HIGH_VULNS High/Critical vulnerabilities"
+              jq '.vulnerabilities[] | select(.severity == "HIGH" or .severity == "CRITICAL")' pip-audit-report.json
+              exit 1
+            else
+              echo "✅ No High/Critical vulnerabilities found"
+            fi
+          fi
+
+      - name: Generate SBOM
+        run: |
+          cyclonedx-bom -o sbom.json || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        if: hashFiles('package.json') != ''
+        run: |
+          npm ci || npm install
+
+      - name: Run npm audit
+        if: hashFiles('package.json') != ''
+        working-directory: .
+        run: |
+          npm audit --audit-level=high --json > npm-audit-report.json || true
+          if [ -f npm-audit-report.json ]; then
+            HIGH_VULNS=$(jq '[.vulnerabilities | to_entries[] | select(.value.severity == "high" or .value.severity == "critical")] | length' npm-audit-report.json 2>/dev/null || echo "0")
+            if [ "$HIGH_VULNS" -gt 0 ]; then
+              echo "❌ Found $HIGH_VULNS High/Critical npm vulnerabilities"
+              npm audit --audit-level=high
+              exit 1
+            else
+              echo "✅ No High/Critical npm vulnerabilities found"
+            fi
+          fi
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            pip-audit-report.json
+            sbom.json
+            npm-audit-report.json
+          retention-days: 30
+
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          cache-dir: ".trivycache"
+
+      - name: Check for High/Critical vulnerabilities
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            # Count High/Critical vulnerabilities
+            HIGH_CRITICAL=$(jq '[.runs[0].results[] | select(.level == "error" or .level == "warning")] | length' trivy-results.sarif 2>/dev/null || echo "0")
+            if [ "$HIGH_CRITICAL" -gt 0 ]; then
+              echo "❌ Found $HIGH_CRITICAL High/Critical vulnerabilities"
+              jq '.runs[0].results[] | select(.level == "error" or .level == "warning") | {ruleId: .ruleId, message: .message.text}' trivy-results.sarif
+              exit 1
+            else
+              echo "✅ No High/Critical vulnerabilities found"
+            fi
+          fi
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Upload Trivy results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          retention-days: 30
