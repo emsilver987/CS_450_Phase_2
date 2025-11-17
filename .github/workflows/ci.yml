@@ -96,17 +96,17 @@ jobs:
             if jq -e '.vulnerabilities and (.vulnerabilities | type == "array")' pip-audit-report.json > /dev/null 2>&1; then
               HIGH_VULNS=$(jq '[.vulnerabilities[] | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' pip-audit-report.json)
               if [ "$HIGH_VULNS" -gt 0 ]; then
-                echo "❌ Found $HIGH_VULNS High/Critical vulnerabilities"
+                echo "Found $HIGH_VULNS High/Critical vulnerabilities"
                 jq '.vulnerabilities[] | select(.severity == "HIGH" or .severity == "CRITICAL")' pip-audit-report.json
                 exit 1
               else
-                echo "✅ No High/Critical vulnerabilities found"
+                echo "No High/Critical vulnerabilities found"
               fi
             else
-              echo "✅ No vulnerabilities array found in pip-audit-report.json. Assuming no vulnerabilities."
+              echo "No vulnerabilities array found in pip-audit-report.json. Assuming no vulnerabilities."
             fi
           else
-            echo "⚠️ pip-audit-report.json not generated. Skipping vulnerability check."
+            echo "pip-audit-report.json not generated. Skipping vulnerability check."
           fi
 
       - name: Generate SBOM
@@ -164,17 +164,17 @@ jobs:
               # Count High/Critical vulnerabilities
               HIGH_CRITICAL=$(jq '[.runs[0].results[] | select(.level == "error" or .level == "warning")] | length' trivy-results.sarif 2>/dev/null || echo "0")
               if [ "$HIGH_CRITICAL" -gt 0 ]; then
-                echo "❌ Found $HIGH_CRITICAL High/Critical vulnerabilities"
+                echo "Found $HIGH_CRITICAL High/Critical vulnerabilities"
                 jq '.runs[0].results[] | select(.level == "error" or .level == "warning") | {ruleId: .ruleId, message: .message.text}' trivy-results.sarif
                 exit 1
               else
-                echo "✅ No High/Critical vulnerabilities found"
+                echo "No High/Critical vulnerabilities found"
               fi
             else
-              echo "✅ No results array found in trivy-results.sarif. Assuming no vulnerabilities."
+              echo "No results array found in trivy-results.sarif. Assuming no vulnerabilities."
             fi
           else
-            echo "⚠️ trivy-results.sarif not generated. Skipping vulnerability check."
+            echo "trivy-results.sarif not generated. Skipping vulnerability check."
           fi
 
       - name: Upload Trivy results to GitHub Security
