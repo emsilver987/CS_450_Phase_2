@@ -27,12 +27,28 @@ JWT_MAX_USES = int(os.getenv("JWT_MAX_USES", "1000"))
 
 
 # Get JWT secret (cached after first call)
+# Note: get_jwt_secret() now handles production/development mode internally
+# In production: Raises RuntimeError if Secrets Manager unavailable (no fallbacks)
+# In development: Falls back to env var or generates temporary secret
 def _get_jwt_secret() -> str:
-    """Get JWT secret from Secrets Manager or environment variable."""
+    """
+    Get JWT secret from Secrets Manager or environment variable.
+    
+    In production: get_jwt_secret() raises RuntimeError if unavailable (no fallbacks).
+    In development: get_jwt_secret() may return None, but we should not reach here
+    since get_jwt_secret() handles fallbacks internally.
+    """
     secret = get_jwt_secret()
     if not secret:
-        # Fallback: generate a temporary secret (local dev only)
-        return secrets.token_urlsafe(32)
+        # This should only happen in development if get_jwt_secret() returns None
+        # (which shouldn't happen since it handles fallbacks internally)
+        # But as a safety net, we'll raise an error rather than generating a secret
+        # to avoid inconsistent behavior
+        raise RuntimeError(
+            "JWT secret not available. "
+            "In production, this should have been caught by get_jwt_secret(). "
+            "In development, check Secrets Manager or set JWT_SECRET env var."
+        )
     return secret
 
 
