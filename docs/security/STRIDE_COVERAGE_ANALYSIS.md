@@ -12,12 +12,12 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 - 🧩 **Spoofing Identity:** 66.7% (4/6 fully implemented)
 - 🧱 **Tampering:** 100% (5/5 fully implemented - encryption, versioning, presigned URLs, conditional writes, SHA-256)
-- 🧾 **Repudiation:** 62.5% (2.5/4 - partial credit for CloudTrail)
+- 🧾 **Repudiation:** 100% (4/4 fully implemented - CloudTrail, CloudWatch, download logging, Glacier archiving)
 - 🔒 **Information Disclosure:** 83.3% (5/6 implemented - security headers added)
 - 🧨 **Denial of Service:** 66.7% (4/6 implemented - API Gateway throttling added)
 - 🧍‍♂️ **Elevation of Privilege:** 80% (4/5 implemented)
 
-**Weighted Average:** (66.7 + 100 + 62.5 + 83.3 + 66.7 + 80) / 6 = **76.4% ≈ 76%**
+**Weighted Average:** (66.7 + 100 + 100 + 83.3 + 66.7 + 80) / 6 = **82.8% ≈ 83%**
 
 **Note:** This calculation gives equal weight to each STRIDE category. JWT authentication is now enabled but requires `ENABLE_AUTH=true` or `JWT_SECRET` environment variable to be set.
 
@@ -102,17 +102,18 @@ All tampering mitigations are fully implemented, including:
 
 ### Implementation Status:
 
-| Mitigation             | Status             | Notes                                                                |
-| ---------------------- | ------------------ | -------------------------------------------------------------------- |
-| CloudTrail             | ⚠️ **AWS Managed** | CloudTrail is AWS-managed but not explicitly configured in Terraform |
-| CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase                                |
-| Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB                              |
-| S3 Glacier Archiving   | ❌ **Not Found**   | No lifecycle policy for log archiving                                |
+| Mitigation             | Status             | Notes                                                                                                                       |
+| ---------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| CloudTrail             | ✅ **Implemented** | Explicitly configured in `infra/modules/monitoring/main.tf` with multi-region trail, data event logging, and KMS encryption |
+| CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase                                                                                       |
+| Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB                                                                                     |
+| S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs transition to Glacier after 90 days via lifecycle policy                                                    |
 
-### Issues:
+### Status:
 
-1. CloudTrail not explicitly configured (relies on AWS defaults)
-2. No automated log archiving to Glacier
+1. ✅ CloudTrail explicitly configured with comprehensive audit logging
+2. ✅ Automated log archiving to Glacier configured
+3. See [CloudTrail Configuration Guide](./CLOUDTRAIL_CONFIGURATION.md) for details
 
 ---
 
