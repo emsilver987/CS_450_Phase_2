@@ -10,10 +10,11 @@ from the automated scans.
 ## Authentication & Secrets
 
 - The application authenticates graders through `/authenticate` and `/login`. JWT
-  middleware is enabled when `ENABLE_AUTH=true` or `JWT_SECRET` is set. When enabled,
-  auth checks run before each protected request. The `/authenticate` endpoint returns
-  just the token string (e.g., `"bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`) per
-  OpenAPI specification, and returns HTTP 501 if authentication is not available.
+  middleware is enabled when `ENABLE_AUTH=true` or when a JWT secret is available (from
+  Secrets Manager or `JWT_SECRET` environment variable). When enabled, auth checks run
+  before each protected request. The `/authenticate` endpoint returns just the token
+  string (e.g., `"bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`) per OpenAPI
+  specification, and returns HTTP 501 if authentication is not available.
 - CORS is configured via the `ALLOWED_ORIGINS` environment variable (comma-separated list
   of origins). Defaults to localhost variants for development. Set this in production
   to allow your frontend domains (e.g., `ALLOWED_ORIGINS=https://app.example.com,https://www.example.com`).
@@ -32,6 +33,11 @@ from the automated scans.
 - Authorization parsing is centralized in `src/utils/auth.py`, ensuring all
   components (middleware and legacy endpoints) interpret bearer tokens
   consistently and apply identical validation rules.
+- JWT secrets are retrieved from AWS Secrets Manager (KMS-encrypted) via
+  `src/utils/jwt_secret.py`. The secret name defaults to `acme-jwt-secret` but can be
+  overridden with `JWT_SECRET_NAME`. In production (`PYTHON_ENV=production`), the
+  system fails fast if Secrets Manager is unavailable. In development, it falls back
+  to the `JWT_SECRET` environment variable.
 - Admin/grader passwords are sourced from AWS Secrets Manager when
   `AUTH_ADMIN_SECRET_NAME` is set and the runtime IAM role has
   `secretsmanager:GetSecretValue`.
@@ -59,17 +65,19 @@ from the automated scans.
 
 ### Required Environment Variables
 
-| Variable                    | Description                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------ |
-| `AUTH_ADMIN_SECRET_NAME`    | Secret name or full ARN of the admin password list. Required in production.          |
-| `AWS_REGION`                | Region hosting the secret. Defaults to `us-east-1` if omitted.                       |
-| `ENABLE_AUTH`               | Set to `"true"` to enable JWT authentication middleware.                             |
-| `JWT_SECRET`                | Alternative to `ENABLE_AUTH`: if set, enables JWT authentication.                    |
-| `ENVIRONMENT`               | Set to `"production"` to enforce strict secret validation.                           |
-| `RATE_LIMIT_REQUESTS`       | Maximum requests per window (default: 120, max: 10000).                              |
-| `RATE_LIMIT_WINDOW_SECONDS` | Time window in seconds (default: 60, max: 3600).                                     |
-| `DISABLE_RATE_LIMIT`        | Set to `"true"` to disable rate limiting (trusted environments only).                |
-| `ALLOWED_ORIGINS`           | Comma-separated list of CORS allowed origins. Defaults to localhost for development. |
+| Variable                    | Description                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `AUTH_ADMIN_SECRET_NAME`    | Secret name or full ARN of the admin password list. Required in production.             |
+| `AWS_REGION`                | Region hosting the secret. Defaults to `us-east-1` if omitted.                          |
+| `ENABLE_AUTH`               | Set to `"true"` to enable JWT authentication middleware.                                |
+| `JWT_SECRET`                | JWT secret string (development fallback). In production, use Secrets Manager.           |
+| `JWT_SECRET_NAME`           | Name of Secrets Manager secret for JWT (default: `acme-jwt-secret`).                    |
+| `PYTHON_ENV`                | Set to `"production"` to enforce strict secret validation (no fallbacks).               |
+| `ENVIRONMENT`               | Alternative to `PYTHON_ENV`: set to `"production"` to enforce strict secret validation. |
+| `RATE_LIMIT_REQUESTS`       | Maximum requests per window (default: 120, max: 10000).                                 |
+| `RATE_LIMIT_WINDOW_SECONDS` | Time window in seconds (default: 60, max: 3600).                                        |
+| `DISABLE_RATE_LIMIT`        | Set to `"true"` to disable rate limiting (trusted environments only).                   |
+| `ALLOWED_ORIGINS`           | Comma-separated list of CORS allowed origins. Defaults to localhost for development.    |
 
 ### Secret Rotation Procedure
 
@@ -157,9 +165,11 @@ The Validator service (`validator-task-role-dev`) receives four scoped policies:
    - Condition: `kms:ViaService = secretsmanager.us-east-1.amazonaws.com`
 
 **Note**: The API service does not currently have a Secrets Manager policy for admin
-passwords. If `AUTH_ADMIN_SECRET_NAME` is used, the API service's ECS task role must be
-granted `secretsmanager:GetSecretValue` on the admin secret ARN. This should be added to
-`infra/envs/dev/iam_api.tf` following the same pattern as the validator's JWT secret policy.
+passwords in `infra/envs/dev/iam_api.tf`. If `AUTH_ADMIN_SECRET_NAME` is used by the API
+service, the API service's ECS task role must be granted `secretsmanager:GetSecretValue`
+on the admin secret ARN. This should be added to `infra/envs/dev/iam_api.tf` following
+the same pattern as the validator's JWT secret policy in `infra/envs/dev/iam_validator.tf`.
+The validator service already has Secrets Manager access for JWT secrets.
 
 ### Team Member Policies
 
@@ -271,7 +281,7 @@ Additional timeout protection exists at the infrastructure layer:
    - Unhealthy targets are removed from the target group
 
 3. **ECS Task Resource Limits**:
-   - Memory: `2048 MB` (hard limit)
+   - Memory: `4096 MB` (hard limit, increased from 2048 MB to handle memory-intensive operations)
    - CPU: `1024` units
    - Tasks exceeding these limits are terminated by ECS
 
@@ -380,4 +390,3 @@ dispatch. It contains four jobs:
   avoid embedding raw exception messages to reduce information disclosure.
 - When adding new endpoints, follow the same pattern: log the detailed error,
   return a generic, user-friendly explanation to the caller.
-
