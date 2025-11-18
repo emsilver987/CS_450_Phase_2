@@ -5,3 +5,7 @@ variable "image_tag" {
   default     = "latest"
   description = "Docker image tag for the validator service"
 }
+variable "kms_key_arn" {
+  type        = string
+  description = "ARN of the KMS key used for Secrets Manager encryption"
+}
