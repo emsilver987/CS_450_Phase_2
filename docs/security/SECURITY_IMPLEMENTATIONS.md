@@ -1,13 +1,14 @@
 # Security Implementations Guide
 
-This document details the security features implemented in the CS_450_Phase_2 project, including SHA-256 hash verification, S3 SSE-KMS encryption, and Terraform configuration.
+This document details the security features implemented in the CS_450_Phase_2 project, including SHA-256 hash verification, S3 SSE-KMS encryption, CloudTrail audit logging, and Terraform configuration.
 
 ## Table of Contents
 
 1. [SHA-256 Hash Verification](#sha-256-hash-verification)
 2. [S3 SSE-KMS Encryption](#s3-sse-kms-encryption)
 3. [JWT Secret Management with KMS](#jwt-secret-management-with-kms)
-4. [Terraform Configuration](#terraform-configuration)
+4. [CloudTrail Audit Logging](#cloudtrail-audit-logging)
+5. [Terraform Configuration](#terraform-configuration)
 
 ---
 
@@ -325,6 +326,101 @@ Expected output:
 
 ---
 
+## CloudTrail Audit Logging
+
+### Overview
+
+AWS CloudTrail is explicitly configured to provide comprehensive audit logging for all API calls and data events. This ensures compliance, security monitoring, and non-repudiation capabilities.
+
+### Implementation Details
+
+**Location:** `infra/modules/monitoring/main.tf`
+
+#### CloudTrail Trail Configuration
+
+```hcl
+resource "aws_cloudtrail" "audit_trail" {
+  name                          = "acme-audit-trail"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail_logs.id
+  include_global_service_events = true
+  is_multi_region_trail         = true
+  enable_logging                = true
+  enable_log_file_validation    = true
+  kms_key_id                    = aws_kms_key.main_key.arn
+  # ... event selectors for S3 and DynamoDB ...
+}
+```
+
+#### Key Features
+
+- **Multi-region trail:** Captures events from all AWS regions
+- **Global service events:** Includes IAM, CloudFront, Route 53 events
+- **Data event logging:** Logs S3 and DynamoDB data operations
+- **KMS encryption:** All log files encrypted with project KMS key
+- **Log file validation:** SHA-256 hash validation detects tampering
+
+#### Event Selectors
+
+**S3 Data Events:**
+
+- Logs all operations on the artifacts bucket (`GetObject`, `PutObject`, `DeleteObject`, `ListBucket`)
+
+**DynamoDB Data Events:**
+
+- Logs all operations on DynamoDB tables (`PutItem`, `GetItem`, `DeleteItem`, `Query`, `Scan`)
+
+#### Log Storage
+
+**S3 Bucket:** `{artifacts_bucket}-cloudtrail-logs-{account-id}`
+
+- Encryption: SSE-KMS with `acme-main-key`
+- Versioning: Enabled (prevents log deletion)
+- Public access: Blocked
+- Lifecycle: Transitions to Glacier after 90 days
+
+**CloudWatch Logs:** `/aws/cloudtrail/acme-audit-trail`
+
+- Retention: 90 days
+- Encryption: KMS
+
+### Security Benefits
+
+- ✅ **Non-Repudiation:** Immutable audit logs prove who did what, when, and where
+- ✅ **Log Integrity:** Log file validation and S3 versioning prevent tampering
+- ✅ **Compliance:** Supports SOC 2, HIPAA, PCI DSS, GDPR requirements
+- ✅ **Security Monitoring:** Enables detection of unauthorized access, privilege escalation, data exfiltration
+- ✅ **Forensics:** Complete audit trail for incident investigation
+
+### Verification
+
+Check trail status:
+
+```bash
+aws cloudtrail get-trail-status --name acme-audit-trail
+```
+
+Verify log files in S3:
+
+```bash
+aws s3 ls s3://{bucket-name}/AWSLogs/{account-id}/CloudTrail/ --recursive
+```
+
+Look up recent events:
+
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=PutObject \
+  --max-results 10
+```
+
+### Documentation
+
+For detailed CloudTrail configuration, troubleshooting, and best practices, see:
+
+- [CloudTrail Configuration Guide](./CLOUDTRAIL_CONFIGURATION.md)
+
+---
+
 ## Terraform Configuration
 
 ### Variables
@@ -438,6 +534,10 @@ main.tf
 ---
 
 ## Changelog
+
+### 2025-01-XX
+
+- ✅ **CloudTrail Audit Logging** – Explicitly configured CloudTrail trail with multi-region support, S3 and DynamoDB data event logging, KMS encryption, and log file validation. Includes dedicated S3 bucket with lifecycle management (Glacier transition after 90 days). See [CloudTrail Configuration Guide](./CLOUDTRAIL_CONFIGURATION.md) for details.
 
 ### 2025-11-18
 
