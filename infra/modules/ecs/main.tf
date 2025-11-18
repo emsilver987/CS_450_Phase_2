@@ -102,6 +102,10 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name  = "PYTHON_ENV"
         value = "production"
+      },
+      {
+        name  = "JWT_SECRET_NAME"
+        value = "acme-jwt-secret"
       }
     ]
 

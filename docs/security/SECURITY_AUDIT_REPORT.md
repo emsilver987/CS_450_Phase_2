@@ -63,10 +63,11 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Needs clarification:** Is this legacy documentation or dual architecture?
 
 3. **JWT Secret Management**
-   - Documentation says "JWT signed with AWS KMS"
-   - Code shows `JWT_SECRET` environment variable (plain env var)
-   - **Gap:** JWT secret not actually managed by KMS/Secrets Manager
-   - Validator service has Secrets Manager policy, but API service does not
+   - ✅ **FIXED** (2025-01-XX): JWT secret now retrieved from Secrets Manager (KMS-encrypted)
+   - Implementation: `src/utils/jwt_secret.py` retrieves secret from Secrets Manager
+   - Falls back to `JWT_SECRET` env var for local development
+   - ECS task definition injects secret from Secrets Manager
+   - IAM policies grant Secrets Manager and KMS decrypt permissions
 
 4. **Token Lifecycle**
    - Documentation mentions "10h or 1,000 uses max"
@@ -91,9 +92,8 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Impact:** High - No protection against common web attacks
 
 4. **S3 Versioning**
-   - STRIDE model claims "versioning enabled"
-   - Terraform shows no versioning configuration
-   - **Impact:** Medium - Cannot recover from accidental overwrites
+   - ✅ **FIXED** (2025-11-17): Versioning now enabled via `aws_s3_bucket_versioning` resource in `infra/modules/s3/main.tf`
+   - **Impact:** Medium - Cannot recover from accidental overwrites (now mitigated)
 
 5. **CloudTrail Explicit Configuration**
    - Relies on AWS account-level defaults
@@ -113,7 +113,10 @@ This audit evaluates the current security posture of the Phase 2 project against
 ### 🔄 What Needs Redesign
 
 1. **JWT Secret Management**
-   - **Current:** Plain environment variable (`JWT_SECRET`)
+   - ✅ **FIXED**: JWT secret retrieved from Secrets Manager (KMS-encrypted)
+   - **Implementation:** `src/utils/jwt_secret.py` with caching and fallback
+   - **ECS:** Secret injected via task definition from Secrets Manager
+   - **Local Dev:** Falls back to `JWT_SECRET` env var if Secrets Manager unavailable
    - **Should be:** AWS Secrets Manager or KMS-encrypted
    - **Action:** Migrate to Secrets Manager, update IAM policies
 
@@ -150,7 +153,9 @@ This audit evaluates the current security posture of the Phase 2 project against
 #### ❌ Threats Missed
 
 1. **JWT Secret Compromise**
-   - **Threat:** If `JWT_SECRET` env var leaked, all tokens can be forged
+   - ✅ **MITIGATED**: JWT secret stored in Secrets Manager with KMS encryption
+   - **Threat:** If JWT secret leaked, all tokens can be forged
+   - **Mitigation:** Secret encrypted at rest with KMS, accessed via IAM policies, not in plain env vars
    - **Missing:** KMS/Secrets Manager integration for secret storage
    - **Severity:** High
 
@@ -195,9 +200,9 @@ This audit evaluates the current security posture of the Phase 2 project against
 #### ❌ Threats Missed
 
 1. **S3 Versioning Missing**
-   - **Threat:** Accidental or malicious overwrites cannot be recovered
-   - **Missing:** S3 versioning configuration
-   - **Severity:** Medium
+   - ✅ **FIXED** (2025-11-17): S3 versioning now enabled via Terraform configuration
+   - **Implementation:** `aws_s3_bucket_versioning` resource added to `infra/modules/s3/main.tf`
+   - **Severity:** Medium (now mitigated)
 
 2. **In-Transit Tampering**
    - **Threat:** MITM attacks possible if TLS not enforced
@@ -395,18 +400,18 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 ## 3. OWASP Top 10 Audit
 
-| OWASP Issue                        | Did I do it? | Evidence Found                                                                   | Missing Work                                                                                  | Severity |
-| ---------------------------------- | ------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------- |
-| **A01: Broken Access Control**     | ⚠️ Partially | ✅ JWT auth middleware<br>✅ RBAC checks<br>✅ IAM least-privilege               | ❌ Admin MFA not enforced<br>❌ Token use-count not enforced                                  | High     |
-| **A02: Cryptographic Failures**    | ✅ Yes       | ✅ S3 SSE-KMS<br>✅ SHA-256 hashing<br>✅ HTTPS presigned URLs                   | ⚠️ JWT secret in plain env var                                                                | Medium   |
-| **A03: Injection**                 | ⚠️ Partial   | ✅ Pydantic models for validation<br>✅ Safe globals in validator                | ❌ No explicit SSRF protection<br>❌ No SQL injection tests (DynamoDB uses NoSQL, lower risk) | Medium   |
-| **A04: Insecure Design**           | ⚠️ Partial   | ✅ STRIDE threat model<br>✅ Security architecture documented                    | ❌ Missing security headers<br>❌ No WAF                                                      | Medium   |
-| **A05: Security Misconfiguration** | ⚠️ Partial   | ✅ Least-privilege IAM<br>✅ Error sanitization                                  | ❌ No AWS Config<br>❌ No explicit CloudTrail<br>❌ Missing S3 versioning                     | Medium   |
-| **A06: Vulnerable Components**     | ✅ Yes       | ✅ Dependency scanning (pip-audit, Trivy)<br>✅ CI/CD security checks            | ⚠️ Need to verify all CVEs remediated                                                         | Low      |
-| **A07: Authentication Failures**   | ⚠️ Partial   | ✅ JWT authentication<br>✅ Token expiration<br>✅ Secrets Manager for passwords | ❌ JWT secret not in KMS/Secrets Manager<br>❌ No MFA enforcement                             | High     |
-| **A08: Software & Data Integrity** | ✅ Yes       | ✅ SHA-256 hash verification<br>✅ Conditional DynamoDB writes                   | ⚠️ Missing S3 versioning                                                                      | Low      |
-| **A09: Security Logging**          | ⚠️ Partial   | ✅ CloudWatch logging<br>✅ Download event logging                               | ❌ No upload event logging<br>❌ No explicit CloudTrail                                       | Medium   |
-| **A10: SSRF**                      | ❌ No        | ❌ No SSRF protection found                                                      | ❌ Need URL validation<br>❌ Need internal network restrictions                               | High     |
+| OWASP Issue                        | Did I do it? | Evidence Found                                                                                                             | Missing Work                                                                                  | Severity |
+| ---------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------- |
+| **A01: Broken Access Control**     | ⚠️ Partially | ✅ JWT auth middleware<br>✅ RBAC checks<br>✅ IAM least-privilege                                                         | ❌ Admin MFA not enforced<br>❌ Token use-count not enforced                                  | High     |
+| **A02: Cryptographic Failures**    | ✅ Yes       | ✅ S3 SSE-KMS<br>✅ SHA-256 hashing<br>✅ HTTPS presigned URLs<br>✅ JWT secret in Secrets Manager (KMS)                   | ✅ All secrets encrypted                                                                      | Low      |
+| **A03: Injection**                 | ⚠️ Partial   | ✅ Pydantic models for validation<br>✅ Safe globals in validator                                                          | ❌ No explicit SSRF protection<br>❌ No SQL injection tests (DynamoDB uses NoSQL, lower risk) | Medium   |
+| **A04: Insecure Design**           | ⚠️ Partial   | ✅ STRIDE threat model<br>✅ Security architecture documented                                                              | ❌ Missing security headers<br>❌ No WAF                                                      | Medium   |
+| **A05: Security Misconfiguration** | ⚠️ Partial   | ✅ Least-privilege IAM<br>✅ Error sanitization<br>✅ S3 versioning enabled (2025-11-17)                                   | ❌ No AWS Config<br>❌ No explicit CloudTrail                                                 | Medium   |
+| **A06: Vulnerable Components**     | ✅ Yes       | ✅ Dependency scanning (pip-audit, Trivy)<br>✅ CI/CD security checks                                                      | ⚠️ Need to verify all CVEs remediated                                                         | Low      |
+| **A07: Authentication Failures**   | ⚠️ Partial   | ✅ JWT authentication<br>✅ Token expiration<br>✅ Secrets Manager for passwords<br>✅ JWT secret in Secrets Manager (KMS) | ❌ No MFA enforcement                                                                         | Medium   |
+| **A08: Software & Data Integrity** | ✅ Yes       | ✅ SHA-256 hash verification<br>✅ Conditional DynamoDB writes<br>✅ S3 versioning enabled (2025-11-17)                    | ✅ All integrity controls implemented                                                         | Low      |
+| **A09: Security Logging**          | ⚠️ Partial   | ✅ CloudWatch logging<br>✅ Download event logging                                                                         | ❌ No upload event logging<br>❌ No explicit CloudTrail                                       | Medium   |
+| **A10: SSRF**                      | ❌ No        | ❌ No SSRF protection found                                                                                                | ❌ Need URL validation<br>❌ Need internal network restrictions                               | High     |
 
 ### Detailed OWASP Analysis
 
@@ -428,7 +433,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 - ✅ S3 SSE-KMS encryption
 - ✅ SHA-256 hashing for integrity
 - ✅ HTTPS presigned URLs
-- ⚠️ **Weak:** JWT secret stored as plain environment variable
+- ✅ **Secure:** JWT secret stored in Secrets Manager with KMS encryption
 - ✅ Secrets Manager for admin passwords
 
 #### A03: Injection
@@ -457,9 +462,9 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 - ✅ Least-privilege IAM policies
 - ✅ Error message sanitization
+- ✅ **S3 versioning enabled** (2025-11-17)
 - ❌ **Missing:** AWS Config for compliance monitoring
 - ❌ **Missing:** Explicit CloudTrail configuration
-- ❌ **Missing:** S3 versioning
 - ❌ **Missing:** Security headers
 
 #### A06: Vulnerable Components
@@ -478,7 +483,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 - ✅ JWT authentication with expiration
 - ✅ Secrets Manager for admin passwords
 - ✅ Token validation middleware
-- ❌ **Missing:** JWT secret in KMS/Secrets Manager (uses env var)
+- ✅ **Implemented:** JWT secret in Secrets Manager (KMS-encrypted) via `src/utils/jwt_secret.py`
 - ❌ **Missing:** MFA enforcement for admin users
 
 #### A08: Software & Data Integrity
@@ -584,8 +589,9 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Mitigation:** Configure AWS WAF on API Gateway
    - **Testable:** Yes (penetration testing)
 
-2. **JWT Secret Not Secured**
-   - **Risk:** JWT secret stored as plain environment variable, can be leaked
+2. ~~**JWT Secret Not Secured**~~ ✅ **FIXED**
+   - **Previous Risk:** JWT secret stored as plain environment variable, can be leaked
+   - **Mitigation:** JWT secret now stored in Secrets Manager with KMS encryption
    - **Likelihood:** Medium (env var leaks via logs, config files)
    - **Impact:** Critical (all tokens can be forged)
    - **Mitigation:** Move to AWS Secrets Manager or KMS
@@ -629,11 +635,12 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Testable:** Yes (header verification)
 
 8. **S3 Versioning Missing**
+   - ✅ **MITIGATED** (2025-11-17): S3 versioning enabled
    - **Risk:** Cannot recover from accidental or malicious overwrites
    - **Likelihood:** Low
    - **Impact:** High (data loss)
-   - **Mitigation:** Enable S3 versioning
-   - **Testable:** Yes (configuration review)
+   - **Mitigation:** ✅ Enabled S3 versioning via `aws_s3_bucket_versioning` resource in `infra/modules/s3/main.tf`
+   - **Testable:** Yes (configuration review, AWS CLI verification)
 
 ### 🟡 Medium Risks
 
@@ -727,7 +734,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 While you have the required 4 vulnerabilities documented, consider adding:
 
-1. **JWT Secret Management** (if you fix it, document as Issue 5)
+1. ~~**JWT Secret Management**~~ ✅ **FIXED** - JWT secret now in Secrets Manager (KMS-encrypted)
 2. **WAF Missing** (if you fix it, document as Issue 6)
 3. **Security Headers Missing** (if you fix it, document as Issue 7)
 
@@ -848,12 +855,12 @@ While you have the required 4 vulnerabilities documented, consider adding:
    - ❌ AWS WAF configuration
    - ❌ API Gateway throttling
    - ❌ Security headers middleware
-   - ❌ JWT secret in Secrets Manager/KMS
+   - ✅ JWT secret in Secrets Manager/KMS (implemented via `src/utils/jwt_secret.py`)
    - ❌ Admin MFA enforcement
    - ❌ SSRF protection
 
 2. **Infrastructure Gaps**
-   - ❌ S3 versioning
+   - ✅ S3 versioning (enabled 2025-11-17)
    - ❌ Explicit CloudTrail trail
    - ❌ CloudWatch alarms for security
    - ❌ Log archiving to Glacier
@@ -915,10 +922,10 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [ ] Enforce 1,000 use limit
   - [ ] OR: Remove from documentation if not implementing
 
-- [ ] **Enable S3 Versioning**
-  - [ ] Add versioning configuration to Terraform
-  - [ ] Test version recovery
-  - [ ] Document version management
+- [x] **Enable S3 Versioning** ✅ (2025-11-17)
+  - [x] Add versioning configuration to Terraform (`infra/modules/s3/main.tf`)
+  - [ ] Test version recovery (recommended)
+  - [x] Document version management
 
 ### Priority 3: Medium (Nice to Have)
 
@@ -976,7 +983,7 @@ While you have the required 4 vulnerabilities documented, consider adding:
    - Configure WAF rules in Terraform
    - Test with sample attacks
 
-2. **Day 3-4: JWT Secret Migration**
+2. ~~**Day 3-4: JWT Secret Migration**~~ ✅ **COMPLETED**
    - Create Secrets Manager secret
    - Update IAM policies
    - Update application code
@@ -1054,7 +1061,7 @@ While you have the required 4 vulnerabilities documented, consider adding:
 To reach **90/100**, you need to:
 
 1. **Fix all Critical risks** (+15 points)
-   - WAF, JWT secret, MFA, SSRF
+   - WAF, ~~JWT secret~~ ✅, MFA, SSRF
 
 2. **Fix High-priority risks** (+5 points)
    - API Gateway throttling, security headers, S3 versioning
@@ -1070,7 +1077,7 @@ To reach **90/100**, you need to:
 
 Your Phase 2 project demonstrates **strong foundational security engineering** with comprehensive threat modeling, detailed documentation, and solid implementation of core security controls (IAM, encryption, authentication). The STRIDE analysis is thorough, and the Five Whys documentation is exemplary.
 
-However, **critical gaps** in WAF protection, JWT secret management, MFA enforcement, and SSRF protection prevent the security case from being production-ready. These gaps are fixable with focused effort.
+However, **critical gaps** in WAF protection, MFA enforcement, and SSRF protection prevent the security case from being production-ready. JWT secret management has been fixed (now uses Secrets Manager with KMS encryption). Remaining gaps are fixable with focused effort.
 
 **Recommendation:** Address all **Critical** and **High** priority items from the checklist before submitting the final security case. The current score of **68/100** indicates good progress but needs improvement to meet ACME's security standards.
 

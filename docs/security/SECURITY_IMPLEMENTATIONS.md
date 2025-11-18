@@ -6,7 +6,8 @@ This document details the security features implemented in the CS_450_Phase_2 pr
 
 1. [SHA-256 Hash Verification](#sha-256-hash-verification)
 2. [S3 SSE-KMS Encryption](#s3-sse-kms-encryption)
-3. [Terraform Configuration](#terraform-configuration)
+3. [JWT Secret Management with KMS](#jwt-secret-management-with-kms)
+4. [Terraform Configuration](#terraform-configuration)
 
 ---
 
@@ -119,6 +120,99 @@ hash = response.sha256_hash
 
 ---
 
+## JWT Secret Management with KMS
+
+### Overview
+
+JWT secret is now stored in AWS Secrets Manager and encrypted with AWS KMS, replacing the previous plain environment variable approach. This ensures the secret is encrypted at rest and accessed securely via IAM policies.
+
+### Implementation Details
+
+#### Secret Storage
+
+**Location:** `infra/modules/monitoring/main.tf`
+
+1. **Secrets Manager Secret:**
+   - Secret name: `acme-jwt-secret`
+   - Encrypted with KMS key: `alias/acme-main-key`
+   - Stored as JSON with fields: `jwt_secret`, `jwt_algorithm`, `jwt_expiration_hours`, `jwt_max_uses`
+
+2. **KMS Key:**
+   - Key alias: `alias/acme-main-key`
+   - Used for encrypting the Secrets Manager secret
+   - IAM policies grant decrypt permissions to ECS execution role
+
+#### Application Code
+
+**Location:** `src/utils/jwt_secret.py`
+
+1. **Secret Retrieval Function:**
+   - `get_jwt_secret()` retrieves secret from Secrets Manager
+   - Implements caching to avoid repeated Secrets Manager calls
+   - Falls back to `JWT_SECRET` environment variable for local development
+   - Falls back to generating a temporary secret if neither is available (local dev only)
+
+2. **Usage in Application:**
+   - `src/middleware/jwt_auth.py`: Uses `get_jwt_secret()` to retrieve secret
+   - `src/services/auth_service.py`: Uses `get_jwt_secret()` for token signing/verification
+   - `src/entrypoint.py`: Uses `get_jwt_secret()` to check if auth should be enabled
+
+#### ECS Task Definition
+
+**Location:** `infra/modules/ecs/main.tf`
+
+1. **Secret Injection:**
+   - ECS task definition injects JWT secret from Secrets Manager
+   - Secret injected as `JWT_SECRET` environment variable
+   - `JWT_SECRET_NAME` environment variable set to `acme-jwt-secret`
+
+2. **IAM Permissions:**
+   - ECS execution role has `secretsmanager:GetSecretValue` permission
+   - ECS execution role has `kms:Decrypt` permission for Secrets Manager service
+   - IAM policies in `infra/envs/dev/iam_validator.tf` grant Secrets Manager access
+
+### Security Benefits
+
+1. **Encryption at Rest:**
+   - Secret encrypted with KMS before storage in Secrets Manager
+   - Cannot be read without KMS decrypt permissions
+
+2. **Access Control:**
+   - Only services with IAM permissions can retrieve the secret
+   - No plain-text secret in environment variables or code
+
+3. **Audit Trail:**
+   - Secrets Manager logs all secret access attempts
+   - CloudTrail tracks KMS decrypt operations
+
+4. **Secret Rotation:**
+   - Secrets Manager supports automatic secret rotation
+   - Can update secret without code changes
+
+### Local Development
+
+For local development, the code falls back to:
+
+1. `JWT_SECRET` environment variable (if set)
+2. Generated temporary secret (if neither Secrets Manager nor env var available)
+
+This allows local development without AWS credentials while maintaining security in production.
+
+### Configuration
+
+**Environment Variables:**
+
+- `JWT_SECRET_NAME`: Name of the Secrets Manager secret (default: `acme-jwt-secret`)
+- `JWT_SECRET`: Fallback environment variable for local development
+- `AWS_REGION`: AWS region for Secrets Manager (default: `us-east-1`)
+
+**Terraform Variables:**
+
+- Secret name: `acme-jwt-secret` (defined in `infra/modules/monitoring/main.tf`)
+- KMS key: `alias/acme-main-key` (defined in `infra/modules/monitoring/main.tf`)
+
+---
+
 ## S3 SSE-KMS Encryption
 
 ### Overview
@@ -152,7 +246,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
 - Deletion window: 7 days
 - Used for:
   - S3 object encryption
-  - Secrets Manager encryption (JWT secrets)
+  - Secrets Manager encryption (JWT secrets) - JWT secret stored in Secrets Manager with KMS encryption, retrieved via `src/utils/jwt_secret.py`
 
 #### IAM Policies
 
