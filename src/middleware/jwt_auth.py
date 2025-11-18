@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from src.utils.auth import get_authorization_header, parse_authorization_token
+from src.utils.jwt_secret import get_jwt_secret
 
 # Public endpoints that should bypass auth
 DEFAULT_EXEMPT: tuple[str, ...] = (
@@ -51,10 +52,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.exempt_paths = tuple(exempt_paths)
 
         self.algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-        self.secret = os.getenv("JWT_SECRET")
+        # Get JWT secret from Secrets Manager (KMS-encrypted) or environment variable
+        self.secret = get_jwt_secret()
         if self.algorithm != "HS256":
             raise ValueError("This middleware currently supports HS256 only.")
-        # Auth is optional: if JWT_SECRET is not set, skip auth checks
+        # Auth is optional: if JWT secret is not available, skip auth checks
         self.auth_enabled = bool(self.secret)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):

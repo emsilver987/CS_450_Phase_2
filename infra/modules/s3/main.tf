@@ -3,6 +3,9 @@ resource "aws_s3_bucket" "artifacts" {
   force_destroy = true
 }
 
+# Enable S3 versioning to protect against accidental overwrites and enable version recovery
+# This addresses security vulnerability V-012 / Risk R-008 (Tampering threat)
+# Implemented: 2025-11-17
 resource "aws_s3_bucket_versioning" "this" {
   bucket = aws_s3_bucket.artifacts.id
   versioning_configuration {

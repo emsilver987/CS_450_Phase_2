@@ -11,16 +11,32 @@ from pydantic import BaseModel
 import os
 import logging
 
+from src.utils.jwt_secret import get_jwt_secret
+
 logger = logging.getLogger(__name__)
 
 # AWS clients
 dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
 
-# Environment variables
-JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_urlsafe(32))
+# JWT configuration
+# JWT_SECRET is now retrieved from Secrets Manager (KMS-encrypted) via get_jwt_secret()
+# Falls back to JWT_SECRET env var for local development
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "10"))
 JWT_MAX_USES = int(os.getenv("JWT_MAX_USES", "1000"))
+
+
+# Get JWT secret (cached after first call)
+def _get_jwt_secret() -> str:
+    """Get JWT secret from Secrets Manager or environment variable."""
+    secret = get_jwt_secret()
+    if not secret:
+        # Fallback: generate a temporary secret (local dev only)
+        return secrets.token_urlsafe(32)
+    return secret
+
+
+JWT_SECRET = _get_jwt_secret()
 
 USERS_TABLE = os.getenv("DDB_TABLE_USERS", "users")
 TOKENS_TABLE = os.getenv("DDB_TABLE_TOKENS", "tokens")

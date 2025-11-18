@@ -32,7 +32,7 @@ An attacker could forge or reuse expired JWT tokens to impersonate a valid user 
 
 **Mitigation:**
 
-- All requests use **JWT authentication** signed with a secret managed by **AWS KMS**.
+- All requests use **JWT authentication** signed with a secret stored in **AWS Secrets Manager** and encrypted with **AWS KMS**.
 - Tokens are validated by a dedicated **Auth Lambda**, verified for expiration (10 h or 1,000 uses max).
 - **IAM Group_106 policy** isolates user roles; admins must enable **MFA**.
 - Each token consumption is logged to **DynamoDB (tokens table)**, preventing replay.
