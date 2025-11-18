@@ -18,6 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from botocore.exceptions import ClientError
 from .routes.index import router as api_router
+from .routes import frontend as frontend_routes
 from .services.auth_public import public_auth as authenticate_router
 from .services.auth_service import (
     DEFAULT_ADMIN_USERNAME,
@@ -2092,3 +2093,6 @@ if STATIC_DIR.exists():
 templates = (
     Jinja2Templates(directory=str(TEMPLATES_DIR)) if TEMPLATES_DIR.exists() else None
 )
+
+# Attach frontend routes so the same templates served locally are available in AWS
+frontend_routes.setup_app(app=app, templates_instance=templates)
