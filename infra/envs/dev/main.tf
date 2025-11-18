@@ -48,6 +48,8 @@ module "monitoring" {
   artifacts_bucket      = local.artifacts_bucket
   validator_service_url = "http://placeholder"
   ddb_tables_arnmap     = local.ddb_tables_arnmap
+  aws_account_id        = var.aws_account_id
+  aws_region            = var.aws_region
 }
 
 module "iam" {
@@ -91,3 +93,5 @@ output "validator_cluster_arn" { value = module.ecs.validator_cluster_arn }
 output "ecr_repository_url" { value = module.ecs.ecr_repository_url }
 output "config_bucket_name" { value = module.config.config_bucket_name }
 output "config_recorder_name" { value = module.config.config_recorder_name }
+output "cloudtrail_trail_arn" { value = module.monitoring.cloudtrail_trail_arn }
+output "cloudtrail_logs_bucket" { value = module.monitoring.cloudtrail_logs_bucket }
