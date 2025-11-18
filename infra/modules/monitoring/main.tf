@@ -50,7 +50,7 @@ resource "aws_kms_key" "main_key" {
         }
       },
       {
-        Sid    = "Allow CloudWatch Logs to decrypt"
+        Sid    = "Allow CloudWatch Logs to use key"
         Effect = "Allow"
         Principal = {
           Service = "logs.${var.aws_region}.amazonaws.com"
@@ -58,14 +58,13 @@ resource "aws_kms_key" "main_key" {
         Action = [
           "kms:Decrypt",
           "kms:DescribeKey",
-          "kms:GenerateDataKey"
+          "kms:GenerateDataKey",
+          "kms:CreateGrant"
         ]
         Resource = "*"
-        Condition = {
-          ArnEquals = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:*"
-          }
-        }
+        # Note: Encryption context condition removed to allow CloudWatch Logs
+        # to create encrypted log groups. The service will set the context
+        # when writing logs, but may not set it during log group creation.
       }
     ]
   })
@@ -409,6 +408,11 @@ resource "aws_cloudwatch_log_group" "cloudtrail_logs" {
   name              = "/aws/cloudtrail/acme-audit-trail"
   retention_in_days = 90
   kms_key_id        = aws_kms_key.main_key.arn
+
+  depends_on = [
+    aws_kms_key.main_key,
+    aws_kms_alias.main_key_alias
+  ]
 
   tags = {
     Name        = "cloudtrail-logs"
