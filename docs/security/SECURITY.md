@@ -11,7 +11,9 @@ from the automated scans.
 
 - The application authenticates graders through `/authenticate` and `/login`. JWT
   middleware is enabled when `ENABLE_AUTH=true` or `JWT_SECRET` is set. When enabled,
-  auth checks run before each protected request.
+  auth checks run before each protected request. The `/authenticate` endpoint returns
+  just the token string (e.g., `"bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`) per
+  OpenAPI specification, and returns HTTP 501 if authentication is not available.
 - CORS is configured via the `ALLOWED_ORIGINS` environment variable (comma-separated list
   of origins). Defaults to localhost variants for development. Set this in production
   to allow your frontend domains (e.g., `ALLOWED_ORIGINS=https://app.example.com,https://www.example.com`).
@@ -369,9 +371,7 @@ dispatch. It contains four jobs:
 
 ### Outstanding Actions
 
-- Security headers (`Strict-Transport-Security`, `X-Content-Type-Options`,
-  `Cache-Control`) are not currently implemented in the application code. Consider
-  adding a middleware to inject these headers for enhanced security posture.
+- ✅ **Security headers implemented** – Security headers middleware (`SecurityHeadersMiddleware`) is implemented in `src/middleware/security_headers.py` and includes `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Content-Security-Policy`, `Referrer-Policy`, and `Permissions-Policy`. The middleware is integrated in `src/entrypoint.py` and can be configured via environment variables or disabled with `DISABLE_SECURITY_HEADERS=true`. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ### Error Handling Practices
 

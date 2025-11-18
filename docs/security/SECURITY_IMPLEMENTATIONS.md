@@ -439,6 +439,11 @@ main.tf
 
 ## Changelog
 
+### 2025-11-18
+
+- ✅ **Fixed OpenAPI specification compliance** – Updated `/authenticate` endpoint to return token string (not JSON object) and added 501 response when authentication unavailable. Updated `/tracks` endpoint to return `{"plannedTracks": [...]}`. Achieved 100% OpenAPI compliance (15/15 endpoints). See [OPENAPI_COMPLIANCE_CHECK.md](../../OPENAPI_COMPLIANCE_CHECK.md) for details.
+- ✅ **Updated dependencies** – Fixed security vulnerabilities in Python (`jinja2`, `requests`) and Go (`github.com/ulikunitz/xz`, `golang.org/x/net`) dependencies addressing multiple CVEs.
+
 ### 2025-11-14
 
 - ✅ **Implemented SHA-256 hash verification** for package uploads and downloads

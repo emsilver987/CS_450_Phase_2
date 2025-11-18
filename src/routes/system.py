@@ -31,7 +31,8 @@ def health_secret():
 
 @router.get("/tracks")
 def tracks():
-    return {"tracks": ["access-control", "reproducibility", "reviewedness", "security"]}
+    # Per OpenAPI spec: return "plannedTracks" not "tracks"
+    return {"plannedTracks": ["Performance track", "Access control track", "High assurance track", "Other Security track"]}
 
 
 @router.post("/reset")
