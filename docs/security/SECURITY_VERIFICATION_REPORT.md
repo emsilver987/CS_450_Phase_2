@@ -289,3 +289,11 @@ The code follows best practices and integrates correctly with the FastAPI/Starle
 
 **Verification Script:** `verify_security_features.py`  
 **Last Verified:** 2025-11-17
+
+---
+
+## Recent Updates (2025-11-18)
+
+- ✅ **OpenAPI Specification Compliance** – Achieved 100% compliance (15/15 endpoints). Fixed `/authenticate` endpoint response format (now returns token string per spec) and added 501 response when authentication unavailable. Fixed `/tracks` endpoint to return `{"plannedTracks": [...]}`. See [OPENAPI_COMPLIANCE_CHECK.md](../../OPENAPI_COMPLIANCE_CHECK.md) for details.
+- ✅ **Dependency Security Updates** – Updated Python dependencies (`jinja2` 3.1.4 → 3.1.6, `requests` 2.32.3 → 2.32.4) and Go dependencies (`github.com/ulikunitz/xz` v0.5.10 → v0.5.15, `golang.org/x/net` v0.34.0 → v0.38.0) to address CVEs: CVE-2024-56201, CVE-2024-56326, CVE-2025-27516, CVE-2024-47081, CVE-2025-58058, CVE-2025-22870, CVE-2025-22872. All vulnerabilities resolved.
+

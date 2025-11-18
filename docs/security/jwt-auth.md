@@ -18,9 +18,10 @@ Key behaviours:
 3. **Ephemeral `/authenticate` Tokens** – The `/authenticate` endpoint now
    verifies admin credentials (loaded from AWS Secrets Manager when
    `AUTH_ADMIN_SECRET_NAME` is set) and issues short-lived JWTs by calling
-   `auth_service.create_jwt_token`. Responses are JSON
-   `{"token": "bearer ...", "token_id": ..., "expires_at": ...}` and every
-   issuance is persisted with `store_token`.
+   `auth_service.create_jwt_token`. Per OpenAPI specification, responses return
+   just the token string: `"bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."` (not a
+   JSON object). Every issuance is persisted with `store_token`. If JWT secret is
+   unavailable, the endpoint returns HTTP 501 "Not Implemented" per the spec.
 4. **JWT Validation** – `verify_jwt_token` decodes HS256 tokens, enforces the
    `exp` claim, and returns `None` on failure. The middleware returns
    `401 {"detail": "Unauthorized"}` for any missing, malformed, or expired token,

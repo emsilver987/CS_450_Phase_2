@@ -122,10 +122,11 @@ def test_authenticate_success(monkeypatch: pytest.MonkeyPatch):
 
     response = asyncio.run(auth_public._authenticate(request))
     assert response.status_code == 200
-    payload = json.loads(response.body)
-    assert payload["token"].startswith("bearer ")
-    assert payload["token_id"] == "token-id"
-    assert "expires_at" in payload
+    # Per OpenAPI spec: response should be just the token string, not a JSON object
+    token_string = json.loads(response.body)
+    assert isinstance(token_string, str)
+    assert token_string.startswith("bearer ")
+    assert token_string == "bearer encoded-token"
     assert recorded == [("token-id", "encoded-token")]
 
 

@@ -20,6 +20,7 @@ from .auth_service import (
     get_user_by_username,
     store_token,
 )
+from src.utils.jwt_secret import get_jwt_secret
 
 # -----------------------------------------------------------------------------
 # Router setup
@@ -156,6 +157,24 @@ def _load_expected_passwords() -> Set[str]:
 # -----------------------------------------------------------------------------
 async def _authenticate(request: Request):
     """Shared authentication logic for all routes."""
+    # Check if authentication is available (per OpenAPI spec requirement)
+    # If JWT secret is not available, return 501 "Not implemented"
+    try:
+        jwt_secret = get_jwt_secret()
+        if not jwt_secret:
+            # JWT secret not available - authentication not supported
+            raise HTTPException(
+                status_code=501,
+                detail="This system does not support authentication.",
+            )
+    except RuntimeError:
+        # In production, get_jwt_secret() raises RuntimeError if unavailable
+        # This means authentication is not supported
+        raise HTTPException(
+            status_code=501,
+            detail="This system does not support authentication.",
+        )
+    
     try:
         body = await request.json()
     except Exception as exc:
@@ -214,12 +233,10 @@ async def _authenticate(request: Request):
         token_obj["expires_at"],
     )
 
-    payload = {
-        "token": f"bearer {token_obj['token']}",
-        "token_id": token_obj["jti"],
-        "expires_at": token_obj["expires_at"].isoformat(),
-    }
-    return JSONResponse(payload)
+    # Per OpenAPI spec: return just the token string, not a JSON object
+    # The spec expects: "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    token_string = f"bearer {token_obj['token']}"
+    return JSONResponse(token_string)
 
 
 def _normalize_password(password: str) -> str:

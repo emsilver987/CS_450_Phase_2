@@ -35,10 +35,13 @@ def get_auth_token():
         r = requests.put(url, json=auth_data, timeout=10)
         
         if r.status_code == 200:
-            # Token is returned as a plain string (not JSON)
-            token = r.text.strip().strip('"')
-            if token.startswith("bearer "):
-                token = token[7:]  # Remove "bearer " prefix if present
+            # Per OpenAPI spec: token is returned as a JSON string (e.g., "bearer ...")
+            # Use r.json() to parse the JSON-encoded string
+            token_string = r.json()
+            if isinstance(token_string, str) and token_string.startswith("bearer "):
+                token = token_string[7:]  # Remove "bearer " prefix
+            else:
+                token = token_string
             print(f"Authentication successful")
             return token
         else:
