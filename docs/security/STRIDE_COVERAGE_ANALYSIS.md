@@ -53,6 +53,16 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ## 🧱 Tampering with Data
 
+**Coverage: 100% (5/5 fully implemented)**
+
+All tampering mitigations are fully implemented, including:
+
+- ✅ S3 SSE-KMS encryption (customer-managed KMS key)
+- ✅ S3 versioning (enabled to protect against overwrites)
+- ✅ Presigned URLs with 300s TTL
+- ✅ DynamoDB conditional writes
+- ✅ SHA-256 hash verification (computed during upload, stored in DynamoDB, verified during download)
+
 ### Documented Mitigations:
 
 - ✅ S3 buckets private with SSE-KMS encryption and versioning
@@ -221,6 +231,8 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Not Implemented ❌
 
+**Note:** The following items are NOT implemented. All items listed in "Fully Implemented ✅" above (including SHA-256 hash verification, S3 SSE-KMS encryption, S3 versioning, security headers, API Gateway throttling, and JWT secret management) are fully implemented and are NOT listed here.
+
 - AWS WAF
 - CloudWatch alarms for auto-scaling
 - Admin MFA enforcement
@@ -230,7 +242,9 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ## 🔴 Critical Gaps
 
-1. **No WAF/API Gateway Throttling** - DoS protection incomplete
+**Note:** The following items are NOT implemented. Items marked as ✅ **FIXED** or ✅ **COMPLETED** in other sections (such as SHA-256 hash verification, S3 SSE-KMS encryption, S3 versioning, security headers, API Gateway throttling, and JWT secret management) are fully implemented and should NOT appear in this list.
+
+1. **No AWS WAF** - DoS protection incomplete (API Gateway throttling is implemented, but WAF is missing)
 2. **Admin MFA Not Enforced** - Documented but not implemented
 3. ~~**JWT Secret Not Managed by KMS**~~ ✅ **FIXED** - JWT secret now retrieved from Secrets Manager (KMS-encrypted)
 
