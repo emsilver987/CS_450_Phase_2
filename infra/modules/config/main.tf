@@ -226,7 +226,7 @@ resource "aws_config_configuration_recorder" "main" {
   }
 
   depends_on = [
-    aws_config_delivery_channel.main
+    aws_iam_role.config_role
   ]
 }
 
@@ -241,6 +241,7 @@ resource "aws_config_delivery_channel" "main" {
   }
 
   depends_on = [
+    aws_config_configuration_recorder.main,
     aws_s3_bucket_policy.config_snapshots
   ]
 }
