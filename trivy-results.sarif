@@ -10,263 +10,228 @@
           "name": "Trivy",
           "rules": [
             {
-              "id": "CVE-2024-24762",
+              "id": "CVE-2024-56201",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "`python-multipart` is a streaming multipart parser for Python. When us ..."
+                "text": "jinja2: Jinja has a sandbox breakout through malicious filenames"
               },
               "fullDescription": {
-                "text": "`python-multipart` is a streaming multipart parser for Python. When using form data, `python-multipart` uses a Regular Expression to parse the HTTP `Content-Type` header, including options. An attacker could send a custom-made `Content-Type` option that is very difficult for the RegEx to process, consuming CPU resources and stalling indefinitely (minutes or more) while holding the main event loop. This means that process can't handle any more requests, leading to regular expression denial of service. This vulnerability has been patched in version 0.0.7."
+                "text": "Jinja is an extensible templating engine. In versions on the 3.x branch prior to 3.1.5, a bug in the Jinja compiler allows an attacker that controls both the content and filename of a template to execute arbitrary Python code, regardless of if Jinja's sandbox is used. To exploit the vulnerability, an attacker needs to control both the filename and the contents of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates where the template author can also choose the template filename. This vulnerability is fixed in 3.1.5."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-24762",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-56201",
               "help": {
-                "text": "Vulnerability CVE-2024-24762\nSeverity: HIGH\nPackage: python-multipart\nFixed Version: 0.0.7\nLink: [CVE-2024-24762](https://avd.aquasec.com/nvd/cve-2024-24762)\n`python-multipart` is a streaming multipart parser for Python. When using form data, `python-multipart` uses a Regular Expression to parse the HTTP `Content-Type` header, including options. An attacker could send a custom-made `Content-Type` option that is very difficult for the RegEx to process, consuming CPU resources and stalling indefinitely (minutes or more) while holding the main event loop. This means that process can't handle any more requests, leading to regular expression denial of service. This vulnerability has been patched in version 0.0.7.",
-                "markdown": "**Vulnerability CVE-2024-24762**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|python-multipart|0.0.7|[CVE-2024-24762](https://avd.aquasec.com/nvd/cve-2024-24762)|\n\n`python-multipart` is a streaming multipart parser for Python. When using form data, `python-multipart` uses a Regular Expression to parse the HTTP `Content-Type` header, including options. An attacker could send a custom-made `Content-Type` option that is very difficult for the RegEx to process, consuming CPU resources and stalling indefinitely (minutes or more) while holding the main event loop. This means that process can't handle any more requests, leading to regular expression denial of service. This vulnerability has been patched in version 0.0.7."
+                "text": "Vulnerability CVE-2024-56201\nSeverity: MEDIUM\nPackage: jinja2\nFixed Version: 3.1.5\nLink: [CVE-2024-56201](https://avd.aquasec.com/nvd/cve-2024-56201)\nJinja is an extensible templating engine. In versions on the 3.x branch prior to 3.1.5, a bug in the Jinja compiler allows an attacker that controls both the content and filename of a template to execute arbitrary Python code, regardless of if Jinja's sandbox is used. To exploit the vulnerability, an attacker needs to control both the filename and the contents of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates where the template author can also choose the template filename. This vulnerability is fixed in 3.1.5.",
+                "markdown": "**Vulnerability CVE-2024-56201**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|jinja2|3.1.5|[CVE-2024-56201](https://avd.aquasec.com/nvd/cve-2024-56201)|\n\nJinja is an extensible templating engine. In versions on the 3.x branch prior to 3.1.5, a bug in the Jinja compiler allows an attacker that controls both the content and filename of a template to execute arbitrary Python code, regardless of if Jinja's sandbox is used. To exploit the vulnerability, an attacker needs to control both the filename and the contents of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates where the template author can also choose the template filename. This vulnerability is fixed in 3.1.5."
               },
               "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                "cvssv3_baseScore": 8.8,
+                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
                 "precision": "very-high",
-                "security-severity": "7.5",
+                "security-severity": "8.8",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2024-53981",
+              "id": "CVE-2024-56326",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "python-multipart: python-multipart has a DoS via deformation `multipart/form-data` boundary"
+                "text": "jinja2: Jinja has a sandbox breakout through indirect reference to format method"
               },
               "fullDescription": {
-                "text": "python-multipart is a streaming multipart parser for Python. When parsing form data, python-multipart skips line breaks (CR \\r or LF \\n) in front of the first boundary and any tailing bytes after the last boundary. This happens one byte at a time and emits a log event each time, which may cause excessive logging for certain inputs. An attacker could abuse this by sending a malicious request with lots of data before the first or after the last boundary, causing high CPU load and stalling the processing thread for a significant amount of time. In case of ASGI application, this could stall the event loop and prevent other requests from being processed, resulting in a denial of service (DoS). This vulnerability is fixed in 0.0.18."
+                "text": "Jinja is an extensible templating engine. Prior to 3.1.5, An oversight in how the Jinja sandboxed environment detects calls to str.format allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to store a reference to a malicious string's format method, then pass that to a filter that calls it. No such filters are built-in to Jinja, but could be present through custom filters in an application. After the fix, such indirect calls are also handled by the sandbox. This vulnerability is fixed in 3.1.5."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-53981",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-56326",
               "help": {
-                "text": "Vulnerability CVE-2024-53981\nSeverity: HIGH\nPackage: python-multipart\nFixed Version: 0.0.18\nLink: [CVE-2024-53981](https://avd.aquasec.com/nvd/cve-2024-53981)\npython-multipart is a streaming multipart parser for Python. When parsing form data, python-multipart skips line breaks (CR \\r or LF \\n) in front of the first boundary and any tailing bytes after the last boundary. This happens one byte at a time and emits a log event each time, which may cause excessive logging for certain inputs. An attacker could abuse this by sending a malicious request with lots of data before the first or after the last boundary, causing high CPU load and stalling the processing thread for a significant amount of time. In case of ASGI application, this could stall the event loop and prevent other requests from being processed, resulting in a denial of service (DoS). This vulnerability is fixed in 0.0.18.",
-                "markdown": "**Vulnerability CVE-2024-53981**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|python-multipart|0.0.18|[CVE-2024-53981](https://avd.aquasec.com/nvd/cve-2024-53981)|\n\npython-multipart is a streaming multipart parser for Python. When parsing form data, python-multipart skips line breaks (CR \\r or LF \\n) in front of the first boundary and any tailing bytes after the last boundary. This happens one byte at a time and emits a log event each time, which may cause excessive logging for certain inputs. An attacker could abuse this by sending a malicious request with lots of data before the first or after the last boundary, causing high CPU load and stalling the processing thread for a significant amount of time. In case of ASGI application, this could stall the event loop and prevent other requests from being processed, resulting in a denial of service (DoS). This vulnerability is fixed in 0.0.18."
+                "text": "Vulnerability CVE-2024-56326\nSeverity: MEDIUM\nPackage: jinja2\nFixed Version: 3.1.5\nLink: [CVE-2024-56326](https://avd.aquasec.com/nvd/cve-2024-56326)\nJinja is an extensible templating engine. Prior to 3.1.5, An oversight in how the Jinja sandboxed environment detects calls to str.format allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to store a reference to a malicious string's format method, then pass that to a filter that calls it. No such filters are built-in to Jinja, but could be present through custom filters in an application. After the fix, such indirect calls are also handled by the sandbox. This vulnerability is fixed in 3.1.5.",
+                "markdown": "**Vulnerability CVE-2024-56326**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|jinja2|3.1.5|[CVE-2024-56326](https://avd.aquasec.com/nvd/cve-2024-56326)|\n\nJinja is an extensible templating engine. Prior to 3.1.5, An oversight in how the Jinja sandboxed environment detects calls to str.format allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to store a reference to a malicious string's format method, then pass that to a filter that calls it. No such filters are built-in to Jinja, but could be present through custom filters in an application. After the fix, such indirect calls are also handled by the sandbox. This vulnerability is fixed in 3.1.5."
               },
               "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                "cvssv3_baseScore": 7.8,
+                "cvssv3_vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
                 "precision": "very-high",
-                "security-severity": "7.5",
+                "security-severity": "7.8",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2024-3817",
+              "id": "CVE-2025-27516",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "HashiCorp\\u2019s go-getter library is vulnerable to argument injection ..."
+                "text": "jinja2: Jinja sandbox breakout through attr filter selecting format method"
               },
               "fullDescription": {
-                "text": "HashiCorp’s go-getter library is vulnerable to argument injection when executing Git to discover remote branches. \n\nThis vulnerability does not affect the go-getter/v2 branch and package."
+                "text": "Jinja is an extensible templating engine. Prior to 3.1.6, an oversight in how the Jinja sandboxed environment interacts with the |attr filter allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to use the |attr filter to get a reference to a string's plain format method, bypassing the sandbox. After the fix, the |attr filter no longer bypasses the environment's attribute lookup. This vulnerability is fixed in 3.1.6."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-3817",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-27516",
               "help": {
-                "text": "Vulnerability CVE-2024-3817\nSeverity: CRITICAL\nPackage: github.com/hashicorp/go-getter\nFixed Version: 1.7.4\nLink: [CVE-2024-3817](https://avd.aquasec.com/nvd/cve-2024-3817)\nHashiCorp’s go-getter library is vulnerable to argument injection when executing Git to discover remote branches. \n\nThis vulnerability does not affect the go-getter/v2 branch and package.",
-                "markdown": "**Vulnerability CVE-2024-3817**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|CRITICAL|github.com/hashicorp/go-getter|1.7.4|[CVE-2024-3817](https://avd.aquasec.com/nvd/cve-2024-3817)|\n\nHashiCorp’s go-getter library is vulnerable to argument injection when executing Git to discover remote branches. \n\nThis vulnerability does not affect the go-getter/v2 branch and package."
+                "text": "Vulnerability CVE-2025-27516\nSeverity: MEDIUM\nPackage: jinja2\nFixed Version: 3.1.6\nLink: [CVE-2025-27516](https://avd.aquasec.com/nvd/cve-2025-27516)\nJinja is an extensible templating engine. Prior to 3.1.6, an oversight in how the Jinja sandboxed environment interacts with the |attr filter allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to use the |attr filter to get a reference to a string's plain format method, bypassing the sandbox. After the fix, the |attr filter no longer bypasses the environment's attribute lookup. This vulnerability is fixed in 3.1.6.",
+                "markdown": "**Vulnerability CVE-2025-27516**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|jinja2|3.1.6|[CVE-2025-27516](https://avd.aquasec.com/nvd/cve-2025-27516)|\n\nJinja is an extensible templating engine. Prior to 3.1.6, an oversight in how the Jinja sandboxed environment interacts with the |attr filter allows an attacker that controls the content of a template to execute arbitrary Python code. To exploit the vulnerability, an attacker needs to control the content of a template. Whether that is the case depends on the type of application using Jinja. This vulnerability impacts users of applications which execute untrusted templates. Jinja's sandbox does catch calls to str.format and ensures they don't escape the sandbox. However, it's possible to use the |attr filter to get a reference to a string's plain format method, bypassing the sandbox. After the fix, the |attr filter no longer bypasses the environment's attribute lookup. This vulnerability is fixed in 3.1.6."
               },
               "properties": {
-                "cvssv3_baseScore": 9.8,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
                 "precision": "very-high",
-                "security-severity": "9.8",
+                "security-severity": "5.5",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "CRITICAL"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2024-6257",
+              "id": "CVE-2024-47081",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "hashicorp/go-getter: Arbitrary command execution through local git config file"
+                "text": "requests: Requests vulnerable to .netrc credentials leak via malicious URLs"
               },
               "fullDescription": {
-                "text": "HashiCorp’s go-getter library can be coerced into executing Git update on an existing maliciously modified Git Configuration, potentially leading to arbitrary code execution."
+                "text": "Requests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-6257",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-47081",
               "help": {
-                "text": "Vulnerability CVE-2024-6257\nSeverity: HIGH\nPackage: github.com/hashicorp/go-getter\nFixed Version: 1.7.5\nLink: [CVE-2024-6257](https://avd.aquasec.com/nvd/cve-2024-6257)\nHashiCorp’s go-getter library can be coerced into executing Git update on an existing maliciously modified Git Configuration, potentially leading to arbitrary code execution.",
-                "markdown": "**Vulnerability CVE-2024-6257**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|github.com/hashicorp/go-getter|1.7.5|[CVE-2024-6257](https://avd.aquasec.com/nvd/cve-2024-6257)|\n\nHashiCorp’s go-getter library can be coerced into executing Git update on an existing maliciously modified Git Configuration, potentially leading to arbitrary code execution."
+                "text": "Vulnerability CVE-2024-47081\nSeverity: MEDIUM\nPackage: requests\nFixed Version: 2.32.4\nLink: [CVE-2024-47081](https://avd.aquasec.com/nvd/cve-2024-47081)\nRequests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session.",
+                "markdown": "**Vulnerability CVE-2024-47081**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|requests|2.32.4|[CVE-2024-47081](https://avd.aquasec.com/nvd/cve-2024-47081)|\n\nRequests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session."
               },
               "properties": {
-                "cvssv3_baseScore": 8.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:H/I:H/A:H",
+                "cvssv3_baseScore": 5.3,
+                "cvssv3_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N",
                 "precision": "very-high",
-                "security-severity": "8.5",
+                "security-severity": "5.3",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2025-8959",
+              "id": "CVE-2025-58058",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "github.com/hashicorp/go-getter: HashiCorp go-getter Arbitrary File Read"
+                "text": "github.com/ulikunitz/xz: github.com/ulikunitz/xz leaks memory"
               },
               "fullDescription": {
-                "text": "HashiCorp's go-getter library subdirectory download feature is vulnerable to symlink attacks leading to unauthorized read access beyond the designated directory boundaries. This vulnerability, identified as CVE-2025-8959, is fixed in go-getter 1.7.9."
+                "text": "xz is a pure golang package for reading and writing xz-compressed files. Prior to version 0.5.14, it is possible to put data in front of an LZMA-encoded byte stream without detecting the situation while reading the header. This can lead to increased memory consumption because the current implementation allocates the full decoding buffer directly after reading the header. The LZMA header doesn't include a magic number or has a checksum to detect such an issue according to the specification. Note that the code recognizes the issue later while reading the stream, but at this time the memory allocation has already been done. This issue has been patched in version 0.5.14."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-8959",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-58058",
               "help": {
-                "text": "Vulnerability CVE-2025-8959\nSeverity: HIGH\nPackage: github.com/hashicorp/go-getter\nFixed Version: 1.7.9\nLink: [CVE-2025-8959](https://avd.aquasec.com/nvd/cve-2025-8959)\nHashiCorp's go-getter library subdirectory download feature is vulnerable to symlink attacks leading to unauthorized read access beyond the designated directory boundaries. This vulnerability, identified as CVE-2025-8959, is fixed in go-getter 1.7.9.",
-                "markdown": "**Vulnerability CVE-2025-8959**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|github.com/hashicorp/go-getter|1.7.9|[CVE-2025-8959](https://avd.aquasec.com/nvd/cve-2025-8959)|\n\nHashiCorp's go-getter library subdirectory download feature is vulnerable to symlink attacks leading to unauthorized read access beyond the designated directory boundaries. This vulnerability, identified as CVE-2025-8959, is fixed in go-getter 1.7.9."
+                "text": "Vulnerability CVE-2025-58058\nSeverity: MEDIUM\nPackage: github.com/ulikunitz/xz\nFixed Version: 0.5.15\nLink: [CVE-2025-58058](https://avd.aquasec.com/nvd/cve-2025-58058)\nxz is a pure golang package for reading and writing xz-compressed files. Prior to version 0.5.14, it is possible to put data in front of an LZMA-encoded byte stream without detecting the situation while reading the header. This can lead to increased memory consumption because the current implementation allocates the full decoding buffer directly after reading the header. The LZMA header doesn't include a magic number or has a checksum to detect such an issue according to the specification. Note that the code recognizes the issue later while reading the stream, but at this time the memory allocation has already been done. This issue has been patched in version 0.5.14.",
+                "markdown": "**Vulnerability CVE-2025-58058**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|github.com/ulikunitz/xz|0.5.15|[CVE-2025-58058](https://avd.aquasec.com/nvd/cve-2025-58058)|\n\nxz is a pure golang package for reading and writing xz-compressed files. Prior to version 0.5.14, it is possible to put data in front of an LZMA-encoded byte stream without detecting the situation while reading the header. This can lead to increased memory consumption because the current implementation allocates the full decoding buffer directly after reading the header. The LZMA header doesn't include a magic number or has a checksum to detect such an issue according to the specification. Note that the code recognizes the issue later while reading the stream, but at this time the memory allocation has already been done. This issue has been patched in version 0.5.14."
               },
               "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                "cvssv3_baseScore": 5.3,
+                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
                 "precision": "very-high",
-                "security-severity": "7.5",
+                "security-severity": "5.3",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2024-45337",
+              "id": "CVE-2025-22870",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "golang.org/x/crypto/ssh: Misuse of ServerConfig.PublicKeyCallback may cause authorization bypass in golang.org/x/crypto"
+                "text": "golang.org/x/net/proxy: golang.org/x/net/http/httpproxy: HTTP Proxy bypass using IPv6 Zone IDs in golang.org/x/net"
               },
               "fullDescription": {
-                "text": "Applications and libraries which misuse connection.serverAuthenticate (via callback field ServerConfig.PublicKeyCallback) may be susceptible to an authorization bypass. The documentation for ServerConfig.PublicKeyCallback says that \"A call to this function does not guarantee that the key offered is in fact used to authenticate.\" Specifically, the SSH protocol allows clients to inquire about whether a public key is acceptable before proving control of the corresponding private key. PublicKeyCallback may be called with multiple keys, and the order in which the keys were provided cannot be used to infer which key the client successfully authenticated with, if any. Some applications, which store the key(s) passed to PublicKeyCallback (or derived information) and make security relevant determinations based on it once the connection is established, may make incorrect assumptions. For example, an attacker may send public keys A and B, and then authenticate with A. PublicKeyCallback would be called only twice, first with A and then with B. A vulnerable application may then make authorization decisions based on key B for which the attacker does not actually control the private key. Since this API is widely misused, as a partial mitigation golang.org/x/cry...@v0.31.0 enforces the property that, when successfully authenticating via public key, the last key passed to ServerConfig.PublicKeyCallback will be the key used to authenticate the connection. PublicKeyCallback will now be called multiple times with the same key, if necessary. Note that the client may still not control the last key passed to PublicKeyCallback if the connection is then authenticated with a different method, such as PasswordCallback, KeyboardInteractiveCallback, or NoClientAuth. Users should be using the Extensions field of the Permissions return value from the various authentication callbacks to record data associated with the authentication attempt instead of referencing external state. Once the connection is established the state corresponding to the successful authentication attempt can be retrieved via the ServerConn.Permissions field. Note that some third-party libraries misuse the Permissions type by sharing it across authentication attempts; users of third-party libraries should refer to the relevant projects for guidance."
+                "text": "Matching of hosts against proxy patterns can improperly treat an IPv6 zone ID as a hostname component. For example, when the NO_PROXY environment variable is set to \"*.example.com\", a request to \"[::1%25.example.com]:80` will incorrectly match and not be proxied."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-45337",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-22870",
               "help": {
-                "text": "Vulnerability CVE-2024-45337\nSeverity: CRITICAL\nPackage: golang.org/x/crypto\nFixed Version: 0.31.0\nLink: [CVE-2024-45337](https://avd.aquasec.com/nvd/cve-2024-45337)\nApplications and libraries which misuse connection.serverAuthenticate (via callback field ServerConfig.PublicKeyCallback) may be susceptible to an authorization bypass. The documentation for ServerConfig.PublicKeyCallback says that \"A call to this function does not guarantee that the key offered is in fact used to authenticate.\" Specifically, the SSH protocol allows clients to inquire about whether a public key is acceptable before proving control of the corresponding private key. PublicKeyCallback may be called with multiple keys, and the order in which the keys were provided cannot be used to infer which key the client successfully authenticated with, if any. Some applications, which store the key(s) passed to PublicKeyCallback (or derived information) and make security relevant determinations based on it once the connection is established, may make incorrect assumptions. For example, an attacker may send public keys A and B, and then authenticate with A. PublicKeyCallback would be called only twice, first with A and then with B. A vulnerable application may then make authorization decisions based on key B for which the attacker does not actually control the private key. Since this API is widely misused, as a partial mitigation golang.org/x/cry...@v0.31.0 enforces the property that, when successfully authenticating via public key, the last key passed to ServerConfig.PublicKeyCallback will be the key used to authenticate the connection. PublicKeyCallback will now be called multiple times with the same key, if necessary. Note that the client may still not control the last key passed to PublicKeyCallback if the connection is then authenticated with a different method, such as PasswordCallback, KeyboardInteractiveCallback, or NoClientAuth. Users should be using the Extensions field of the Permissions return value from the various authentication callbacks to record data associated with the authentication attempt instead of referencing external state. Once the connection is established the state corresponding to the successful authentication attempt can be retrieved via the ServerConn.Permissions field. Note that some third-party libraries misuse the Permissions type by sharing it across authentication attempts; users of third-party libraries should refer to the relevant projects for guidance.",
-                "markdown": "**Vulnerability CVE-2024-45337**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|CRITICAL|golang.org/x/crypto|0.31.0|[CVE-2024-45337](https://avd.aquasec.com/nvd/cve-2024-45337)|\n\nApplications and libraries which misuse connection.serverAuthenticate (via callback field ServerConfig.PublicKeyCallback) may be susceptible to an authorization bypass. The documentation for ServerConfig.PublicKeyCallback says that \"A call to this function does not guarantee that the key offered is in fact used to authenticate.\" Specifically, the SSH protocol allows clients to inquire about whether a public key is acceptable before proving control of the corresponding private key. PublicKeyCallback may be called with multiple keys, and the order in which the keys were provided cannot be used to infer which key the client successfully authenticated with, if any. Some applications, which store the key(s) passed to PublicKeyCallback (or derived information) and make security relevant determinations based on it once the connection is established, may make incorrect assumptions. For example, an attacker may send public keys A and B, and then authenticate with A. PublicKeyCallback would be called only twice, first with A and then with B. A vulnerable application may then make authorization decisions based on key B for which the attacker does not actually control the private key. Since this API is widely misused, as a partial mitigation golang.org/x/cry...@v0.31.0 enforces the property that, when successfully authenticating via public key, the last key passed to ServerConfig.PublicKeyCallback will be the key used to authenticate the connection. PublicKeyCallback will now be called multiple times with the same key, if necessary. Note that the client may still not control the last key passed to PublicKeyCallback if the connection is then authenticated with a different method, such as PasswordCallback, KeyboardInteractiveCallback, or NoClientAuth. Users should be using the Extensions field of the Permissions return value from the various authentication callbacks to record data associated with the authentication attempt instead of referencing external state. Once the connection is established the state corresponding to the successful authentication attempt can be retrieved via the ServerConn.Permissions field. Note that some third-party libraries misuse the Permissions type by sharing it across authentication attempts; users of third-party libraries should refer to the relevant projects for guidance."
+                "text": "Vulnerability CVE-2025-22870\nSeverity: MEDIUM\nPackage: golang.org/x/net\nFixed Version: 0.36.0\nLink: [CVE-2025-22870](https://avd.aquasec.com/nvd/cve-2025-22870)\nMatching of hosts against proxy patterns can improperly treat an IPv6 zone ID as a hostname component. For example, when the NO_PROXY environment variable is set to \"*.example.com\", a request to \"[::1%25.example.com]:80` will incorrectly match and not be proxied.",
+                "markdown": "**Vulnerability CVE-2025-22870**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|golang.org/x/net|0.36.0|[CVE-2025-22870](https://avd.aquasec.com/nvd/cve-2025-22870)|\n\nMatching of hosts against proxy patterns can improperly treat an IPv6 zone ID as a hostname component. For example, when the NO_PROXY environment variable is set to \"*.example.com\", a request to \"[::1%25.example.com]:80` will incorrectly match and not be proxied."
               },
               "properties": {
-                "cvssv3_baseScore": 9.1,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "cvssv3_baseScore": 4.4,
+                "cvssv3_vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:L",
                 "precision": "very-high",
-                "security-severity": "9.1",
+                "security-severity": "4.4",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "CRITICAL"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2025-22869",
+              "id": "CVE-2025-22872",
               "name": "LanguageSpecificPackageVulnerability",
               "shortDescription": {
-                "text": "golang.org/x/crypto/ssh: Denial of Service in the Key Exchange of golang.org/x/crypto/ssh"
+                "text": "golang.org/x/net/html: Incorrect Neutralization of Input During Web Page Generation in x/net in golang.org/x/net"
               },
               "fullDescription": {
-                "text": "SSH servers which implement file transfer protocols are vulnerable to a denial of service attack from clients which complete the key exchange slowly, or not at all, causing pending content to be read into memory, but never transmitted."
+                "text": "The tokenizer incorrectly interprets tags with unquoted attribute values that end with a solidus character (/) as self-closing. When directly using Tokenizer, this can result in such tags incorrectly being marked as self-closing, and when using the Parse functions, this can result in content following such tags as being placed in the wrong scope during DOM construction, but only when tags are in foreign content (e.g. \u003cmath\u003e, \u003csvg\u003e, etc contexts)."
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-22869",
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-22872",
               "help": {
-                "text": "Vulnerability CVE-2025-22869\nSeverity: HIGH\nPackage: golang.org/x/crypto\nFixed Version: 0.35.0\nLink: [CVE-2025-22869](https://avd.aquasec.com/nvd/cve-2025-22869)\nSSH servers which implement file transfer protocols are vulnerable to a denial of service attack from clients which complete the key exchange slowly, or not at all, causing pending content to be read into memory, but never transmitted.",
-                "markdown": "**Vulnerability CVE-2025-22869**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|golang.org/x/crypto|0.35.0|[CVE-2025-22869](https://avd.aquasec.com/nvd/cve-2025-22869)|\n\nSSH servers which implement file transfer protocols are vulnerable to a denial of service attack from clients which complete the key exchange slowly, or not at all, causing pending content to be read into memory, but never transmitted."
+                "text": "Vulnerability CVE-2025-22872\nSeverity: MEDIUM\nPackage: golang.org/x/net\nFixed Version: 0.38.0\nLink: [CVE-2025-22872](https://avd.aquasec.com/nvd/cve-2025-22872)\nThe tokenizer incorrectly interprets tags with unquoted attribute values that end with a solidus character (/) as self-closing. When directly using Tokenizer, this can result in such tags incorrectly being marked as self-closing, and when using the Parse functions, this can result in content following such tags as being placed in the wrong scope during DOM construction, but only when tags are in foreign content (e.g. \u003cmath\u003e, \u003csvg\u003e, etc contexts).",
+                "markdown": "**Vulnerability CVE-2025-22872**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|MEDIUM|golang.org/x/net|0.38.0|[CVE-2025-22872](https://avd.aquasec.com/nvd/cve-2025-22872)|\n\nThe tokenizer incorrectly interprets tags with unquoted attribute values that end with a solidus character (/) as self-closing. When directly using Tokenizer, this can result in such tags incorrectly being marked as self-closing, and when using the Parse functions, this can result in content following such tags as being placed in the wrong scope during DOM construction, but only when tags are in foreign content (e.g. \u003cmath\u003e, \u003csvg\u003e, etc contexts)."
               },
               "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
                 "precision": "very-high",
-                "security-severity": "7.5",
+                "security-severity": "5.5",
                 "tags": [
                   "vulnerability",
                   "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             },
             {
-              "id": "CVE-2025-22868",
-              "name": "LanguageSpecificPackageVulnerability",
+              "id": "jwt-token",
+              "name": "Secret",
               "shortDescription": {
-                "text": "golang.org/x/oauth2/jws: Unexpected memory consumption during token parsing in golang.org/x/oauth2/jws"
+                "text": "JWT token"
               },
               "fullDescription": {
-                "text": "An attacker can pass a malicious malformed token which causes unexpected memory to be consumed during parsing."
+                "text": "            value: bearer ***********************************************************************************************************************************************************"
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               },
-              "helpUri": "https://avd.aquasec.com/nvd/cve-2025-22868",
+              "helpUri": "https://github.com/aquasecurity/trivy/blob/main/pkg/fanal/secret/builtin-rules.go",
               "help": {
-                "text": "Vulnerability CVE-2025-22868\nSeverity: HIGH\nPackage: golang.org/x/oauth2\nFixed Version: 0.27.0\nLink: [CVE-2025-22868](https://avd.aquasec.com/nvd/cve-2025-22868)\nAn attacker can pass a malicious malformed token which causes unexpected memory to be consumed during parsing.",
-                "markdown": "**Vulnerability CVE-2025-22868**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|golang.org/x/oauth2|0.27.0|[CVE-2025-22868](https://avd.aquasec.com/nvd/cve-2025-22868)|\n\nAn attacker can pass a malicious malformed token which causes unexpected memory to be consumed during parsing."
+                "text": "Secret JWT token\nSeverity: MEDIUM\nMatch:             value: bearer ***********************************************************************************************************************************************************",
+                "markdown": "**Secret JWT token**\n| Severity | Match |\n| --- | --- |\n|MEDIUM|            value: bearer ***********************************************************************************************************************************************************|"
               },
               "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
                 "precision": "very-high",
-                "security-severity": "7.5",
+                "security-severity": "5.5",
                 "tags": [
-                  "vulnerability",
+                  "secret",
                   "security",
-                  "HIGH"
-                ]
-              }
-            },
-            {
-              "id": "GHSA-m425-mq94-257g",
-              "name": "LanguageSpecificPackageVulnerability",
-              "shortDescription": {
-                "text": "gRPC-Go HTTP/2 Rapid Reset vulnerability"
-              },
-              "fullDescription": {
-                "text": "### Impact\nIn affected releases of gRPC-Go, it is possible for an attacker to send HTTP/2 requests, cancel them, and send subsequent requests, which is valid by the HTTP/2 protocol, but would cause the gRPC-Go server to launch more concurrent method handlers than the configured maximum stream limit.\n\n### Patches\nThis vulnerability was addressed by #6703 and has been included in patch releases: 1.56.3, 1.57.1, 1.58.3.  It is also included in the latest release, 1.59.0.\n\nAlong with applying the patch, users should also ensure they are using the `grpc.MaxConcurrentStreams` server option to apply a limit to the server's resources used for any single connection.\n\n### Workarounds\nNone.\n\n### References\n#6703\n"
-              },
-              "defaultConfiguration": {
-                "level": "error"
-              },
-              "helpUri": "https://github.com/advisories/GHSA-m425-mq94-257g",
-              "help": {
-                "text": "Vulnerability GHSA-m425-mq94-257g\nSeverity: HIGH\nPackage: google.golang.org/grpc\nFixed Version: 1.56.3, 1.57.1, 1.58.3\nLink: [GHSA-m425-mq94-257g](https://github.com/advisories/GHSA-m425-mq94-257g)\n### Impact\nIn affected releases of gRPC-Go, it is possible for an attacker to send HTTP/2 requests, cancel them, and send subsequent requests, which is valid by the HTTP/2 protocol, but would cause the gRPC-Go server to launch more concurrent method handlers than the configured maximum stream limit.\n\n### Patches\nThis vulnerability was addressed by #6703 and has been included in patch releases: 1.56.3, 1.57.1, 1.58.3.  It is also included in the latest release, 1.59.0.\n\nAlong with applying the patch, users should also ensure they are using the `grpc.MaxConcurrentStreams` server option to apply a limit to the server's resources used for any single connection.\n\n### Workarounds\nNone.\n\n### References\n#6703\n",
-                "markdown": "**Vulnerability GHSA-m425-mq94-257g**\n| Severity | Package | Fixed Version | Link |\n| --- | --- | --- | --- |\n|HIGH|google.golang.org/grpc|1.56.3, 1.57.1, 1.58.3|[GHSA-m425-mq94-257g](https://github.com/advisories/GHSA-m425-mq94-257g)|\n\n### Impact\nIn affected releases of gRPC-Go, it is possible for an attacker to send HTTP/2 requests, cancel them, and send subsequent requests, which is valid by the HTTP/2 protocol, but would cause the gRPC-Go server to launch more concurrent method handlers than the configured maximum stream limit.\n\n### Patches\nThis vulnerability was addressed by #6703 and has been included in patch releases: 1.56.3, 1.57.1, 1.58.3.  It is also included in the latest release, 1.59.0.\n\nAlong with applying the patch, users should also ensure they are using the `grpc.MaxConcurrentStreams` server option to apply a limit to the server's resources used for any single connection.\n\n### Workarounds\nNone.\n\n### References\n#6703\n"
-              },
-              "properties": {
-                "cvssv3_baseScore": 7.5,
-                "cvssv3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
-                "precision": "very-high",
-                "security-severity": "7.5",
-                "tags": [
-                  "vulnerability",
-                  "security",
-                  "HIGH"
+                  "MEDIUM"
                 ]
               }
             }
@@ -276,11 +241,11 @@
       },
       "results": [
         {
-          "ruleId": "CVE-2024-24762",
+          "ruleId": "CVE-2024-56201",
           "ruleIndex": 0,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: python-multipart\nInstalled Version: 0.0.6\nVulnerability CVE-2024-24762\nSeverity: HIGH\nFixed Version: 0.0.7\nLink: [CVE-2024-24762](https://avd.aquasec.com/nvd/cve-2024-24762)"
+            "text": "Package: jinja2\nInstalled Version: 3.1.4\nVulnerability CVE-2024-56201\nSeverity: MEDIUM\nFixed Version: 3.1.5\nLink: [CVE-2024-56201](https://avd.aquasec.com/nvd/cve-2024-56201)"
           },
           "locations": [
             {
@@ -290,24 +255,24 @@
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 11,
+                  "startLine": 7,
                   "startColumn": 1,
-                  "endLine": 11,
+                  "endLine": 7,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "requirements.txt: python-multipart@0.0.6"
+                "text": "requirements.txt: jinja2@3.1.4"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2024-53981",
+          "ruleId": "CVE-2024-56326",
           "ruleIndex": 1,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: python-multipart\nInstalled Version: 0.0.6\nVulnerability CVE-2024-53981\nSeverity: HIGH\nFixed Version: 0.0.18\nLink: [CVE-2024-53981](https://avd.aquasec.com/nvd/cve-2024-53981)"
+            "text": "Package: jinja2\nInstalled Version: 3.1.4\nVulnerability CVE-2024-56326\nSeverity: MEDIUM\nFixed Version: 3.1.5\nLink: [CVE-2024-56326](https://avd.aquasec.com/nvd/cve-2024-56326)"
           },
           "locations": [
             {
@@ -317,78 +282,78 @@
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 11,
+                  "startLine": 7,
                   "startColumn": 1,
-                  "endLine": 11,
+                  "endLine": 7,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "requirements.txt: python-multipart@0.0.6"
+                "text": "requirements.txt: jinja2@3.1.4"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2024-3817",
+          "ruleId": "CVE-2025-27516",
           "ruleIndex": 2,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: github.com/hashicorp/go-getter\nInstalled Version: v1.7.1\nVulnerability CVE-2024-3817\nSeverity: CRITICAL\nFixed Version: 1.7.4\nLink: [CVE-2024-3817](https://avd.aquasec.com/nvd/cve-2024-3817)"
+            "text": "Package: jinja2\nInstalled Version: 3.1.4\nVulnerability CVE-2025-27516\nSeverity: MEDIUM\nFixed Version: 3.1.6\nLink: [CVE-2025-27516](https://avd.aquasec.com/nvd/cve-2025-27516)"
           },
           "locations": [
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "tests/terraform/go.mod",
+                  "uri": "requirements.txt",
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 1,
+                  "startLine": 7,
                   "startColumn": 1,
-                  "endLine": 1,
+                  "endLine": 7,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: github.com/hashicorp/go-getter@v1.7.1"
+                "text": "requirements.txt: jinja2@3.1.4"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2024-6257",
+          "ruleId": "CVE-2024-47081",
           "ruleIndex": 3,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: github.com/hashicorp/go-getter\nInstalled Version: v1.7.1\nVulnerability CVE-2024-6257\nSeverity: HIGH\nFixed Version: 1.7.5\nLink: [CVE-2024-6257](https://avd.aquasec.com/nvd/cve-2024-6257)"
+            "text": "Package: requests\nInstalled Version: 2.32.3\nVulnerability CVE-2024-47081\nSeverity: MEDIUM\nFixed Version: 2.32.4\nLink: [CVE-2024-47081](https://avd.aquasec.com/nvd/cve-2024-47081)"
           },
           "locations": [
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "tests/terraform/go.mod",
+                  "uri": "requirements.txt",
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 1,
+                  "startLine": 12,
                   "startColumn": 1,
-                  "endLine": 1,
+                  "endLine": 12,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: github.com/hashicorp/go-getter@v1.7.1"
+                "text": "requirements.txt: requests@2.32.3"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2025-8959",
+          "ruleId": "CVE-2025-58058",
           "ruleIndex": 4,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: github.com/hashicorp/go-getter\nInstalled Version: v1.7.1\nVulnerability CVE-2025-8959\nSeverity: HIGH\nFixed Version: 1.7.9\nLink: [CVE-2025-8959](https://avd.aquasec.com/nvd/cve-2025-8959)"
+            "text": "Package: github.com/ulikunitz/xz\nInstalled Version: v0.5.10\nVulnerability CVE-2025-58058\nSeverity: MEDIUM\nFixed Version: 0.5.15\nLink: [CVE-2025-58058](https://avd.aquasec.com/nvd/cve-2025-58058)"
           },
           "locations": [
             {
@@ -405,17 +370,17 @@
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: github.com/hashicorp/go-getter@v1.7.1"
+                "text": "tests/terraform/go.mod: github.com/ulikunitz/xz@v0.5.10"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2024-45337",
+          "ruleId": "CVE-2025-22870",
           "ruleIndex": 5,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: golang.org/x/crypto\nInstalled Version: v0.14.0\nVulnerability CVE-2024-45337\nSeverity: CRITICAL\nFixed Version: 0.31.0\nLink: [CVE-2024-45337](https://avd.aquasec.com/nvd/cve-2024-45337)"
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.34.0\nVulnerability CVE-2025-22870\nSeverity: MEDIUM\nFixed Version: 0.36.0\nLink: [CVE-2025-22870](https://avd.aquasec.com/nvd/cve-2025-22870)"
           },
           "locations": [
             {
@@ -432,17 +397,17 @@
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: golang.org/x/crypto@v0.14.0"
+                "text": "tests/terraform/go.mod: golang.org/x/net@v0.34.0"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2025-22869",
+          "ruleId": "CVE-2025-22872",
           "ruleIndex": 6,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: golang.org/x/crypto\nInstalled Version: v0.14.0\nVulnerability CVE-2025-22869\nSeverity: HIGH\nFixed Version: 0.35.0\nLink: [CVE-2025-22869](https://avd.aquasec.com/nvd/cve-2025-22869)"
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.34.0\nVulnerability CVE-2025-22872\nSeverity: MEDIUM\nFixed Version: 0.38.0\nLink: [CVE-2025-22872](https://avd.aquasec.com/nvd/cve-2025-22872)"
           },
           "locations": [
             {
@@ -459,61 +424,223 @@
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: golang.org/x/crypto@v0.14.0"
+                "text": "tests/terraform/go.mod: golang.org/x/net@v0.34.0"
               }
             }
           ]
         },
         {
-          "ruleId": "CVE-2025-22868",
+          "ruleId": "jwt-token",
           "ruleIndex": 7,
-          "level": "error",
+          "level": "warning",
           "message": {
-            "text": "Package: golang.org/x/oauth2\nInstalled Version: v0.1.0\nVulnerability CVE-2025-22868\nSeverity: HIGH\nFixed Version: 0.27.0\nLink: [CVE-2025-22868](https://avd.aquasec.com/nvd/cve-2025-22868)"
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:             value: bearer ***********************************************************************************************************************************************************"
           },
           "locations": [
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "tests/terraform/go.mod",
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 1,
+                  "startLine": 284,
                   "startColumn": 1,
-                  "endLine": 1,
+                  "endLine": 284,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: golang.org/x/oauth2@v0.1.0"
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
               }
             }
           ]
         },
         {
-          "ruleId": "GHSA-m425-mq94-257g",
-          "ruleIndex": 8,
-          "level": "error",
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
           "message": {
-            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.51.0\nVulnerability GHSA-m425-mq94-257g\nSeverity: HIGH\nFixed Version: 1.56.3, 1.57.1, 1.58.3\nLink: [GHSA-m425-mq94-257g](https://github.com/advisories/GHSA-m425-mq94-257g)"
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:               value: '\"bearer ***********************************************************************************************************************************************************\"'"
           },
           "locations": [
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "tests/terraform/go.mod",
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
                   "uriBaseId": "ROOTPATH"
                 },
                 "region": {
-                  "startLine": 1,
+                  "startLine": 479,
                   "startColumn": 1,
-                  "endLine": 1,
+                  "endLine": 479,
                   "endColumn": 1
                 }
               },
               "message": {
-                "text": "tests/terraform/go.mod: google.golang.org/grpc@v1.51.0"
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:               value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 497,
+                  "startColumn": 1,
+                  "endLine": 497,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:             value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 545,
+                  "startColumn": 1,
+                  "endLine": 545,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:               value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 570,
+                  "startColumn": 1,
+                  "endLine": 570,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:               value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 636,
+                  "startColumn": 1,
+                  "endLine": 636,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:               value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 694,
+                  "startColumn": 1,
+                  "endLine": 694,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "jwt-token",
+          "ruleIndex": 7,
+          "level": "warning",
+          "message": {
+            "text": "Artifact: docs/ece461_fall_2025_openapi_spec (2).yaml\nType: \nSecret JWT token\nSeverity: MEDIUM\nMatch:             value: bearer ***********************************************************************************************************************************************************"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docs/ece461_fall_2025_openapi_spec%20%282%29.yaml",
+                  "uriBaseId": "ROOTPATH"
+                },
+                "region": {
+                  "startLine": 769,
+                  "startColumn": 1,
+                  "endLine": 769,
+                  "endColumn": 1
+                }
+              },
+              "message": {
+                "text": "docs/ece461_fall_2025_openapi_spec (2).yaml"
               }
             }
           ]
