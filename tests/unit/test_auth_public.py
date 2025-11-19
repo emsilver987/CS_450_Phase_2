@@ -18,13 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Import ClientError BEFORE mocking boto3/botocore to ensure it's a real exception class
-from botocore.exceptions import ClientError  # noqa: E402
-
 sys.modules.setdefault("boto3", MagicMock())
-# Don't mock botocore.exceptions - we need the real ClientError for exception handling
-# sys.modules.setdefault("botocore", MagicMock())
-# sys.modules.setdefault("botocore.exceptions", MagicMock())
 
 mock_s3 = types.ModuleType("src.services.s3_service")
 mock_s3.list_models = MagicMock(return_value={})

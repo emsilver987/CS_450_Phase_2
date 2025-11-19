@@ -149,8 +149,6 @@ def _load_expected_passwords() -> Set[str]:
 
         return _PASSWORD_CACHE
 
-    return _PASSWORD_CACHE
-
 
 # -----------------------------------------------------------------------------
 # Core logic

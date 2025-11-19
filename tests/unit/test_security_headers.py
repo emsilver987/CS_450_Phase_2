@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
 from src.middleware.security_headers import SecurityHeadersMiddleware
 
