@@ -20,6 +20,7 @@ dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-ea
 ARTIFACTS_BUCKET = os.getenv("ARTIFACTS_BUCKET", "pkg-artifacts")
 PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
 UPLOADS_TABLE = os.getenv("DDB_TABLE_UPLOADS", "uploads")
+DOWNLOADS_TABLE = os.getenv("DDB_TABLE_DOWNLOADS", "downloads")
 
 app = FastAPI(title="Package Management Service", version="1.0.0")
 security = HTTPBearer()
@@ -77,6 +78,48 @@ def verify_token(
     return {"user_id": "demo_user", "groups": ["Group_106"]}
 
 
+def log_upload_event(
+    pkg_name: str,
+    version: str,
+    user_id: str,
+    event_type: str,
+    status: str,
+    upload_id: Optional[str] = None,
+    size_bytes: Optional[int] = None,
+    sha256_hash: Optional[str] = None,
+    reason: Optional[str] = None,
+):
+    """Log upload event to DynamoDB"""
+    try:
+        table = dynamodb.Table(DOWNLOADS_TABLE)  # Reuse downloads table for upload events
+        timestamp = datetime.now(timezone.utc)
+        event_id = f"upload_{user_id}_{pkg_name}_{version}_{timestamp.isoformat()}"
+
+        item = {
+            "event_id": event_id,
+            "pkg_name": pkg_name,
+            "version": version,
+            "user_id": user_id,
+            "timestamp": timestamp.isoformat(),
+            "event_type": event_type,  # "upload_init", "upload_complete", "upload_abort"
+            "status": status,  # "initiated", "completed", "aborted", "failed"
+            "reason": reason or "",
+        }
+
+        # Add optional fields if provided
+        if upload_id:
+            item["upload_id"] = upload_id
+        if size_bytes is not None:
+            item["size_bytes"] = size_bytes
+        if sha256_hash:
+            item["sha256_hash"] = sha256_hash
+
+        table.put_item(Item=item)
+        logging.info(f"Upload event logged: {event_type} for {pkg_name} v{version} by {user_id}")
+    except Exception as e:
+        logging.error(f"Error logging upload event: {e}")
+
+
 def validate_package_structure(file_content: bytes) -> Dict[str, Any]:
     """Validate package ZIP structure"""
     try:
@@ -127,6 +170,16 @@ async def init_upload(
         }
 
         table.put_item(Item=upload_item)
+
+        # Log upload initiation event
+        log_upload_event(
+            pkg_name=request.pkg_name,
+            version=request.version,
+            user_id=user["user_id"],
+            event_type="upload_init",
+            status="initiated",
+            upload_id=upload_id,
+        )
 
         return UploadInitResponse(
             upload_id=upload_id, expires_at=expires_at.isoformat()
@@ -291,6 +344,19 @@ async def commit_upload(
             },
         )
 
+        # Log upload completion event
+        log_upload_event(
+            pkg_name=upload_info["pkg_name"],
+            version=upload_info["version"],
+            user_id=user["user_id"],
+            event_type="upload_complete",
+            status="completed",
+            upload_id=upload_id,
+            size_bytes=len(file_content),
+            sha256_hash=sha256_hash,
+            reason="Upload completed successfully",
+        )
+
         # Clean up temporary parts
         for part_info in request.parts:
             part_number = int(part_info["PartNumber"])
@@ -335,6 +401,17 @@ async def abort_upload(upload_id: str, user: Dict[str, Any] = Depends(verify_tok
                 ":status": "aborted",
                 ":updated_at": datetime.now(timezone.utc).isoformat(),
             },
+        )
+
+        # Log upload abortion event
+        log_upload_event(
+            pkg_name=upload_info["pkg_name"],
+            version=upload_info["version"],
+            user_id=user["user_id"],
+            event_type="upload_abort",
+            status="aborted",
+            upload_id=upload_id,
+            reason="Upload aborted by user",
         )
 
         return {"message": "Upload aborted successfully"}
