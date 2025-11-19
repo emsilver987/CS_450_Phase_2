@@ -4,20 +4,20 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ## Summary
 
-**Overall Status:** ✅ **Excellent Coverage** - Nearly all critical security mitigations are implemented. Only AWS WAF and Admin MFA enforcement remain as gaps.
+**Overall Status:** ✅ **Excellent Coverage** - Nearly all critical security mitigations are implemented. Token use tracking is partially implemented (only in `/auth/me` endpoint). AWS WAF and Admin MFA enforcement remain as gaps.
 
-### Coverage Percentage: **~91%**
+### Coverage Percentage: **~88%**
 
 **Breakdown by STRIDE Category:**
 
-- 🧩 **Spoofing Identity:** 83.3% (5/6 fully implemented - MFA not enforced)
+- 🧩 **Spoofing Identity:** 66.7% (4/6 fully implemented - Token use tracking partially implemented, MFA not enforced)
 - 🧱 **Tampering:** 100% (5/5 fully implemented - encryption, versioning, presigned URLs, conditional writes, SHA-256)
 - 🧾 **Repudiation:** 100% (4/4 fully implemented - CloudTrail, CloudWatch, download logging, Glacier archiving)
 - 🔒 **Information Disclosure:** 100% (6/6 fully implemented - AWS Config, security headers, least-privilege IAM, presigned URLs, Secrets Manager, RBAC)
 - 🧨 **Denial of Service:** 83.3% (5/6 implemented - API Gateway throttling, rate limiting, CloudWatch alarms, ECS limits, validator timeout; WAF missing)
 - 🧍‍♂️ **Elevation of Privilege:** 80% (4/5 implemented - MFA not enforced)
 
-**Weighted Average:** (83.3 + 100 + 100 + 100 + 83.3 + 80) / 6 = **91.1% ≈ 91%**
+**Weighted Average:** (66.7 + 100 + 100 + 100 + 83.3 + 80) / 6 = **88.3% ≈ 88%**
 
 **Note:** This calculation gives equal weight to each STRIDE category. JWT authentication is now enabled but requires `ENABLE_AUTH=true` or `JWT_SECRET` environment variable to be set.
 
@@ -35,19 +35,20 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation          | Status             | Notes                                                                            |
-| ------------------- | ------------------ | -------------------------------------------------------------------------------- |
-| JWT Authentication  | ✅ **Enabled**     | JWT authentication enabled; requires `ENABLE_AUTH=true` or JWT secret available  |
-| JWT Secret via KMS  | ✅ **Implemented** | JWT secret retrieved from Secrets Manager (KMS-encrypted) via `get_jwt_secret()` |
-| Token Expiration    | ✅ **Implemented** | `verify_jwt_token()` checks expiration                                           |
-| Token Use Tracking  | ✅ **Implemented** | `consume_token_use()` tracks remaining uses in DynamoDB                          |
-| IAM Group Isolation | ✅ **Implemented** | IAM policies in `infra/envs/dev/iam_*.tf`                                        |
-| Admin MFA           | ❌ **Not Found**   | No MFA enforcement found in IAM policies                                         |
+| Mitigation          | Status                       | Notes                                                                                               |
+| ------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| JWT Authentication  | ✅ **Enabled**               | JWT authentication enabled; requires `ENABLE_AUTH=true` or JWT secret available                     |
+| JWT Secret via KMS  | ✅ **Implemented**           | JWT secret retrieved from Secrets Manager (KMS-encrypted) via `get_jwt_secret()`                    |
+| Token Expiration    | ✅ **Implemented**           | `verify_jwt_token()` checks expiration                                                              |
+| Token Use Tracking  | ⚠️ **Partially Implemented** | `consume_token_use()` exists but only called in `/auth/me` endpoint; not enforced in JWT middleware |
+| IAM Group Isolation | ✅ **Implemented**           | IAM policies in `infra/envs/dev/iam_*.tf`                                                           |
+| Admin MFA           | ❌ **Not Found**             | No MFA enforcement found in IAM policies                                                            |
 
 ### Issues:
 
 1. ~~JWT secret not managed by KMS (uses plain env var) - should use Secrets Manager or KMS~~ ✅ **FIXED**: JWT secret now retrieved from Secrets Manager (KMS-encrypted)
-2. No MFA enforcement for admin users
+2. Token use tracking not enforced in JWT middleware - tokens can be reused indefinitely on most endpoints (only `/auth/me` enforces use count)
+3. No MFA enforcement for admin users
 
 ---
 
@@ -220,7 +221,7 @@ None - All information disclosure mitigations are fully implemented.
 - Least-privilege IAM policies
 - RBAC checks for sensitive packages
 - Download event logging
-- Token use tracking
+- Token use tracking (partially implemented - only in `/auth/me` endpoint)
 - Error handling (prevents info disclosure)
 - SHA-256 hash verification (computed during upload, stored in DynamoDB, verified during download)
 - S3 SSE-KMS encryption (customer-managed KMS key)
@@ -232,7 +233,7 @@ None - All information disclosure mitigations are fully implemented.
 
 ### Partially Implemented ⚠️
 
-None - All partially implemented items have been completed.
+- Token use tracking - Function exists and works, but only enforced in `/auth/me` endpoint; not called in JWT middleware for other protected endpoints
 
 ### Not Implemented ❌
 
@@ -248,8 +249,9 @@ None - All partially implemented items have been completed.
 **Note:** The following items are NOT implemented. Items marked as ✅ **FIXED** or ✅ **COMPLETED** in other sections (such as SHA-256 hash verification, S3 SSE-KMS encryption, S3 versioning, security headers, API Gateway throttling, and JWT secret management) are fully implemented and should NOT appear in this list.
 
 1. **No AWS WAF** - DoS protection incomplete (API Gateway throttling is implemented, but WAF is missing)
-2. **Admin MFA Not Enforced** - Documented but not implemented
-3. ~~**JWT Secret Not Managed by KMS**~~ ✅ **FIXED** - JWT secret now retrieved from Secrets Manager (KMS-encrypted)
+2. **Token Use Tracking Not Enforced in Middleware** - `consume_token_use()` exists but only called in `/auth/me` endpoint; tokens can be reused indefinitely on most endpoints
+3. **Admin MFA Not Enforced** - Documented but not implemented
+4. ~~**JWT Secret Not Managed by KMS**~~ ✅ **FIXED** - JWT secret now retrieved from Secrets Manager (KMS-encrypted)
 
 ---
 
@@ -259,8 +261,9 @@ None - All partially implemented items have been completed.
 
 1. ~~**Implement SHA-256 hash verification**~~ - ✅ **COMPLETED**: Hash computation during upload, storage in DynamoDB, and verification during download
 2. **Configure AWS WAF** - Add WAF rules to API Gateway
-3. ~~**Add security headers middleware**~~ - ✅ **COMPLETED**: SecurityHeadersMiddleware implemented with HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, and Permissions-Policy (2025-11-17)
-4. ~~**Migrate JWT secret to Secrets Manager/KMS**~~ ✅ **COMPLETED** - JWT secret now retrieved from Secrets Manager via `src/utils/jwt_secret.py`
+3. **Enforce token use tracking in JWT middleware** - Call `consume_token_use()` in `JWTAuthMiddleware` to prevent token replay on all protected endpoints
+4. ~~**Add security headers middleware**~~ - ✅ **COMPLETED**: SecurityHeadersMiddleware implemented with HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, and Permissions-Policy (2025-11-17)
+5. ~~**Migrate JWT secret to Secrets Manager/KMS**~~ ✅ **COMPLETED** - JWT secret now retrieved from Secrets Manager via `src/utils/jwt_secret.py`
 
 ### Medium Priority
 
