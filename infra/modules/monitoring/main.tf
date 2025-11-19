@@ -261,6 +261,15 @@ output "jwt_secret_arn" {
   value = aws_secretsmanager_secret.jwt_secret.arn
 }
 
+# Data source for admin password secret
+data "aws_secretsmanager_secret" "admin_secret" {
+  name = "my-auth-admin-secret"
+}
+
+output "admin_secret_arn" {
+  value = data.aws_secretsmanager_secret.admin_secret.arn
+}
+
 output "dashboard_url" {
   value = "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main_dashboard.dashboard_name}"
 }
@@ -354,8 +363,8 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs" {
         Resource = "${aws_s3_bucket.cloudtrail_logs.arn}/*"
         Condition = {
           StringEquals = {
-            "s3:x-amz-acl"    = "bucket-owner-full-control"
-            "AWS:SourceArn"    = "arn:aws:cloudtrail:${var.aws_region}:${var.aws_account_id}:trail/acme-audit-trail"
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "AWS:SourceArn"     = "arn:aws:cloudtrail:${var.aws_region}:${var.aws_account_id}:trail/acme-audit-trail"
             "aws:SourceAccount" = var.aws_account_id
           }
         }
@@ -376,8 +385,8 @@ resource "aws_cloudtrail" "audit_trail" {
 
   # Include data events for S3 and DynamoDB
   event_selector {
-    read_write_type                 = "All"
-    include_management_events       = true
+    read_write_type                  = "All"
+    include_management_events        = true
     exclude_management_event_sources = []
 
     data_resource {
@@ -387,8 +396,8 @@ resource "aws_cloudtrail" "audit_trail" {
   }
 
   event_selector {
-    read_write_type                 = "All"
-    include_management_events       = true
+    read_write_type                  = "All"
+    include_management_events        = true
     exclude_management_event_sources = []
 
     data_resource {

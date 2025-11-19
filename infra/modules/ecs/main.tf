@@ -3,6 +3,11 @@ data "aws_secretsmanager_secret" "jwt_secret" {
   name = "acme-jwt-secret"
 }
 
+# Data source for admin password secret
+data "aws_secretsmanager_secret" "admin_secret" {
+  name = "my-auth-admin-secret"
+}
+
 # ECR Repository
 resource "aws_ecr_repository" "validator_repo" {
   name                 = "validator-service"
@@ -106,6 +111,14 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name  = "JWT_SECRET_NAME"
         value = "acme-jwt-secret"
+      },
+      {
+        name  = "AUTH_ADMIN_SECRET_NAME"
+        value = "my-auth-admin-secret"
+      },
+      {
+        name  = "ENVIRONMENT"
+        value = "production"
       }
     ]
 
@@ -324,7 +337,10 @@ resource "aws_iam_role_policy" "ecs_execution_secrets_policy" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = data.aws_secretsmanager_secret.jwt_secret.arn
+        Resource = [
+          data.aws_secretsmanager_secret.jwt_secret.arn,
+          data.aws_secretsmanager_secret.admin_secret.arn
+        ]
       },
       {
         Effect = "Allow"

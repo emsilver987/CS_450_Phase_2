@@ -85,6 +85,37 @@ resource "aws_iam_policy" "api_kms_s3_managed" {
   })
 }
 
+# API Service - Secrets Manager Policy for admin passwords
+resource "aws_iam_policy" "api_secrets_managed" {
+  name = "api-secrets-manager-dev"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ],
+        Resource = module.monitoring.admin_secret_arn
+      },
+      {
+        Effect = "Allow",
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ],
+        Resource = module.monitoring.kms_key_arn,
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.us-east-1.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Attach policies to API task role
 resource "aws_iam_role_policy_attachment" "api_attach_ddb" {
   role       = aws_iam_role.api_task.name
@@ -99,4 +130,9 @@ resource "aws_iam_role_policy_attachment" "api_attach_s3" {
 resource "aws_iam_role_policy_attachment" "api_attach_kms" {
   role       = aws_iam_role.api_task.name
   policy_arn = aws_iam_policy.api_kms_s3_managed.arn
+}
+
+resource "aws_iam_role_policy_attachment" "api_attach_secrets" {
+  role       = aws_iam_role.api_task.name
+  policy_arn = aws_iam_policy.api_secrets_managed.arn
 }
