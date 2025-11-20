@@ -14,9 +14,10 @@ from src.utils.auth import get_authorization_header, parse_authorization_token
 from src.utils.jwt_secret import get_jwt_secret
 
 # Public endpoints that should bypass auth
+# These endpoints do not require JWT authentication
 DEFAULT_EXEMPT: tuple[str, ...] = (
     "/health",
-    "/reset",
+    "/health/components",
     "/tracks",
     "/authenticate",
     "/docs",
@@ -26,7 +27,8 @@ DEFAULT_EXEMPT: tuple[str, ...] = (
     "/favicon.ico",
     "/api/hello",
     "/api/packages/reset",
-    "/artifact/",  # Temporarily exempt all artifact endpoints
+    # Note: /reset requires admin auth, so it's NOT exempt
+    # Note: All /artifact/* endpoints require auth, so they're NOT exempt
 )
 
 
