@@ -99,6 +99,8 @@ All tampering mitigations are fully implemented, including:
 
 - ✅ CloudTrail captures all API calls
 - ✅ CloudWatch Logs store audit entries
+- ✅ Download event logging
+- ✅ Upload event logging (2025-01-XX)
 - ✅ Logs archived to S3 Glacier
 
 ### Implementation Status:
@@ -108,6 +110,7 @@ All tampering mitigations are fully implemented, including:
 | CloudTrail             | ✅ **Implemented** | Explicitly configured in `infra/modules/monitoring/main.tf` with multi-region trail, data event logging, and KMS encryption |
 | CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase                                                                                       |
 | Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB                                                                                     |
+| Upload Event Logging   | ✅ **Implemented** | `log_upload_event()` logs to DynamoDB at init, complete, and abort stages (2025-01-XX)                                      |
 | S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs transition to Glacier after 90 days via lifecycle policy                                                    |
 
 ### Status:
@@ -221,6 +224,7 @@ None - All information disclosure mitigations are fully implemented.
 - Least-privilege IAM policies
 - RBAC checks for sensitive packages
 - Download event logging
+- Upload event logging (logs at init, complete, and abort stages)
 - Token use tracking (partially implemented - only in `/auth/me` endpoint)
 - Error handling (prevents info disclosure)
 - SHA-256 hash verification (computed during upload, stored in DynamoDB, verified during download)

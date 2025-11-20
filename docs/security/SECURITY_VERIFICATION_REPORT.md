@@ -5,7 +5,7 @@
 
 ## Summary
 
-All 9 major security features have been verified to be properly implemented and functional.
+All 10 major security features have been verified to be properly implemented and functional.
 
 ---
 
@@ -250,6 +250,53 @@ resource "aws_api_gateway_method_settings" "throttle_settings" {
 
 ---
 
+## 10. ✅ Upload Event Logging
+
+**Status:** Implemented and Active
+
+**Location:** `src/services/package_service.py`
+
+**Verification:**
+
+- ✅ `log_upload_event()` function exists (lines 81-120)
+- ✅ Function logs upload events to DynamoDB `downloads` table
+- ✅ Events logged at three stages:
+  1. **Upload Init** - When upload is initiated via `/init` endpoint
+  2. **Upload Complete** - When upload is successfully committed via `/commit` endpoint
+  3. **Upload Abort** - When upload is aborted via `/abort` endpoint
+- ✅ Each event includes: `event_id`, `pkg_name`, `version`, `user_id`, `timestamp`, `event_type`, `status`, `reason`, `upload_id`, optional `size_bytes`, optional `sha256_hash`
+- ✅ Uses existing `user-timestamp-index` GSI for efficient querying
+- ✅ Integrated in upload endpoints (lines 153-156, 328-336, 366-373)
+
+**Code:**
+
+```python
+def log_upload_event(
+    pkg_name: str,
+    version: str,
+    user_id: str,
+    event_type: str,
+    status: str,
+    upload_id: Optional[str] = None,
+    size_bytes: Optional[int] = None,
+    sha256_hash: Optional[str] = None,
+    reason: Optional[str] = None,
+):
+    """Log upload event to DynamoDB"""
+    table = dynamodb.Table(DOWNLOADS_TABLE)
+    # ... implementation ...
+    table.put_item(Item=item)
+```
+
+**How it works:**
+
+- Executes during upload operations (init, complete, abort)
+- Stores events in DynamoDB `downloads` table (reused for both upload and download events)
+- Provides complete audit trail for upload operations
+- Enables compliance and security monitoring
+
+---
+
 ## Test Coverage
 
 **Unit Tests:**
@@ -281,7 +328,7 @@ All security features can be configured via environment variables:
 
 ## Conclusion
 
-**All 9 security features are properly implemented, configured, and verified to be functional.**
+**All 10 security features are properly implemented, configured, and verified to be functional.**
 
 The code follows best practices and integrates correctly with the FastAPI/Starlette middleware system. All features will be active when the application runs.
 
@@ -296,4 +343,3 @@ The code follows best practices and integrates correctly with the FastAPI/Starle
 
 - ✅ **OpenAPI Specification Compliance** – Achieved 100% compliance (15/15 endpoints). Fixed `/authenticate` endpoint response format (now returns token string per spec) and added 501 response when authentication unavailable. Fixed `/tracks` endpoint to return `{"plannedTracks": [...]}`. See [OPENAPI_COMPLIANCE_CHECK.md](../../OPENAPI_COMPLIANCE_CHECK.md) for details.
 - ✅ **Dependency Security Updates** – Updated Python dependencies (`jinja2` 3.1.4 → 3.1.6, `requests` 2.32.3 → 2.32.4) and Go dependencies (`github.com/ulikunitz/xz` v0.5.10 → v0.5.15, `golang.org/x/net` v0.34.0 → v0.38.0) to address CVEs: CVE-2024-56201, CVE-2024-56326, CVE-2025-27516, CVE-2024-47081, CVE-2025-58058, CVE-2025-22870, CVE-2025-22872. All vulnerabilities resolved.
-

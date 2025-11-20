@@ -53,51 +53,55 @@
     - Code: `log_download_event()` in `src/services/validator_service.py`
     - Status: ✅ Accurate
 
-12. **S3 Glacier Archiving** ✅ - Correctly marked as implemented
+12. **Upload Event Logging** ✅ - Correctly marked as implemented (2025-01-XX)
+    - Code: `log_upload_event()` in `src/services/package_service.py`
+    - Status: ✅ Accurate - Logs events at init, complete, and abort stages
+
+13. **S3 Glacier Archiving** ✅ - Correctly marked as implemented
     - Code: Lifecycle policy in `infra/modules/monitoring/main.tf` lines 308-320
     - Status: ✅ Accurate
 
-13. **Security Headers** ✅ - Correctly marked as implemented
+14. **Security Headers** ✅ - Correctly marked as implemented
     - Code: `src/middleware/security_headers.py` integrated in `src/entrypoint.py`
     - Status: ✅ Accurate
 
-14. **AWS Config** ✅ - Correctly marked as implemented
+15. **AWS Config** ✅ - Correctly marked as implemented
     - Code: `infra/modules/config/main.tf` fully configured
     - Status: ✅ Accurate
 
-15. **API Gateway Throttling** ✅ - Correctly marked as implemented
+16. **API Gateway Throttling** ✅ - Correctly marked as implemented
     - Code: `infra/modules/api-gateway/main.tf` lines 3417-3428
     - Status: ✅ Accurate
 
-16. **CloudWatch Alarms** ✅ - Correctly marked as implemented
+17. **CloudWatch Alarms** ✅ - Correctly marked as implemented
     - Code: 3 alarms in `infra/modules/monitoring/main.tf` lines 108-176
     - Status: ✅ Accurate
 
-17. **Rate Limiting** ✅ - Correctly marked as implemented
+18. **Rate Limiting** ✅ - Correctly marked as implemented
     - Code: `RateLimitMiddleware` in `src/middleware/rate_limit.py`
     - Status: ✅ Accurate
 
-18. **Validator Timeout** ✅ - Correctly marked as implemented
+19. **Validator Timeout** ✅ - Correctly marked as implemented
     - Code: 5s timeout in `validator_service.py`
     - Status: ✅ Accurate
 
-19. **Least-Privilege IAM** ✅ - Correctly marked as implemented
+20. **Least-Privilege IAM** ✅ - Correctly marked as implemented
     - Code: Scoped policies in `infra/envs/dev/iam_*.tf`
     - Status: ✅ Accurate
 
-20. **Secrets Manager** ✅ - Correctly marked as implemented
+21. **Secrets Manager** ✅ - Correctly marked as implemented
     - Code: Used for JWT secrets and admin passwords
     - Status: ✅ Accurate
 
-21. **RBAC Checks** ✅ - Correctly marked as implemented
+22. **RBAC Checks** ✅ - Correctly marked as implemented
     - Code: Group-based access in `package_service.py` and `validator_service.py`
     - Status: ✅ Accurate
 
-22. **Admin MFA** ❌ - Correctly marked as NOT found
+23. **Admin MFA** ❌ - Correctly marked as NOT found
     - Code: No MFA enforcement in IAM policies
     - Status: ✅ Accurate
 
-23. **AWS WAF** ❌ - Correctly marked as NOT found
+24. **AWS WAF** ❌ - Correctly marked as NOT found
     - Code: No WAF configuration found
     - Status: ✅ Accurate
 

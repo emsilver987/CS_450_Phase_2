@@ -256,13 +256,15 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** ✅ Resolved
 
 3. **Upload Event Logging**
-   - **Threat:** Cannot prove who uploaded what package
-   - **Missing:** Upload events logged to DynamoDB (only downloads logged)
-   - **Severity:** Medium
+   - ✅ **FIXED** (2025-01-XX): Upload event logging implemented in `src/services/package_service.py`
+   - ✅ `log_upload_event()` function logs events at three stages: init, complete, abort
+   - ✅ Events stored in DynamoDB `downloads` table with `user_id`, `timestamp`, `pkg_name`, `version`, `event_type`, `status`, `size_bytes`, `sha256_hash`
+   - ✅ Uses same GSI (`user-timestamp-index`) as download events for efficient querying
+   - **Severity:** ✅ Resolved - Complete audit trail for uploads
 
 #### 🔍 Trust Boundary Crossings Needing Analysis
 
-- **User Actions:** ⚠️ Partial (downloads logged, uploads not)
+- **User Actions:** ✅ Complete (downloads and uploads logged)
 - **Admin Actions:** ⚠️ May not be fully audited
 
 ---
@@ -421,7 +423,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 | **A06: Vulnerable Components**     | ✅ Yes       | ✅ Dependency scanning (pip-audit, Trivy)<br>✅ CI/CD security checks                                                                                              | ⚠️ Need to verify all CVEs remediated                                                         | Low      |
 | **A07: Authentication Failures**   | ⚠️ Partial   | ✅ JWT authentication<br>✅ Token expiration<br>✅ Secrets Manager for passwords<br>✅ JWT secret in Secrets Manager (KMS)                                         | ❌ No MFA enforcement                                                                         | Medium   |
 | **A08: Software & Data Integrity** | ✅ Yes       | ✅ SHA-256 hash verification<br>✅ Conditional DynamoDB writes<br>✅ S3 versioning enabled (2025-11-17)                                                            | ✅ All integrity controls implemented                                                         | Low      |
-| **A09: Security Logging**          | ⚠️ Partial   | ✅ CloudWatch logging<br>✅ Download event logging<br>✅ CloudTrail explicitly configured<br>✅ Log archiving to Glacier                                           | ❌ No upload event logging                                                                    | Medium   |
+| **A09: Security Logging**          | ✅ Yes       | ✅ CloudWatch logging<br>✅ Download event logging<br>✅ Upload event logging (2025-01-XX)<br>✅ CloudTrail explicitly configured<br>✅ Log archiving to Glacier   | ✅ Complete audit trail for all user actions                                                  | Low      |
 | **A10: SSRF**                      | ❌ No        | ❌ No SSRF protection found                                                                                                                                        | ❌ Need URL validation<br>❌ Need internal network restrictions                               | High     |
 
 ### Detailed OWASP Analysis
@@ -684,11 +686,15 @@ This audit evaluates the current security posture of the Phase 2 project against
       - CloudWatch dashboard configured
     - **Testable:** Yes (configuration review)
 
-11. **Upload Event Logging Missing**
+11. **Upload Event Logging Missing** ✅ **RESOLVED**
     - **Risk:** Cannot prove who uploaded what package
     - **Likelihood:** Low
     - **Impact:** Medium (non-repudiation)
-    - **Mitigation:** Add upload event logging to DynamoDB
+    - **Mitigation:** ✅ Upload event logging implemented in `src/services/package_service.py`
+      - `log_upload_event()` function logs at init, complete, and abort stages
+      - Events stored in DynamoDB `downloads` table with complete metadata
+      - Includes `user_id`, `timestamp`, `pkg_name`, `version`, `event_type`, `status`, `size_bytes`, `sha256_hash`
+      - Uses existing `user-timestamp-index` GSI for efficient querying
     - **Testable:** Yes (functional testing)
 
 12. **AWS Config Not Configured** ✅ **RESOLVED**
@@ -974,10 +980,12 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [x] Create alarms for task count
   - [x] Configure CloudWatch dashboard
 
-- [ ] **Add Upload Event Logging**
-  - [ ] Log uploads to DynamoDB
-  - [ ] Include user_id, timestamp, package info
-  - [ ] Update documentation
+- [x] **Add Upload Event Logging** ✅ (2025-01-XX)
+  - [x] Log uploads to DynamoDB
+  - [x] Include user_id, timestamp, package info
+  - [x] Include event_type, status, size_bytes, sha256_hash for completed uploads
+  - [x] Log at init, complete, and abort stages
+  - [x] Update documentation
 
 - [x] **Configure AWS Config** ✅
   - [x] Enable AWS Config
