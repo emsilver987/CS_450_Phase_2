@@ -1,5 +1,11 @@
-variable "aws_region" { type = string }
-variable "artifacts_bucket" { type = string }
+variable "aws_region" { 
+  type    = string
+  default = "us-east-1"
+}
+variable "artifacts_bucket" { 
+  type    = string
+  default = "pkg-artifacts"
+}
 variable "image_tag" {
   type        = string
   default     = "latest"
