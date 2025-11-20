@@ -9,16 +9,6 @@ variable "kms_key_arn" {
   type        = string
   description = "KMS key ARN for S3 encryption"
 }
-variable "throttle_rate_limit" {
-  type        = number
-  default     = 2000
-  description = "API Gateway throttling rate limit (requests per second)"
-}
-variable "throttle_burst_limit" {
-  type        = number
-  default     = 5000
-  description = "API Gateway throttling burst limit (concurrent requests)"
-}
 
 # API Gateway
 resource "aws_api_gateway_rest_api" "main_api" {
@@ -3407,23 +3397,6 @@ resource "aws_api_gateway_stage" "main_stage" {
     Name        = "acme-api-prod"
     Environment = "dev"
     Project     = "CS_450_Phase_2"
-  }
-}
-
-# API Gateway throttling configuration
-# Applies throttling limits to all methods in the stage
-# Rate limit: requests per second across all methods
-# Burst limit: maximum concurrent requests
-resource "aws_api_gateway_method_settings" "throttle_settings" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  stage_name  = aws_api_gateway_stage.main_stage.stage_name
-  method_path = "*/*"  # Applies to all methods and resources
-
-  settings {
-    throttling_rate_limit  = var.throttle_rate_limit
-    throttling_burst_limit = var.throttle_burst_limit
-    metrics_enabled        = true
-    logging_level          = "INFO"
   }
 }
 

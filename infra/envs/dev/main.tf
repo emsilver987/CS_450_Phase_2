@@ -21,8 +21,7 @@ provider "aws" {
 }
 
 locals {
-  artifacts_bucket = var.artifacts_bucket
-  config_bucket_name = "${var.artifacts_bucket}-config-${var.aws_account_id}"
+  artifacts_bucket = "pkg-artifacts"
   ddb_tables_arnmap = {
     users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
     tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
@@ -33,11 +32,10 @@ locals {
   }
 }
 
-module "s3" {
-  source         = "../../modules/s3"
-  artifacts_name = local.artifacts_bucket
-  kms_key_arn    = module.monitoring.kms_key_arn
-}
+# module "s3" {
+#   source         = "../../modules/s3"
+#   artifacts_name = var.artifacts_bucket
+# }
 
 module "ddb" {
   source = "../../modules/dynamodb"
@@ -48,8 +46,6 @@ module "monitoring" {
   artifacts_bucket      = local.artifacts_bucket
   validator_service_url = "http://placeholder"
   ddb_tables_arnmap     = local.ddb_tables_arnmap
-  aws_account_id        = var.aws_account_id
-  aws_region            = var.aws_region
 }
 
 module "iam" {
@@ -63,7 +59,6 @@ module "ecs" {
   artifacts_bucket  = local.artifacts_bucket
   image_tag         = var.image_tag
   ddb_tables_arnmap = local.ddb_tables_arnmap
-  kms_key_arn       = module.monitoring.kms_key_arn
 }
 
 module "api_gateway" {
@@ -74,15 +69,11 @@ module "api_gateway" {
   ddb_tables_arnmap     = local.ddb_tables_arnmap
 }
 
-module "config" {
-  source            = "../../modules/config"
-  aws_region        = var.aws_region
-  config_bucket_name = local.config_bucket_name
-  kms_key_arn       = module.monitoring.kms_key_arn
-  tags = {
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
+# Extract ALB DNS name from the validator service URL (e.g., "http://validator-lb-xxx.elb.amazonaws.com" -> "validator-lb-xxx.elb.amazonaws.com")
+module "cloudfront" {
+  source       = "../../modules/cloudfront"
+  alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
+  aws_region   = var.aws_region
 }
 
 output "artifacts_bucket" { value = local.artifacts_bucket }
@@ -91,7 +82,6 @@ output "ddb_tables" { value = local.ddb_tables_arnmap }
 output "validator_service_url" { value = module.ecs.validator_service_url }
 output "validator_cluster_arn" { value = module.ecs.validator_cluster_arn }
 output "ecr_repository_url" { value = module.ecs.ecr_repository_url }
-output "config_bucket_name" { value = module.config.config_bucket_name }
-output "config_recorder_name" { value = module.config.config_recorder_name }
-output "cloudtrail_trail_arn" { value = module.monitoring.cloudtrail_trail_arn }
-output "cloudtrail_logs_bucket" { value = module.monitoring.cloudtrail_logs_bucket }
+output "cloudfront_url" { value = module.cloudfront.cloudfront_url }
+output "cloudfront_domain_name" { value = module.cloudfront.cloudfront_domain_name }
+output "cloudfront_distribution_id" { value = module.cloudfront.cloudfront_distribution_id }
