@@ -42,7 +42,7 @@ jobs:
       - name: Cache Terraform plugins
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: ~/.terraform.d/plugin-cache
+          path: /home/runner/.terraform.d/plugin-cache
           key: ${{ runner.os }}-tf-${{ hashFiles('**/*.tf') }}
           restore-keys: |
             ${{ runner.os }}-tf-
@@ -93,7 +93,7 @@ jobs:
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Create Terraform plugin cache directory
-        run: mkdir -p ~/.terraform.d/plugin-cache
+        run: mkdir -p "$HOME/.terraform.d/plugin-cache"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
@@ -104,9 +104,9 @@ jobs:
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+          TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
         run: |
-          mkdir -p ~/.terraform.d/plugin-cache
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
           terraform init -input=false -lock-timeout=5m
 
       - name: Select or create workspace
