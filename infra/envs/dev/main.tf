@@ -32,7 +32,31 @@ locals {
   }
 }
 
-# ... (modules)
+module "iam" {
+  source            = "../../modules/iam"
+  artifacts_bucket  = local.artifacts_bucket
+  ddb_tables_arnmap = local.ddb_tables_arnmap
+}
+
+module "s3" {
+  source         = "../../modules/s3"
+  artifacts_name = local.artifacts_bucket
+  environment    = "dev"
+}
+
+module "ecs" {
+  source            = "../../modules/ecs"
+  artifacts_bucket  = local.artifacts_bucket
+  ddb_tables_arnmap = local.ddb_tables_arnmap
+  image_tag         = var.image_tag
+}
+
+module "monitoring" {
+  source                = "../../modules/monitoring"
+  artifacts_bucket      = local.artifacts_bucket
+  ddb_tables_arnmap     = local.ddb_tables_arnmap
+  validator_service_url = module.ecs.validator_service_url
+}
 
 # Extract ALB DNS name from the validator service URL (e.g., "http://validator-lb-xxx.elb.amazonaws.com" -> "validator-lb-xxx.elb.amazonaws.com")
 module "cloudfront" {
