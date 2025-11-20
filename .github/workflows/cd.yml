@@ -211,13 +211,26 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
+      - name: Verify S3 bucket exists
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        run: |
+          # Verify the bucket exists (it's used as Terraform backend)
+          BUCKET_NAME="pkg-artifacts"
+          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
+            echo "S3 bucket ${BUCKET_NAME} exists and will be referenced via data source"
+          else
+            echo "WARNING: Bucket ${BUCKET_NAME} does not exist. It should exist as it's used as Terraform backend."
+          fi
+
       - name: Import existing DynamoDB tables
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         continue-on-error: true
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
-          TF_VAR_artifacts_bucket: pkg-artifacts
+          TF_VAR_aws_account_id: 838693051036
         run: |
           # Import existing tables only if not already in state
           # Check if resource exists in state before importing
@@ -228,7 +241,7 @@ jobs:
               echo "Table ${table_name} already in state, skipping import"
             else
               echo "Importing ${table_name}..."
-              terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" "${resource_address}" "${table_name}" || echo "Failed to import ${table_name} (may not exist or already imported)"
+              terraform import -var="aws_region=${{ env.AWS_REGION }}" -var="aws_account_id=${TF_VAR_aws_account_id}" "${resource_address}" "${table_name}" || echo "Failed to import ${table_name} (may not exist or already imported)"
             fi
           }
 
@@ -271,18 +284,16 @@ jobs:
           remove_from_state "module.monitoring.aws_s3_bucket.cloudtrail_logs"
           remove_from_state "module.monitoring.aws_s3_bucket_policy.cloudtrail_logs"
 
-          # Remove S3 bucket from state (it's used as Terraform backend, so shouldn't be managed by Terraform)
-          echo "Removing S3 backend bucket from state (bucket is used as Terraform backend)..."
-          remove_from_state "module.s3.aws_s3_bucket.artifacts"
-          remove_from_state "module.s3.aws_s3_bucket_server_side_encryption_configuration.this"
-          remove_from_state "module.s3.aws_s3_bucket_versioning.this"
+          # Note: S3 bucket is now referenced via data source, not managed as resource
+          # So we don't need to remove it from state anymore
+          echo "S3 bucket is referenced via data source, no need to remove from state"
 
           echo "Cleanup complete"
 
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}
-        run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=${{ env.AWS_REGION }}" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
+        run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=${{ env.AWS_REGION }}" -var="aws_account_id=838693051036" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
 
       - name: Terraform apply
         shell: bash
