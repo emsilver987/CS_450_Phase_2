@@ -3,21 +3,10 @@ resource "aws_s3_bucket" "artifacts" {
   force_destroy = true
 }
 
-# Enable S3 versioning to protect against accidental overwrites and enable version recovery
-resource "aws_s3_bucket_versioning" "this" {
-  bucket = aws_s3_bucket.artifacts.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.artifacts.id
   rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = var.kms_key_arn
-    }
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
   }
 }
 
@@ -43,5 +32,4 @@ output "artifacts_bucket" { value = aws_s3_bucket.artifacts.id }
 output "access_point_arn" { 
   value = aws_s3_access_point.main.arn 
 }
-
 
