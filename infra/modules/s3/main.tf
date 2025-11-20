@@ -1,7 +1,6 @@
-# Use data source to reference existing bucket instead of creating it
-# This allows us to use the same bucket that's used as Terraform backend
-data "aws_s3_bucket" "artifacts" {
-  bucket = var.artifacts_name
+resource "aws_s3_bucket" "artifacts" {
+  bucket        = var.artifacts_name
+  force_destroy = false  # Set to false to prevent accidental deletion of backend bucket
 }
 
 # KMS key for S3 bucket encryption
@@ -22,7 +21,7 @@ resource "aws_kms_alias" "s3_encryption" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-  bucket = data.aws_s3_bucket.artifacts.id
+  bucket = aws_s3_bucket.artifacts.id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
@@ -33,7 +32,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
 }
 
 resource "aws_s3_bucket_versioning" "versioning" {
-  bucket = data.aws_s3_bucket.artifacts.id
+  bucket = aws_s3_bucket.artifacts.id
   versioning_configuration {
     status = "Enabled"
   }
@@ -42,7 +41,7 @@ resource "aws_s3_bucket_versioning" "versioning" {
 # S3 Access Point for secure access to the bucket
 resource "aws_s3_access_point" "main" {
   name   = "cs450-s3"
-  bucket = data.aws_s3_bucket.artifacts.id
+  bucket = aws_s3_bucket.artifacts.id
 
   public_access_block_configuration {
     block_public_acls       = true
@@ -57,7 +56,7 @@ resource "aws_s3_access_point" "main" {
   }
 }
 
-output "artifacts_bucket" { value = data.aws_s3_bucket.artifacts.id }
+output "artifacts_bucket" { value = aws_s3_bucket.artifacts.id }
 output "access_point_arn" {
   value = aws_s3_access_point.main.arn
 }

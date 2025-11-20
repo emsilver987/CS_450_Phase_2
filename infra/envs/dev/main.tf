@@ -22,14 +22,15 @@ provider "aws" {
 
 locals {
   artifacts_bucket = "pkg-artifacts"
-  ddb_tables_arnmap = {
-    users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
-    tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
-    packages  = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/packages"
-    uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
-    downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
-    artifacts = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/artifacts"
-  }
+}
+
+module "ddb" {
+  source = "../../modules/dynamodb"
+}
+
+locals {
+  # Use DynamoDB module output for table ARNs
+  ddb_tables_arnmap = module.ddb.arn_map
 }
 
 module "iam" {

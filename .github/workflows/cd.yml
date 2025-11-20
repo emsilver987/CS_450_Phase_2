@@ -211,17 +211,25 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
-      - name: Verify S3 bucket exists
+      - name: Import existing S3 bucket (artifacts)
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         continue-on-error: true
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_aws_account_id: 838693051036
         run: |
-          # Verify the bucket exists (it's used as Terraform backend)
+          # Import the S3 bucket if it exists and is not in state
           BUCKET_NAME="pkg-artifacts"
           if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
-            echo "S3 bucket ${BUCKET_NAME} exists and will be referenced via data source"
+            if terraform state show "module.s3.aws_s3_bucket.artifacts" > /dev/null 2>&1; then
+              echo "S3 bucket already in state, skipping import"
+            else
+              echo "Importing existing S3 bucket into state"
+              terraform import -var="aws_region=${{ env.AWS_REGION }}" -var="aws_account_id=${TF_VAR_aws_account_id}" "module.s3.aws_s3_bucket.artifacts" "${BUCKET_NAME}" || echo "Import failed (bucket may not exist or already imported)"
+            fi
           else
-            echo "WARNING: Bucket ${BUCKET_NAME} does not exist. It should exist as it's used as Terraform backend."
+            echo "Bucket ${BUCKET_NAME} does not exist, will be created by Terraform"
           fi
 
       - name: Import existing DynamoDB tables
@@ -284,9 +292,9 @@ jobs:
           remove_from_state "module.monitoring.aws_s3_bucket.cloudtrail_logs"
           remove_from_state "module.monitoring.aws_s3_bucket_policy.cloudtrail_logs"
 
-          # Note: S3 bucket is now referenced via data source, not managed as resource
-          # So we don't need to remove it from state anymore
-          echo "S3 bucket is referenced via data source, no need to remove from state"
+          # Note: S3 bucket is managed as a resource and should stay in state
+          # It's imported if it exists, so no need to remove it
+          echo "S3 bucket is managed as resource, keeping in state"
 
           echo "Cleanup complete"
 
