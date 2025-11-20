@@ -30,7 +30,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      USE_OIDC: "false" # Set to "true" to use OIDC authentication
+      USE_OIDC: "true" # Set to "true" to use OIDC authentication
     permissions:
       id-token: write
       contents: read
@@ -162,10 +162,11 @@ jobs:
       - name: Terraform init
         shell: bash
         working-directory: ${{ env.TF_DIR }}
-        env:
-          TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
         run: |
-          mkdir -p $HOME/.terraform.d/plugin-cache
+          # Create plugin cache directory
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
 
           # Try normal init first
           if terraform init -input=false -lock-timeout=5m 2>&1 | tee /tmp/init-output.log; then
