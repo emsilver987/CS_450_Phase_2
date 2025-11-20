@@ -162,7 +162,7 @@ resource "aws_lb" "validator_lb" {
 }
 
 resource "aws_lb_target_group" "validator_tg" {
-  name_prefix = "validator-"
+  name_prefix = "valtg-"
   port        = 3000
   protocol    = "HTTP"
   vpc_id      = aws_vpc.validator_vpc.id
