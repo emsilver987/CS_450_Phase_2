@@ -1,5 +1,5 @@
 variable "artifacts_name" { type = string }
-variable "environment" { 
+variable "environment" {
   type    = string
   default = "dev"
 }

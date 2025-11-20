@@ -129,8 +129,8 @@ resource "aws_iam_role_policy" "config_role_policy" {
         }
       },
       {
-        Effect = "Allow"
-        Action = "s3:GetBucketAcl"
+        Effect   = "Allow"
+        Action   = "s3:GetBucketAcl"
         Resource = aws_s3_bucket.config_snapshots.arn
       }
     ]
@@ -179,7 +179,7 @@ resource "aws_config_configuration_recorder" "config_recorder" {
 resource "aws_config_configuration_recorder_status" "config_recorder" {
   name       = aws_config_configuration_recorder.config_recorder.name
   is_enabled = true
-  
+
   depends_on = [
     aws_config_configuration_recorder.config_recorder,
     aws_config_delivery_channel.config_delivery

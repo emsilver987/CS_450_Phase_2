@@ -809,10 +809,10 @@ resource "aws_api_gateway_method_response" "package_id_get_500" {
 }
 
 resource "aws_api_gateway_integration_response" "package_id_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id.id
-  http_method = aws_api_gateway_method.package_id_get.http_method
-  status_code = aws_api_gateway_method_response.package_id_get_200.status_code
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.package_id.id
+  http_method       = aws_api_gateway_method.package_id_get.http_method
+  status_code       = aws_api_gateway_method_response.package_id_get_200.status_code
   selection_pattern = "200"
 
   depends_on = [
@@ -2753,7 +2753,7 @@ resource "aws_api_gateway_method" "artifact_byname_name_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.proxy"              = true
+    "method.request.path.proxy"             = true
     "method.request.header.X-Authorization" = true
   }
 }
