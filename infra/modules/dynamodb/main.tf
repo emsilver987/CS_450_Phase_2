@@ -72,3 +72,4 @@ resource "aws_dynamodb_table" "this" {
 }
 
 output "arn_map" { value = { for k, t in aws_dynamodb_table.this : k => t.arn } }
+

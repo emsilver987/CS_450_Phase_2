@@ -4,7 +4,6 @@ import boto3
 import uuid
 import zipfile
 import io
-import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -20,7 +19,6 @@ dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-ea
 ARTIFACTS_BUCKET = os.getenv("ARTIFACTS_BUCKET", "pkg-artifacts")
 PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
 UPLOADS_TABLE = os.getenv("DDB_TABLE_UPLOADS", "uploads")
-DOWNLOADS_TABLE = os.getenv("DDB_TABLE_DOWNLOADS", "downloads")
 
 app = FastAPI(title="Package Management Service", version="1.0.0")
 security = HTTPBearer()
@@ -60,13 +58,11 @@ class PackageInfo(BaseModel):
     created_at: str
     updated_at: str
     size_bytes: int
-    sha256_hash: Optional[str] = None
 
 
 class DownloadUrlResponse(BaseModel):
     url: str
     expires_at: str
-    sha256_hash: Optional[str] = None
 
 
 def verify_token(
@@ -76,48 +72,6 @@ def verify_token(
     # This would integrate with the auth service
     # For now, we'll assume token verification is handled by middleware
     return {"user_id": "demo_user", "groups": ["Group_106"]}
-
-
-def log_upload_event(
-    pkg_name: str,
-    version: str,
-    user_id: str,
-    event_type: str,
-    status: str,
-    upload_id: Optional[str] = None,
-    size_bytes: Optional[int] = None,
-    sha256_hash: Optional[str] = None,
-    reason: Optional[str] = None,
-):
-    """Log upload event to DynamoDB"""
-    try:
-        table = dynamodb.Table(DOWNLOADS_TABLE)  # Reuse downloads table for upload events
-        timestamp = datetime.now(timezone.utc)
-        event_id = f"upload_{user_id}_{pkg_name}_{version}_{timestamp.isoformat()}"
-
-        item = {
-            "event_id": event_id,
-            "pkg_name": pkg_name,
-            "version": version,
-            "user_id": user_id,
-            "timestamp": timestamp.isoformat(),
-            "event_type": event_type,  # "upload_init", "upload_complete", "upload_abort"
-            "status": status,  # "initiated", "completed", "aborted", "failed"
-            "reason": reason or "",
-        }
-
-        # Add optional fields if provided
-        if upload_id:
-            item["upload_id"] = upload_id
-        if size_bytes is not None:
-            item["size_bytes"] = size_bytes
-        if sha256_hash:
-            item["sha256_hash"] = sha256_hash
-
-        table.put_item(Item=item)
-        logging.info(f"Upload event logged: {event_type} for {pkg_name} v{version} by {user_id}")
-    except Exception as e:
-        logging.error(f"Error logging upload event: {e}")
 
 
 def validate_package_structure(file_content: bytes) -> Dict[str, Any]:
@@ -170,16 +124,6 @@ async def init_upload(
         }
 
         table.put_item(Item=upload_item)
-
-        # Log upload initiation event
-        log_upload_event(
-            pkg_name=request.pkg_name,
-            version=request.version,
-            user_id=user["user_id"],
-            event_type="upload_init",
-            status="initiated",
-            upload_id=upload_id,
-        )
 
         return UploadInitResponse(
             upload_id=upload_id, expires_at=expires_at.isoformat()
@@ -309,11 +253,6 @@ async def commit_upload(
             MultipartUpload={"Parts": parts},
         )
 
-        # Download the completed file to compute SHA-256 hash
-        response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
-        file_content = response["Body"].read()
-        sha256_hash = hashlib.sha256(file_content).hexdigest()
-
         # Store package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
         pkg_key = f"{upload_info['pkg_name']}/{upload_info['version']}"
@@ -327,8 +266,9 @@ async def commit_upload(
             "allowed_groups": upload_info["allowed_groups"],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "size_bytes": len(file_content),
-            "sha256_hash": sha256_hash,
+            "size_bytes": sum(
+                int(part["ETag"].split("-")[1]) for part in parts if "-" in part["ETag"]
+            ),
         }
 
         packages_table.put_item(Item=package_item)
@@ -342,19 +282,6 @@ async def commit_upload(
                 ":status": "completed",
                 ":updated_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
-
-        # Log upload completion event
-        log_upload_event(
-            pkg_name=upload_info["pkg_name"],
-            version=upload_info["version"],
-            user_id=user["user_id"],
-            event_type="upload_complete",
-            status="completed",
-            upload_id=upload_id,
-            size_bytes=len(file_content),
-            sha256_hash=sha256_hash,
-            reason="Upload completed successfully",
         )
 
         # Clean up temporary parts
@@ -403,17 +330,6 @@ async def abort_upload(upload_id: str, user: Dict[str, Any] = Depends(verify_tok
             },
         )
 
-        # Log upload abortion event
-        log_upload_event(
-            pkg_name=upload_info["pkg_name"],
-            version=upload_info["version"],
-            user_id=user["user_id"],
-            event_type="upload_abort",
-            status="aborted",
-            upload_id=upload_id,
-            reason="Upload aborted by user",
-        )
-
         return {"message": "Upload aborted successfully"}
 
     except HTTPException:
@@ -428,10 +344,9 @@ async def get_download_url(
     pkg_name: str,
     version: str,
     ttl_seconds: int = Query(300, ge=60, le=3600),
-    verify_hash: bool = Query(True, description="Verify SHA-256 hash during download"),
     user: Dict[str, Any] = Depends(verify_token),
 ):
-    """Get presigned download URL with SHA-256 hash verification"""
+    """Get presigned download URL"""
     try:
         # Get package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
@@ -453,21 +368,6 @@ async def get_download_url(
 
         # Generate presigned URL
         s3_key = f"packages/{pkg_name}/{version}/package.zip"
-        
-        # If hash verification is requested and hash exists, download and verify
-        if verify_hash and package.get("sha256_hash"):
-            # Download the file to verify hash
-            file_response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
-            file_content = file_response["Body"].read()
-            computed_hash = hashlib.sha256(file_content).hexdigest()
-            stored_hash = package.get("sha256_hash")
-            
-            if computed_hash.lower() != stored_hash.lower():
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Hash verification failed. Expected: {stored_hash}, Got: {computed_hash}"
-                )
-            logging.info(f"Hash verification successful for {pkg_name} v{version}")
 
         url = s3.generate_presigned_url(
             "get_object",
@@ -476,17 +376,8 @@ async def get_download_url(
         )
 
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
-        
-        response_data = {
-            "url": url,
-            "expires_at": expires_at.isoformat()
-        }
-        
-        # Include hash in response if available
-        if package.get("sha256_hash"):
-            response_data["sha256_hash"] = package.get("sha256_hash")
 
-        return DownloadUrlResponse(**response_data)
+        return DownloadUrlResponse(url=url, expires_at=expires_at.isoformat())
 
     except HTTPException:
         raise
@@ -521,7 +412,6 @@ async def list_packages(
                     created_at=item["created_at"],
                     updated_at=item["updated_at"],
                     size_bytes=item.get("size_bytes", 0),
-                    sha256_hash=item.get("sha256_hash"),
                 )
             )
 

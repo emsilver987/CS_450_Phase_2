@@ -10,7 +10,6 @@ import urllib.error
 import requests
 import shutil
 import tempfile
-import hashlib
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from botocore.auth import SigV4Auth
@@ -245,9 +244,6 @@ def upload_model(
     if not file_content or len(file_content) == 0:
         raise HTTPException(status_code=400, detail="Cannot upload empty file content")
     try:
-        # Compute SHA-256 hash of the file content
-        sha256_hash = hashlib.sha256(file_content).hexdigest()
-        
         # Sanitize model_id and version for S3 key
         safe_model_id = (
             model_id.replace("https://huggingface.co/", "")
@@ -269,9 +265,9 @@ def upload_model(
             Bucket=ap_arn, Key=s3_key, Body=file_content, ContentType="application/zip"
         )
         print(
-            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}, SHA-256: {sha256_hash}"
+            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}"
         )
-        return {"message": "Upload successful", "sha256_hash": sha256_hash}
+        return {"message": "Upload successful"}
     except Exception as e:
         error_msg = str(e)
         logger.error(
@@ -295,12 +291,7 @@ def upload_model(
             )
 
 
-def download_model(
-    model_id: str, 
-    version: str, 
-    component: str = "full",
-    expected_hash: Optional[str] = None
-) -> bytes:
+def download_model(model_id: str, version: str, component: str = "full") -> bytes:
     if not aws_available:
         raise HTTPException(
             status_code=503,
@@ -310,17 +301,6 @@ def download_model(
         s3_key = f"models/{model_id}/{version}/model.zip"
         response = s3.get_object(Bucket=ap_arn, Key=s3_key)
         zip_content = response["Body"].read()
-        
-        # Verify SHA-256 hash if provided
-        if expected_hash:
-            computed_hash = hashlib.sha256(zip_content).hexdigest()
-            if computed_hash.lower() != expected_hash.lower():
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Hash verification failed. Expected: {expected_hash}, Got: {computed_hash}"
-                )
-            print(f"Hash verification successful for {model_id} v{version}")
-        
         if component != "full":
             try:
                 result = extract_model_component(zip_content, component)
@@ -332,8 +312,6 @@ def download_model(
                 raise HTTPException(status_code=400, detail=str(e))
         print(f"AWS S3 download successful: {model_id} v{version} (full)")
         return zip_content
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"AWS S3 download failed: {e}")
         raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")

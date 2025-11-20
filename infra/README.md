@@ -18,7 +18,7 @@ infra/
     ├── ecs/                # API & validator services (Fargate)
     ├── iam/                # Legacy shared IAM policy (kept for docs/tests)
     ├── monitoring/         # CloudWatch, KMS, Secrets Manager
-    └── s3/                 # Artifact bucket (SSE-KMS encryption, versioning enabled)
+    └── s3/                 # Artifact bucket
 ```
 
 ## IAM Policy Structure
