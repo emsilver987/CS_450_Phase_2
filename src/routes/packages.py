@@ -125,6 +125,14 @@ def list_packages(
         )
 
 
+import boto3
+import os
+from datetime import datetime, timezone
+
+# Initialize DynamoDB
+dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
+PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
+
 @router.post("/models/{model_id}/{version}/model.zip")
 def upload_model_file(model_id: str, version: str, file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".zip"):
@@ -132,6 +140,25 @@ def upload_model_file(model_id: str, version: str, file: UploadFile = File(...))
     try:
         file_content = file.file.read()
         result = upload_model(file_content, model_id, version)
+        
+        # Store metadata in DynamoDB
+        try:
+            packages_table = dynamodb.Table(PACKAGES_TABLE)
+            pkg_key = f"{model_id}/{version}"
+            package_item = {
+                "pkg_key": pkg_key,
+                "pkg_name": model_id,
+                "version": version,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "size_bytes": len(file_content),
+                "sha256": result.get("sha256")
+            }
+            packages_table.put_item(Item=package_item)
+        except Exception as e:
+            print(f"Failed to store metadata in DynamoDB: {e}")
+            # We don't fail the upload if metadata storage fails, but we log it
+            
         return result
     except HTTPException:
         raise
@@ -156,7 +183,18 @@ def download_model_file(
     ),
 ):
     try:
-        file_content = download_model(model_id, version, component)
+        # Retrieve expected hash from DynamoDB
+        expected_hash = None
+        try:
+            packages_table = dynamodb.Table(PACKAGES_TABLE)
+            pkg_key = f"{model_id}/{version}"
+            response = packages_table.get_item(Key={"pkg_key": pkg_key})
+            if "Item" in response:
+                expected_hash = response["Item"].get("sha256")
+        except Exception as e:
+            print(f"Failed to retrieve metadata from DynamoDB: {e}")
+
+        file_content = download_model(model_id, version, component, expected_hash=expected_hash)
         return StreamingResponse(
             io.BytesIO(file_content),
             media_type="application/zip",
@@ -192,6 +230,24 @@ def upload_package(file: UploadFile = File(...), debloat: bool = Query(False)):
         version = "1.0.0"
         file_content = file.file.read()
         result = upload_model(file_content, model_id, version, debloat)
+        
+        # Store metadata in DynamoDB
+        try:
+            packages_table = dynamodb.Table(PACKAGES_TABLE)
+            pkg_key = f"{model_id}/{version}"
+            package_item = {
+                "pkg_key": pkg_key,
+                "pkg_name": model_id,
+                "version": version,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "size_bytes": len(file_content),
+                "sha256": result.get("sha256")
+            }
+            packages_table.put_item(Item=package_item)
+        except Exception as e:
+            print(f"Failed to store metadata in DynamoDB: {e}")
+
         return result
     except HTTPException:
         raise

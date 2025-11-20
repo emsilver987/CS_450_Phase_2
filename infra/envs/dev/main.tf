@@ -17,64 +17,28 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
 }
 
 locals {
   artifacts_bucket = "pkg-artifacts"
   ddb_tables_arnmap = {
-    users     = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/users"
-    tokens    = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/tokens"
-    packages  = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/packages"
-    uploads   = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/uploads"
-    downloads = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/downloads"
-    artifacts = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/artifacts"
+    users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
+    tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
+    packages  = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/packages"
+    uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
+    downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
+    artifacts = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/artifacts"
   }
 }
 
-module "s3" {
-  source         = "../../modules/s3"
-  artifacts_name = local.artifacts_bucket
-  environment    = "dev"
-}
-
-module "ddb" {
-  source = "../../modules/dynamodb"
-}
-
-module "monitoring" {
-  source                = "../../modules/monitoring"
-  artifacts_bucket      = local.artifacts_bucket
-  validator_service_url = "http://placeholder"
-  ddb_tables_arnmap     = local.ddb_tables_arnmap
-}
-
-module "iam" {
-  source            = "../../modules/iam"
-  artifacts_bucket  = local.artifacts_bucket
-  ddb_tables_arnmap = local.ddb_tables_arnmap
-}
-
-module "ecs" {
-  source            = "../../modules/ecs"
-  artifacts_bucket  = local.artifacts_bucket
-  image_tag         = var.image_tag
-  ddb_tables_arnmap = local.ddb_tables_arnmap
-}
-
-module "api_gateway" {
-  source                = "../../modules/api-gateway"
-  artifacts_bucket      = local.artifacts_bucket
-  validator_service_url = module.ecs.validator_service_url
-  kms_key_arn           = module.monitoring.kms_key_arn
-  ddb_tables_arnmap     = local.ddb_tables_arnmap
-}
+# ... (modules)
 
 # Extract ALB DNS name from the validator service URL (e.g., "http://validator-lb-xxx.elb.amazonaws.com" -> "validator-lb-xxx.elb.amazonaws.com")
 module "cloudfront" {
   source       = "../../modules/cloudfront"
   alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
-  aws_region   = "us-east-1"
+  aws_region   = var.aws_region
 }
 
 output "artifacts_bucket" { value = local.artifacts_bucket }

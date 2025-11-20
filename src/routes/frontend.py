@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import os
+import boto3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import uvicorn
@@ -22,6 +24,10 @@ from ..services.rating import run_scorer, alias
 
 templates: Jinja2Templates | None = None
 routes_registered = False
+
+# Initialize DynamoDB
+dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
+PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
 
 
 def set_templates(templates_instance: Jinja2Templates | None):
@@ -226,6 +232,8 @@ def register_routes(app: FastAPI):
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
         return templates.TemplateResponse("upload.html", {"request": request})
 
+
+
     @app.post("/upload")
     def upload_post(
         request: Request,
@@ -241,6 +249,24 @@ def register_routes(app: FastAPI):
             effective_version = version or "1.0.0"
             file_content = file.file.read()
             result = upload_model(file_content, effective_model_id, effective_version)
+            
+            # Store metadata in DynamoDB
+            try:
+                packages_table = dynamodb.Table(PACKAGES_TABLE)
+                pkg_key = f"{effective_model_id}/{effective_version}"
+                package_item = {
+                    "pkg_key": pkg_key,
+                    "pkg_name": effective_model_id,
+                    "version": effective_version,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "size_bytes": len(file_content),
+                    "sha256": result.get("sha256")
+                }
+                packages_table.put_item(Item=package_item)
+            except Exception as e:
+                print(f"Failed to store metadata in DynamoDB: {e}")
+
             return {"message": "Upload successful", "details": result}
         except Exception as e:
             return {"error": f"Upload failed: {str(e)}"}
@@ -382,7 +408,18 @@ def register_routes(app: FastAPI):
     @app.get("/download/{model_id}/{version}")
     def download(model_id: str, version: str, component: str = "full"):
         try:
-            file_content = download_model(model_id, version, component)
+            # Retrieve expected hash from DynamoDB
+            expected_hash = None
+            try:
+                packages_table = dynamodb.Table(PACKAGES_TABLE)
+                pkg_key = f"{model_id}/{version}"
+                response = packages_table.get_item(Key={"pkg_key": pkg_key})
+                if "Item" in response:
+                    expected_hash = response["Item"].get("sha256")
+            except Exception as e:
+                print(f"Failed to retrieve metadata from DynamoDB: {e}")
+
+            file_content = download_model(model_id, version, component, expected_hash=expected_hash)
             if file_content:
                 return Response(
                     content=file_content,
