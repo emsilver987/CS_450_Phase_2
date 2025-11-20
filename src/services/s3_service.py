@@ -1,5 +1,6 @@
 import boto3
 import zipfile
+import hashlib
 import io
 import re
 import json
@@ -261,13 +262,20 @@ def upload_model(
         safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
         s3_key = f"models/{safe_model_id}/{safe_version}/model.zip"
 
+        # Compute SHA-256 hash
+        sha256_hash = hashlib.sha256(file_content).hexdigest()
+
         s3.put_object(
-            Bucket=ap_arn, Key=s3_key, Body=file_content, ContentType="application/zip"
+            Bucket=ap_arn,
+            Key=s3_key,
+            Body=file_content,
+            ContentType="application/zip",
+            Metadata={"sha256": sha256_hash},
         )
         print(
-            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}"
+            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes, SHA256: {sha256_hash}) -> {s3_key}"
         )
-        return {"message": "Upload successful"}
+        return {"message": "Upload successful", "sha256": sha256_hash}
     except Exception as e:
         error_msg = str(e)
         logger.error(
@@ -291,7 +299,9 @@ def upload_model(
             )
 
 
-def download_model(model_id: str, version: str, component: str = "full") -> bytes:
+def download_model(
+    model_id: str, version: str, component: str = "full", expected_hash: str = None
+) -> bytes:
     if not aws_available:
         raise HTTPException(
             status_code=503,
@@ -301,6 +311,16 @@ def download_model(model_id: str, version: str, component: str = "full") -> byte
         s3_key = f"models/{model_id}/{version}/model.zip"
         response = s3.get_object(Bucket=ap_arn, Key=s3_key)
         zip_content = response["Body"].read()
+
+        if expected_hash:
+            computed_hash = hashlib.sha256(zip_content).hexdigest()
+            if computed_hash != expected_hash:
+                logger.error(
+                    f"Hash mismatch for {model_id} v{version}: expected {expected_hash}, got {computed_hash}"
+                )
+                raise HTTPException(
+                    status_code=500, detail="Integrity check failed: Hash mismatch"
+                )
         if component != "full":
             try:
                 result = extract_model_component(zip_content, component)

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import boto3
+import hashlib
 import uuid
 import zipfile
 import io
@@ -167,6 +168,10 @@ async def upload_part(
         s3_key = f"packages/{upload_info['pkg_name']}/{upload_info['version']}/upload_{upload_id}/part_{part_number}"
 
         file_content = await file.read()
+        
+        # Compute SHA-256 hash
+        sha256_hash = hashlib.sha256(file_content).hexdigest()
+
         response = s3.put_object(
             Bucket=ARTIFACTS_BUCKET,
             Key=s3_key,
@@ -178,6 +183,7 @@ async def upload_part(
             "upload_id": upload_id,
             "part_number": part_number,
             "etag": response["ETag"].strip('"'),
+            "sha256": sha256_hash,
             "size": len(file_content),
         }
 
