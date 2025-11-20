@@ -155,6 +155,10 @@ resource "aws_lb" "validator_lb" {
   subnets            = [aws_subnet.validator_subnet_1.id, aws_subnet.validator_subnet_2.id]
 
   enable_deletion_protection = false
+
+  lifecycle {
+    ignore_changes = [security_groups, subnets]
+  }
 }
 
 resource "aws_lb_target_group" "validator_tg" {
@@ -174,6 +178,10 @@ resource "aws_lb_target_group" "validator_tg" {
     matcher             = "200"
     port                = "traffic-port"
     protocol            = "HTTP"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
