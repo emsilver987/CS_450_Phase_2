@@ -1,6 +1,6 @@
 # 🔴 Risk Matrix - Trustworthy Module Registry
 
-**Last Updated:** 2025-11-14  
+**Last Updated:** 2025-11-20  
 **Project:** ACME Corporation - Trustworthy Module Registry  
 **Phase:** 2 - Security Case Development
 
@@ -41,22 +41,22 @@ This document provides a comprehensive risk assessment matrix for all identified
 
 ## Risk Matrix Table
 
-| ID        | Risk Description                        | STRIDE Category                           | Likelihood | Impact | Risk Score | Category    | Status           | Mitigation                                                     |
-| --------- | --------------------------------------- | ----------------------------------------- | ---------- | ------ | ---------- | ----------- | ---------------- | -------------------------------------------------------------- |
-| **R-001** | Missing WAF Protection                  | DoS, Information Disclosure               | 4          | 5      | **20**     | 🔴 Critical | ❌ Not Mitigated | Configure AWS WAF on API Gateway with managed rules            |
-| **R-002** | JWT Secret Not Secured                  | Spoofing Identity                         | 3          | 5      | **15**     | 🟠 High     | ❌ Not Mitigated | Migrate JWT secret to AWS Secrets Manager or KMS               |
-| **R-003** | Admin MFA Not Enforced                  | Spoofing Identity, Elevation of Privilege | 3          | 5      | **15**     | 🟠 High     | ❌ Not Mitigated | Add IAM policy requiring MFA for admin group                   |
-| **R-004** | SSRF Protection Missing                 | Information Disclosure, Tampering         | 3          | 5      | **15**     | 🟠 High     | ❌ Not Mitigated | Add URL validation and internal network restrictions           |
-| **R-005** | API Gateway Throttling Missing          | Denial of Service                         | 3          | 4      | **12**     | 🟠 High     | ❌ Not Mitigated | Configure API Gateway throttling limits                        |
-| **R-006** | Token Use-Count Not Enforced            | Spoofing Identity                         | 2          | 5      | **10**     | 🟡 Medium   | ❌ Not Mitigated | Implement use-count tracking or remove from docs               |
-| **R-007** | Security Headers Missing                | Information Disclosure                    | 3          | 3      | **9**      | 🟡 Medium   | ❌ Not Mitigated | Add security headers middleware (HSTS, X-Content-Type-Options) |
-| **R-008** | S3 Versioning Missing                   | Tampering                                 | 2          | 4      | **8**      | 🟡 Medium   | ❌ Not Mitigated | Enable S3 versioning in Terraform                              |
-| **R-009** | CloudTrail Not Explicitly Configured    | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ⚠️ Partial       | Add explicit CloudTrail trail in Terraform                     |
-| **R-010** | CloudWatch Alarms Missing               | Denial of Service                         | 2          | 3      | **6**      | 🟡 Medium   | ❌ Not Mitigated | Configure alarms for latency and error rates                   |
-| **R-011** | Upload Event Logging Missing            | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ⚠️ Partial       | Add upload event logging to DynamoDB                           |
-| **R-012** | AWS Config Not Configured               | Information Disclosure                    | 2          | 2      | **4**      | 🟢 Low      | ❌ Not Mitigated | Configure AWS Config rules for compliance                      |
-| **R-013** | Log Archiving Missing                   | Repudiation                               | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add S3 lifecycle policy for Glacier archiving                  |
-| **R-014** | Validator Script Integrity Verification | Tampering                                 | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add checksums for validator scripts                            |
+| ID        | Risk Description                        | STRIDE Category                           | Likelihood | Impact | Risk Score | Category    | Status           | Mitigation                                                  |
+| --------- | --------------------------------------- | ----------------------------------------- | ---------- | ------ | ---------- | ----------- | ---------------- | ----------------------------------------------------------- |
+| **R-001** | Missing WAF Protection                  | DoS, Information Disclosure               | 4          | 5      | **20**     | 🔴 Critical | ❌ Not Mitigated | Configure AWS WAF on API Gateway with managed rules         |
+| **R-002** | JWT Secret Not Secured                  | Spoofing Identity                         | 3          | 5      | **15**     | 🟠 High     | ⚠️ Partial       | Function exists but middleware not using it                 |
+| **R-003** | Admin MFA Not Enforced                  | Spoofing Identity, Elevation of Privilege | 3          | 5      | **15**     | 🟠 High     | ❌ Not Mitigated | Add IAM policy requiring MFA for admin group                |
+| **R-004** | SSRF Protection Missing                 | Information Disclosure, Tampering         | 3          | 5      | **15**     | 🟠 High     | ❌ Not Mitigated | Add URL validation and internal network restrictions        |
+| **R-005** | API Gateway Throttling Missing          | Denial of Service                         | 3          | 4      | **12**     | 🟠 High     | ❌ Not Mitigated | Configure API Gateway throttling limits                     |
+| **R-006** | Token Use-Count Not Enforced            | Spoofing Identity                         | 2          | 5      | **10**     | 🟡 Medium   | ⚠️ Partial       | `consume_token_use()` exists but only called in `/auth/me`  |
+| **R-007** | Security Headers Missing                | Information Disclosure                    | 3          | 3      | **9**      | 🟡 Medium   | ✅ **Mitigated** | Security headers middleware implemented                     |
+| **R-008** | S3 Versioning Missing                   | Tampering                                 | 2          | 4      | **8**      | 🟡 Medium   | ❌ Not Mitigated | Enable S3 versioning in Terraform                           |
+| **R-009** | CloudTrail Not Explicitly Configured    | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ❌ Not Mitigated | Add explicit CloudTrail trail in Terraform                  |
+| **R-010** | CloudWatch Alarms Missing               | Denial of Service                         | 2          | 3      | **6**      | 🟡 Medium   | ✅ **Mitigated** | CloudWatch alarms configured in monitoring module           |
+| **R-011** | Upload Event Logging Missing            | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ⚠️ Partial       | Upload event logging function exists but needs verification |
+| **R-012** | AWS Config Not Configured               | Information Disclosure                    | 2          | 2      | **4**      | 🟢 Low      | ✅ **Mitigated** | AWS Config configured in config module                      |
+| **R-013** | Log Archiving Missing                   | Repudiation                               | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add S3 lifecycle policy for Glacier archiving               |
+| **R-014** | Validator Script Integrity Verification | Tampering                                 | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add checksums for validator scripts                         |
 
 ---
 
@@ -108,12 +108,11 @@ d
 - **Description:** JWT secret stored as plain environment variable (`JWT_SECRET`), can be leaked via logs, config files, or environment inspection
 - **Attack Vector:** If secret is leaked, attackers can forge any JWT token
 - **Business Impact:** Complete authentication bypass, unauthorized access to all endpoints
-- **Current State:** Uses `JWT_SECRET` env var, not KMS/Secrets Manager
-- **Mitigation Plan:**
-  1. Create secret in AWS Secrets Manager
-  2. Update IAM policies for API service to access Secrets Manager
-  3. Update code to retrieve secret from Secrets Manager at startup
-  4. Remove `JWT_SECRET` env var dependency
+- **Current State:** ⚠️ **Partial** - `get_jwt_secret()` function exists in `src/utils/jwt_secret.py` to retrieve from Secrets Manager, but middleware still uses `os.getenv("JWT_SECRET")` directly (line 53 in `src/middleware/jwt_auth.py`)
+- **Remaining Work:**
+  1. Update JWT middleware to use `get_jwt_secret()` instead of `os.getenv("JWT_SECRET")`
+  2. Ensure Secrets Manager secret exists and IAM policies allow access
+  3. Remove `JWT_SECRET` env var dependency for production
 - **Testability:** Yes (code review, secret scanning)
 - **Priority:** P1 - High
 
@@ -172,12 +171,11 @@ d
 - **Description:** Tokens can be reused indefinitely within expiration period, despite documentation claiming "1,000 uses max"
 - **Attack Vector:** Captured tokens can be reused multiple times
 - **Business Impact:** Unauthorized access, token replay attacks
-- **Current State:** Only expiration checked, no use-count enforcement
-- **Mitigation Plan:**
-  1. Add use-count field to DynamoDB tokens table
-  2. Decrement on each token use
-  3. Enforce 1,000 use limit
-  4. OR: Remove use-count claim from documentation if not implementing
+- **Status:** ⚠️ **Partial** - `consume_token_use()` function exists and is implemented, but only called in `/auth/me` endpoint (line 331 in `src/services/auth_service.py`). Not enforced in JWT middleware or `verify_auth_token()` helper.
+- **Remaining Work:**
+  1. Call `consume_token_use()` in JWT middleware or `verify_auth_token()` helper for all protected endpoints
+  2. Enforce 1,000 use limit globally
+  3. OR: Remove use-count claim from documentation if not implementing globally
 - **Testability:** Yes (functional testing)
 - **Priority:** P2 - Medium
 
@@ -187,12 +185,12 @@ d
 - **Description:** Missing security headers (HSTS, X-Content-Type-Options, X-Frame-Options) leaves clients vulnerable to browser-based attacks
 - **Attack Vector:** XSS, clickjacking, MIME-type confusion attacks
 - **Business Impact:** Client-side attacks, user data compromise
-- **Current State:** No security headers middleware found
-- **Mitigation Plan:**
-  1. Implement security headers middleware
-  2. Add HSTS, X-Content-Type-Options, X-Frame-Options, CSP
-  3. Test headers in API responses
-  4. Document header configuration
+- **Status:** ✅ **Mitigated**
+- **Mitigation Implemented:**
+  1. ✅ Security headers middleware implemented in `src/middleware/security_headers.py`
+  2. ✅ Adds HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, Permissions-Policy
+  3. ✅ Middleware registered in application
+- **Implementation:** `SecurityHeadersMiddleware` in `src/middleware/security_headers.py` adds comprehensive security headers to all responses
 - **Testability:** Yes (header verification, browser testing)
 - **Priority:** P2 - Medium
 
@@ -202,13 +200,13 @@ d
 - **Description:** Cannot recover from accidental or malicious overwrites of package files
 - **Attack Vector:** Accidental overwrites, malicious modifications
 - **Business Impact:** Data loss, inability to recover previous versions
-- **Status:** ✅ **Mitigated** (2025-11-17)
-- **Mitigation Implemented:**
-  1. ✅ Enabled S3 versioning in Terraform (`infra/modules/s3/main.tf`)
-  2. ⚠️ Lifecycle policies for old versions (optional, for cost optimization)
-  3. ⚠️ Version recovery testing (recommended)
-  4. ✅ Version management documented
-- **Implementation:** `aws_s3_bucket_versioning` resource added with `status = "Enabled"` on `pkg-artifacts` bucket
+- **Current State:** No `aws_s3_bucket_versioning` resource found in `infra/modules/s3/main.tf`
+- **Mitigation Plan:**
+  1. Add `aws_s3_bucket_versioning` resource to `infra/modules/s3/main.tf`
+  2. Set `status = "Enabled"` on artifacts bucket
+  3. Configure lifecycle policies for old versions (optional, for cost optimization)
+  4. Test version recovery functionality
+- **Note:** Document previously claimed this was mitigated, but verification shows it's not in the code
 - **Testability:** Yes (configuration review, version recovery testing)
 - **Priority:** P2 - Medium
 
@@ -218,12 +216,13 @@ d
 - **Description:** Relies on AWS account-level CloudTrail defaults, may not capture all events or be configured optimally
 - **Attack Vector:** Audit trail gaps, incomplete forensics
 - **Business Impact:** Compliance issues, incomplete audit trail
-- **Current State:** AWS-managed CloudTrail (default), not explicitly configured
+- **Current State:** No CloudTrail resource found in `infra/modules/monitoring/main.tf`. Plan output shows it's planned but not in actual code.
 - **Mitigation Plan:**
-  1. Create explicit CloudTrail trail in Terraform
+  1. Create explicit CloudTrail trail in Terraform (`infra/modules/monitoring/main.tf`)
   2. Configure S3 bucket for log storage
   3. Enable log file validation
-  4. Configure log retention
+  4. Configure log retention and Glacier archiving
+- **Note:** Terraform plan output shows CloudTrail is planned but resource doesn't exist in actual code
 - **Testability:** Yes (configuration review, CloudTrail log verification)
 - **Priority:** P2 - Medium
 
@@ -233,12 +232,13 @@ d
 - **Description:** Cannot automatically detect and respond to DoS patterns or performance degradation
 - **Attack Vector:** DoS attacks may go undetected until manual intervention
 - **Business Impact:** Delayed incident response, extended service disruption
-- **Current State:** No alarm definitions in Terraform
-- **Mitigation Plan:**
-  1. Create CloudWatch alarms for p95 latency
-  2. Create alarms for 5xx error rates
-  3. Configure SNS notifications
-  4. Test alarm triggers
+- **Status:** ✅ **Mitigated**
+- **Mitigation Implemented:**
+  1. ✅ Three CloudWatch alarms configured in `infra/modules/monitoring/main.tf`
+  2. ✅ `validator-high-cpu` alarm (CPU > 80%)
+  3. ✅ `validator-high-memory` alarm (Memory > 80%)
+  4. ✅ `validator-task-count` alarm (Running tasks < 1)
+- **Implementation:** CloudWatch alarms configured in `infra/modules/monitoring/main.tf` with thresholds for CPU, memory, and task count monitoring
 - **Testability:** Yes (configuration review, alarm testing)
 - **Priority:** P2 - Medium
 
@@ -248,12 +248,12 @@ d
 - **Description:** Cannot prove who uploaded what package, only downloads are logged
 - **Attack Vector:** Users can deny uploading malicious packages
 - **Business Impact:** Non-repudiation gaps, compliance issues
-- **Current State:** Only download events logged to DynamoDB
-- **Mitigation Plan:**
-  1. Add upload event logging to DynamoDB
-  2. Include user_id, timestamp, package info
-  3. Update documentation
-  4. Test logging functionality
+- **Status:** ⚠️ **Partial** - Function exists but needs verification in actual upload endpoints
+- **Current State:** `log_upload_event()` function documented but needs verification that it's called in upload endpoints
+- **Remaining Work:**
+  1. Verify `log_upload_event()` is called in `/init`, `/commit`, and `/abort` endpoints
+  2. Ensure events are logged to DynamoDB with user_id, timestamp, package info
+  3. Test logging functionality
 - **Testability:** Yes (functional testing, log verification)
 - **Priority:** P2 - Medium
 
@@ -267,12 +267,14 @@ d
 - **Description:** Cannot detect policy drift or configuration changes automatically
 - **Attack Vector:** Configuration changes may go undetected
 - **Business Impact:** Compliance monitoring gaps
-- **Current State:** AWS Config not configured
-- **Mitigation Plan:**
-  1. Enable AWS Config
-  2. Add compliance rules
-  3. Configure remediation actions
-  4. Set up compliance dashboard
+- **Status:** ✅ **Mitigated**
+- **Mitigation Implemented:**
+  1. ✅ AWS Config fully configured in `infra/modules/config/main.tf`
+  2. ✅ Configuration recorder enabled with all supported resource types
+  3. ✅ Delivery channel configured with S3 bucket for snapshots
+  4. ✅ S3 bucket for Config snapshots with KMS encryption and versioning
+  5. ✅ IAM role and policies configured for Config service
+- **Implementation:** AWS Config module (`infra/modules/config/main.tf`) includes configuration recorder, delivery channel, S3 bucket, and IAM roles
 - **Testability:** Yes (configuration review)
 - **Priority:** P3 - Low
 
@@ -310,13 +312,13 @@ d
 
 ## Risk Summary Statistics
 
-| Category    | Count  | Percentage | Mitigation Status              |
-| ----------- | ------ | ---------- | ------------------------------ |
-| 🔴 Critical | 1      | 7.1%       | ❌ 0% mitigated                |
-| 🟠 High     | 4      | 28.6%      | ❌ 0% mitigated                |
-| 🟡 Medium   | 6      | 42.9%      | ⚠️ 33% partially mitigated     |
-| 🟢 Low      | 3      | 21.4%      | ❌ 0% mitigated                |
-| **Total**   | **14** | **100%**   | **⚠️ 14% partially mitigated** |
+| Category    | Count  | Percentage | Mitigation Status                   |
+| ----------- | ------ | ---------- | ----------------------------------- |
+| 🔴 Critical | 1      | 7.1%       | ❌ 0% mitigated                     |
+| 🟠 High     | 4      | 28.6%      | ⚠️ 25% partially mitigated          |
+| 🟡 Medium   | 6      | 42.9%      | ✅ 33% mitigated, ⚠️ 17% partial    |
+| 🟢 Low      | 3      | 21.4%      | ✅ 33% mitigated                    |
+| **Total**   | **14** | **100%**   | **✅ 21% mitigated, ⚠️ 7% partial** |
 
 ---
 
@@ -333,15 +335,15 @@ d
 ### Phase 2: Medium Risks (Weeks 3-4)
 
 - [ ] R-006: Implement token use-count OR update documentation
-- [ ] R-007: Add security headers middleware
+- [x] R-007: Add security headers middleware ✅ **COMPLETED**
 - [ ] R-008: Enable S3 versioning
 - [ ] R-009: Configure explicit CloudTrail trail
-- [ ] R-010: Add CloudWatch alarms
-- [ ] R-011: Add upload event logging
+- [x] R-010: Add CloudWatch alarms ✅ **COMPLETED**
+- [ ] R-011: Verify upload event logging implementation
 
 ### Phase 3: Low Risks (Week 5+)
 
-- [ ] R-012: Configure AWS Config
+- [x] R-012: Configure AWS Config ✅ **COMPLETED**
 - [ ] R-013: Add log archiving to Glacier
 - [ ] R-014: Add validator script integrity verification
 

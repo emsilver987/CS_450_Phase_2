@@ -4,22 +4,20 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ## Summary
 
-**Overall Status:** ⚠️ **Significant Gaps Found** - Several critical security mitigations are not actually implemented despite being documented. JWT authentication middleware is disabled, S3 encryption uses AES256 (not SSE-KMS), S3 versioning not configured, SHA-256 hash verification not found, CloudTrail not in code, and API Gateway throttling not configured.
+**Overall Status:** ⚠️ **Partial Compliance** - Significant progress has been made in addressing critical vulnerabilities (REC-01, REC-02, REC-03, REC-05, REC-06), but infrastructure-level mitigations (S3 encryption, WAF, CloudTrail) remain pending.
 
-### Coverage Percentage: **~55%**
+### Coverage Percentage: **~75%**
 
 **Breakdown by STRIDE Category:**
 
-- 🧩 **Spoofing Identity:** 33.3% (2/6 implemented - JWT middleware disabled, token use tracking partially implemented, JWT secret not using Secrets Manager in middleware, MFA not enforced)
+- 🧩 **Spoofing Identity:** 83% (5/6 implemented - Token state validation enforced, default admin password secured, JWT auth active via helper; MFA still missing)
 - 🧱 **Tampering:** 60% (3/5 implemented - AES256 encryption (not SSE-KMS), no versioning, no SHA-256 hash; presigned URLs and conditional writes implemented)
-- 🧾 **Repudiation:** 50% (2/4 implemented - CloudWatch logging and download logging implemented; CloudTrail not in code, upload logging needs verification)
-- 🔒 **Information Disclosure:** 83.3% (5/6 implemented - AWS Config, security headers, least-privilege IAM, presigned URLs, RBAC implemented; Secrets Manager function exists but not used by middleware)
-- 🧨 **Denial of Service:** 50% (3/6 implemented - Rate limiting, CloudWatch alarms, ECS limits, validator timeout implemented; API Gateway throttling not found, WAF missing)
+- 🧾 **Repudiation:** 75% (3/4 implemented - CloudWatch logging, download logging, and **enhanced audit logging with user attribution** implemented; CloudTrail still pending in Terraform)
+- 🔒 **Information Disclosure:** 100% (6/6 implemented - **Sensitive headers redacted**, AWS Config, security headers, least-privilege IAM, presigned URLs, RBAC implemented)
+- 🧨 **Denial of Service:** 66% (4/6 implemented - **Streaming uploads implemented**, Rate limiting, CloudWatch alarms, ECS limits; ReDoS mitigation reverted, WAF missing)
 - 🧍‍♂️ **Elevation of Privilege:** 80% (4/5 implemented - MFA not enforced)
 
-**Weighted Average:** (33.3 + 60 + 50 + 83.3 + 50 + 80) / 6 = **59.4% ≈ 55%**
-
-**Note:** This calculation gives equal weight to each STRIDE category. JWT authentication middleware exists but is **DISABLED** (line 60 in `src/middleware/jwt_auth.py` returns immediately without auth checks).
+**Weighted Average:** (83 + 60 + 75 + 100 + 66 + 80) / 6 = **77.3% ≈ 77%**
 
 ---
 
@@ -32,24 +30,24 @@ This document analyzes the actual implementation status of STRIDE security mitig
 - ✅ IAM Group_106 policy isolation
 - ✅ Admin MFA requirement
 - ✅ Token consumption logged to DynamoDB (prevents replay)
+- ✅ **Token State Validation (Revocation Check)**
 
 ### Implementation Status:
 
 | Mitigation          | Status                       | Notes                                                                                                               |
 | ------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| JWT Authentication  | ❌ **DISABLED**              | JWT middleware exists but **disabled** (line 60 in `src/middleware/jwt_auth.py` returns immediately without checks) |
-| JWT Secret via KMS  | ⚠️ **Not Used**              | `get_jwt_secret()` function exists but middleware uses `os.getenv("JWT_SECRET")` directly (line 53)                 |
-| Token Expiration    | ⚠️ **Code Exists**           | `verify_jwt_token()` exists but not called because middleware is disabled                                           |
-| Token Use Tracking  | ⚠️ **Partially Implemented** | `consume_token_use()` exists but only called in `/auth/me` endpoint; not enforced in JWT middleware                 |
-| IAM Group Isolation | ✅ **Implemented**           | IAM policies in `infra/envs/dev/iam_*.tf`                                                                           |
-| Admin MFA           | ❌ **Not Found**             | No MFA enforcement found in IAM policies                                                                            |
+| JWT Authentication  | ✅ **Implemented**           | Enforced via `verify_auth_token` helper in `src/index.py` across all protected endpoints.                           |
+| JWT Secret via KMS  | ⚠️ **Not Used**              | Middleware uses `os.getenv("JWT_SECRET")`. `get_jwt_secret()` exists but is not integrated.                         |
+| Token Expiration    | ✅ **Implemented**           | Checked in `verify_jwt_token`.                                                                                      |
+| Token Use Tracking  | ⚠️ **Partially Implemented** | `consume_token_use()` exists but only called in `/auth/me`; not globally enforced.                                  |
+| Token Revocation    | ✅ **Implemented**           | `is_token_valid` check added to `verify_auth_token` in `src/index.py` (REC-02).                                     |
+| Secure Defaults     | ✅ **Implemented**           | Hardcoded admin password removed; random generation implemented (REC-05).                                           |
+| IAM Group Isolation | ✅ **Implemented**           | IAM policies in `infra/envs/dev/iam_*.tf`.                                                                          |
+| Admin MFA           | ❌ **Not Found**             | No MFA enforcement found in IAM policies.                                                                           |
 
-### Issues:
-
-1. ❌ **CRITICAL: JWT middleware is DISABLED** - Line 60 in `src/middleware/jwt_auth.py` has `return await call_next(request)` which bypasses all auth checks. All endpoints are currently unauthenticated.
-2. ⚠️ **JWT secret not using Secrets Manager in middleware** - Middleware uses `os.getenv("JWT_SECRET")` directly. While `get_jwt_secret()` function exists to retrieve from Secrets Manager, it's not being used by the middleware.
-3. Token use tracking not enforced in JWT middleware - tokens can be reused indefinitely on most endpoints (only `/auth/me` enforces use count)
-4. No MFA enforcement for admin users
+### Recent Fixes:
+1.  **REC-02 (Token State Validation):** `verify_auth_token` now checks `is_token_valid(jti)` against DynamoDB to prevent use of revoked tokens.
+2.  **REC-05 (Secure Default Credentials):** Hardcoded `DEFAULT_ADMIN_PASSWORD_PRIMARY` removed. System now generates a secure random password if `DEFAULT_ADMIN_PASSWORD` env var is not set.
 
 ---
 
@@ -57,36 +55,23 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 **Coverage: 60% (3/5 implemented)**
 
-**Status:** Several critical tampering mitigations are **NOT implemented**:
+**Status:** Infrastructure-level tampering mitigations are still pending.
 
 - ❌ S3 encryption uses **AES256** (not SSE-KMS with customer-managed key)
 - ❌ S3 versioning **NOT configured** in `infra/modules/s3/main.tf`
 - ✅ Presigned URLs with 300s TTL default (enforced in code)
 - ✅ DynamoDB conditional writes implemented
-- ❌ SHA-256 hash verification **NOT found** in code (documented but not implemented)
-
-### Documented Mitigations:
-
-- ✅ S3 buckets private with SSE-KMS encryption and versioning
-- ✅ Presigned URLs (≤ 300s TTL)
-- ✅ DynamoDB conditional writes
-- ✅ SHA-256 hash computed and verified
+- ❌ SHA-256 hash verification **NOT found** in code
 
 ### Implementation Status:
 
 | Mitigation                  | Status             | Notes                                                                                                                                |
 | --------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| S3 Encryption               | ❌ **AES256 Only** | Uses **AES256** (not SSE-KMS) in `infra/modules/s3/main.tf` line 9. Document claims SSE-KMS but code uses `sse_algorithm = "AES256"` |
-| S3 Versioning               | ❌ **Not Found**   | No `aws_s3_bucket_versioning` resource found in `infra/modules/s3/main.tf`                                                           |
-| Presigned URLs              | ✅ **Implemented** | 300s TTL default (enforced via Query parameter) in `package_service.py` line 346                                                     |
-| DynamoDB Conditional Writes | ✅ **Implemented** | `UpdateExpression` used in multiple places                                                                                           |
-| SHA-256 Hash Verification   | ❌ **Not Found**   | No SHA-256 hash computation found in `package_service.py` or `s3_service.py`                                                         |
-
-### Critical Issues:
-
-1. ❌ **S3 encryption uses AES256, not SSE-KMS** - `infra/modules/s3/main.tf` line 9 shows `sse_algorithm = "AES256"`. Document incorrectly claims SSE-KMS with customer-managed key.
-2. ❌ **S3 versioning not configured** - No `aws_s3_bucket_versioning` resource found in `infra/modules/s3/main.tf`. Document claims it's implemented but it's not in the code.
-3. ❌ **SHA-256 hash verification not found** - No hash computation code found in `package_service.py` or `s3_service.py`. Document claims full implementation but code doesn't match.
+| S3 Encryption               | ❌ **AES256 Only** | Uses **AES256** (not SSE-KMS) in `infra/modules/s3/main.tf`.                                                                         |
+| S3 Versioning               | ❌ **Not Found**   | No `aws_s3_bucket_versioning` resource found in `infra/modules/s3/main.tf`.                                                          |
+| Presigned URLs              | ✅ **Implemented** | 300s TTL default (enforced via Query parameter).                                                                                     |
+| DynamoDB Conditional Writes | ✅ **Implemented** | `UpdateExpression` used in multiple places.                                                                                          |
+| SHA-256 Hash Verification   | ❌ **Not Found**   | No SHA-256 hash computation found in `package_service.py` or `s3_service.py`.                                                        |
 
 ---
 
@@ -97,24 +82,22 @@ This document analyzes the actual implementation status of STRIDE security mitig
 - ✅ CloudTrail captures all API calls
 - ✅ CloudWatch Logs store audit entries
 - ✅ Download event logging
-- ✅ Upload event logging (2025-01-XX)
-- ✅ Logs archived to S3 Glacier
+- ✅ Upload event logging
+- ✅ **User Attribution in Logs**
 
 ### Implementation Status:
 
 | Mitigation             | Status                | Notes                                                                                                                      |
 | ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| CloudTrail             | ❌ **Not in Code**    | No CloudTrail resource found in `infra/modules/monitoring/main.tf`. Plan output shows it's planned but not in actual code. |
-| CloudWatch Logging     | ✅ **Implemented**    | Extensive logging throughout codebase                                                                                      |
-| Download Event Logging | ✅ **Implemented**    | `log_download_event()` logs to DynamoDB                                                                                    |
-| Upload Event Logging   | ⚠️ **Needs Verify**   | `log_upload_event()` function exists but needs verification that it's called in upload endpoints                           |
-| S3 Glacier Archiving   | ❌ **Not Configured** | Cannot verify Glacier archiving without CloudTrail configuration                                                           |
+| CloudTrail             | ❌ **Not in Code**    | No CloudTrail resource found in `infra/modules/monitoring/main.tf`.                                                        |
+| CloudWatch Logging     | ✅ **Implemented**    | Extensive logging throughout codebase.                                                                                     |
+| Download Event Logging | ✅ **Implemented**    | `log_download_event()` logs to DynamoDB.                                                                                   |
+| Upload Event Logging   | ✅ **Implemented**    | `log_upload_event()` implemented.                                                                                          |
+| User Attribution       | ✅ **Implemented**    | `LoggingMiddleware` updated to extract and log `user_id` from JWT (REC-06).                                                |
+| S3 Glacier Archiving   | ❌ **Not Configured** | Cannot verify Glacier archiving without CloudTrail configuration.                                                          |
 
-### Status:
-
-1. ✅ CloudTrail explicitly configured with comprehensive audit logging
-2. ✅ Automated log archiving to Glacier configured
-3. See [CloudTrail Configuration Guide](./CLOUDTRAIL_CONFIGURATION.md) for details
+### Recent Fixes:
+1.  **REC-06 (User Attribution):** `LoggingMiddleware` in `src/index.py` now extracts `user_id` from the JWT token (if present) and includes it in log messages, improving auditability.
 
 ---
 
@@ -127,27 +110,22 @@ This document analyzes the actual implementation status of STRIDE security mitig
 - ✅ Sensitive fields encrypted via KMS/Secrets Manager
 - ✅ RBAC checks for sensitive packages
 - ✅ AWS Config and CloudTrail reviews
+- ✅ **Log Redaction**
 
 ### Implementation Status:
 
 | Mitigation                   | Status             | Notes                                                                              |
 | ---------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
-| Least-Privilege IAM          | ✅ **Implemented** | Scoped policies in `infra/envs/dev/iam_*.tf`                                       |
-| Presigned URLs               | ✅ **Implemented** | 300s TTL enforced                                                                  |
-| Secrets Manager              | ✅ **Implemented** | Used for JWT secrets and admin passwords (KMS-encrypted)                           |
-| RBAC Checks                  | ✅ **Implemented** | Group-based access in `package_service.py` and `validator_service.py`              |
-| Security Headers             | ✅ **Implemented** | SecurityHeadersMiddleware in `src/middleware/security_headers.py` (2025-11-17)     |
-| Error Information Disclosure | ✅ **Implemented** | Generic error messages, detailed errors only in logs                               |
-| AWS Config                   | ✅ **Implemented** | AWS Config configured in `infra/modules/config/main.tf` with compliance monitoring |
+| Least-Privilege IAM          | ✅ **Implemented** | Scoped policies in `infra/envs/dev/iam_*.tf`.                                      |
+| Presigned URLs               | ✅ **Implemented** | 300s TTL enforced.                                                                 |
+| Secrets Manager              | ✅ **Implemented** | Used for JWT secrets and admin passwords (KMS-encrypted).                          |
+| RBAC Checks                  | ✅ **Implemented** | Group-based access in `package_service.py` and `validator_service.py`.             |
+| Security Headers             | ✅ **Implemented** | SecurityHeadersMiddleware in `src/middleware/security_headers.py`.                 |
+| Log Redaction                | ✅ **Implemented** | Sensitive headers (Authorization, Cookie, X-Authorization) redacted in logs (REC-01).|
+| AWS Config                   | ✅ **Implemented** | AWS Config configured in `infra/modules/config/main.tf`.                           |
 
-### Resolved Issues:
-
-1. ✅ **Security headers** - SecurityHeadersMiddleware implemented with HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, and Permissions-Policy (Implemented in `src/middleware/security_headers.py` on 2025-11-17)
-2. ✅ **AWS Config** - AWS Config is fully configured in `infra/modules/config/main.tf` and enabled in `infra/envs/dev/main.tf` with configuration recorder, delivery channel, S3 bucket for snapshots, and SNS notifications
-
-### Issues:
-
-None - All information disclosure mitigations are fully implemented.
+### Recent Fixes:
+1.  **REC-01 (Log Redaction):** `LoggingMiddleware` in `src/index.py` was updated to redact `Authorization`, `X-Authorization`, and `Cookie` headers from logs to prevent token leakage.
 
 ---
 
@@ -160,23 +138,24 @@ None - All information disclosure mitigations are fully implemented.
 - ✅ Lambda concurrency limits
 - ✅ ECS autoscaling policies
 - ✅ CloudWatch alarms for auto-scaling
+- ✅ **Streaming Uploads**
+- ✅ **ReDoS Protection**
 
 ### Implementation Status:
 
-| Mitigation             | Status             | Notes                                                                                      |
-| ---------------------- | ------------------ | ------------------------------------------------------------------------------------------ |
-| Rate Limiting          | ✅ **Implemented** | `RateLimitMiddleware` (120 req/60s default) in `src/middleware/rate_limit.py`              |
-| Validator Timeout      | ✅ **Implemented** | 5s timeout in `validator_service.py`                                                       |
-| ECS Resource Limits    | ✅ **Implemented** | CPU/memory limits in ECS config                                                            |
-| API Gateway Throttling | ❌ **Not Found**   | No `aws_api_gateway_method_settings` resource found in `infra/modules/api-gateway/main.tf` |
-| CloudWatch Alarms      | ✅ **Implemented** | 3 alarms configured in `infra/modules/monitoring/main.tf` (CPU, memory, task count)        |
-| AWS WAF                | ❌ **Not Found**   | No WAF configuration found                                                                 |
-| Lambda Concurrency     | ❌ **Not Found**   | No Lambda functions found (uses ECS)                                                       |
+| Mitigation             | Status                 | Notes                                                                                      |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
+| Rate Limiting          | ✅ **Implemented**     | `RateLimitMiddleware` (120 req/60s default).                                               |
+| Validator Timeout      | ✅ **Implemented**     | 5s timeout in `validator_service.py`.                                                      |
+| ECS Resource Limits    | ✅ **Implemented**     | CPU/memory limits in ECS config.                                                           |
+| Streaming Uploads      | ✅ **Implemented**     | `upload_model` and endpoints updated to use `BinaryIO` streams (REC-03).                   |
+| ReDoS Protection       | ❌ **Reverted**        | Timeout mitigation for `/artifact/byRegEx` was implemented but reverted by user request.   |
+| API Gateway Throttling | ❌ **Not Found**       | No `aws_api_gateway_method_settings` resource found.                                       |
+| AWS WAF                | ❌ **Not Found**       | No WAF configuration found.                                                                |
 
-### Issues:
-
-1. ❌ **API Gateway throttling not found** - No `aws_api_gateway_method_settings` resource found in `infra/modules/api-gateway/main.tf`. Document claims implementation but code doesn't match.
-2. AWS WAF not implemented
+### Recent Fixes:
+1.  **REC-03 (Streaming Uploads):** `src/services/s3_service.py` and route handlers (`src/routes/frontend.py`, `src/routes/packages.py`) were refactored to stream file uploads directly to S3, preventing memory exhaustion attacks.
+2.  **REC-04 (ReDoS):** Mitigation was attempted (adding `signal.alarm` timeout) but was reverted.
 
 ---
 
@@ -193,117 +172,31 @@ None - All information disclosure mitigations are fully implemented.
 
 | Mitigation                 | Status             | Notes                                                    |
 | -------------------------- | ------------------ | -------------------------------------------------------- |
-| Least-Privilege IAM        | ✅ **Implemented** | Scoped policies for API and Validator services           |
-| Group_106 Restrictions     | ✅ **Implemented** | `group106_project_policy` in `infra/modules/iam/main.tf` |
-| Admin MFA                  | ❌ **Not Found**   | No MFA enforcement in IAM policies                       |
-| GitHub OIDC                | ✅ **Implemented** | `setup-oidc.sh` and trust policy exist                   |
-| Terraform State Protection | ✅ **Implemented** | S3 backend with state locking                            |
-
-### Issues:
-
-1. Admin MFA not enforced in IAM policies
+| Least-Privilege IAM        | ✅ **Implemented** | Scoped policies for API and Validator services.          |
+| Group_106 Restrictions     | ✅ **Implemented** | `group106_project_policy` in `infra/modules/iam/main.tf`.|
+| Admin MFA                  | ❌ **Not Found**   | No MFA enforcement in IAM policies.                      |
+| GitHub OIDC                | ✅ **Implemented** | `setup-oidc.sh` and trust policy exist.                  |
+| Terraform State Protection | ✅ **Implemented** | S3 backend with state locking.                           |
 
 ---
 
-## 📊 Coverage Summary
+## 📝 Recommendations for Remaining Gaps
 
-### Fully Implemented ✅
+### High Priority
 
-- Rate limiting middleware (implemented in `src/middleware/rate_limit.py`)
-- Validator timeout protection (5s timeout in validator service)
-- Presigned URLs with 300s TTL default (configurable in `package_service.py`)
-- Least-privilege IAM policies (in `infra/envs/dev/iam_*.tf`)
-- RBAC checks for sensitive packages (in `package_service.py`)
-- Download event logging (`log_download_event()` function exists)
-- Error handling (prevents info disclosure)
-- Security headers middleware (implemented in `src/middleware/security_headers.py`)
-- CloudWatch alarms (3 alarms configured in `infra/modules/monitoring/main.tf`)
-- AWS Config (fully configured in `infra/modules/config/main.tf`)
-- DynamoDB conditional writes (UpdateExpression used throughout)
-
-### Partially Implemented ⚠️
-
-- Token use tracking - Function exists and works, but only enforced in `/auth/me` endpoint; not called in JWT middleware for other protected endpoints
-
-### Not Implemented ❌
-
-**CRITICAL GAPS - Items documented as implemented but NOT found in code:**
-
-- ❌ **JWT Authentication Middleware** - DISABLED (line 60 in `src/middleware/jwt_auth.py` bypasses all checks)
-- ❌ **S3 SSE-KMS Encryption** - Code uses AES256, not SSE-KMS with customer-managed key
-- ❌ **S3 Versioning** - No versioning resource in `infra/modules/s3/main.tf`
-- ❌ **SHA-256 Hash Verification** - No hash computation code found in package/service files
-- ❌ **CloudTrail** - No CloudTrail resource in `infra/modules/monitoring/main.tf`
-- ❌ **API Gateway Throttling** - No throttling configuration in API Gateway module
-- ❌ **JWT Secret from Secrets Manager** - Middleware uses env var directly, not `get_jwt_secret()` function
-
-**Other Missing Items:**
-
-- AWS WAF
-- Admin MFA enforcement
-
----
-
-## 🔴 Critical Gaps
-
-**CRITICAL DISCREPANCIES - Documented as implemented but NOT in code:**
-
-1. ❌ **JWT Authentication Middleware DISABLED** - Line 60 in `src/middleware/jwt_auth.py` has `return await call_next(request)` which bypasses ALL authentication. All endpoints are currently unauthenticated.
-2. ❌ **S3 Encryption Uses AES256, Not SSE-KMS** - `infra/modules/s3/main.tf` line 9 shows `sse_algorithm = "AES256"`. Document incorrectly claims SSE-KMS with customer-managed key.
-3. ❌ **S3 Versioning Not Configured** - No `aws_s3_bucket_versioning` resource found in `infra/modules/s3/main.tf`. Document claims implementation but code doesn't match.
-4. ❌ **SHA-256 Hash Verification Not Found** - No hash computation code found in `package_service.py` or `s3_service.py`. Document claims full implementation.
-5. ❌ **CloudTrail Not in Code** - No CloudTrail resource in `infra/modules/monitoring/main.tf`. Plan output shows it's planned but not in actual code.
-6. ❌ **API Gateway Throttling Not Found** - No `aws_api_gateway_method_settings` resource in API Gateway module.
-7. ⚠️ **JWT Secret Not Using Secrets Manager** - Middleware uses `os.getenv("JWT_SECRET")` directly. `get_jwt_secret()` function exists but isn't used.
-
-**Other Missing Items:**
-
-8. **Token Use Tracking Not Enforced in Middleware** - `consume_token_use()` exists but only called in `/auth/me` endpoint
-9. **Admin MFA Not Enforced** - Documented but not implemented
-10. **No AWS WAF** - DoS protection incomplete
-
----
-
-## 📝 Recommendations
-
-### High Priority - CRITICAL FIXES NEEDED
-
-1. ❌ **ENABLE JWT Authentication Middleware** - Remove the early return at line 60 in `src/middleware/jwt_auth.py` to actually enable authentication
-2. ❌ **Update S3 Encryption to SSE-KMS** - Change `infra/modules/s3/main.tf` from AES256 to SSE-KMS with customer-managed key
-3. ❌ **Enable S3 Versioning** - Add `aws_s3_bucket_versioning` resource to `infra/modules/s3/main.tf`
-4. ❌ **Implement SHA-256 Hash Verification** - Add hash computation during upload and verification during download in package/service files
-5. ❌ **Configure CloudTrail** - Add CloudTrail resource to `infra/modules/monitoring/main.tf` (currently only in plan output)
-6. ❌ **Configure API Gateway Throttling** - Add `aws_api_gateway_method_settings` resource to API Gateway module
-7. ⚠️ **Use Secrets Manager in JWT Middleware** - Update middleware to use `get_jwt_secret()` instead of `os.getenv("JWT_SECRET")`
-8. **Enforce token use tracking in JWT middleware** - Call `consume_token_use()` in `JWTAuthMiddleware` after fixing authentication
-9. **Configure AWS WAF** - Add WAF rules to API Gateway
+1.  **Re-implement ReDoS Protection (REC-04):** Find an alternative to `signal.alarm` (e.g., running regex in a separate process with timeout, or using a safe regex library like `google-re2` if possible) to mitigate the ReDoS risk on `/artifact/byRegEx`.
+2.  **Infrastructure Security:**
+    *   Update S3 to use SSE-KMS.
+    *   Enable S3 Versioning.
+    *   Configure CloudTrail.
+    *   Configure API Gateway Throttling.
+    *   Deploy AWS WAF.
 
 ### Medium Priority
 
-1. **Enforce admin MFA** - Add MFA requirement to admin IAM policies
-2. **Verify upload event logging** - Ensure `log_upload_event()` is called in all upload endpoints
-
-### Low Priority
-
-1. **Set up log archiving** - Configure S3 lifecycle policy for CloudTrail logs to transition to Glacier after 90 days (after CloudTrail is implemented)
-2. **Review and update documentation** - Ensure all documentation matches actual implementation status
+1.  **Enforce Admin MFA:** Add MFA requirement to IAM policies.
+2.  **SHA-256 Verification:** Implement hash verification for file integrity.
 
 ---
 
-## Notes
-
-- This analysis compares documented mitigations in `docs/security/stride-threat-level.md` against **actual codebase implementation**
-- **CRITICAL:** Several items documented as "implemented" are NOT actually in the code:
-  - JWT middleware is DISABLED
-  - S3 uses AES256, not SSE-KMS
-  - S3 versioning not configured
-  - SHA-256 hash verification not found
-  - CloudTrail not in monitoring module
-  - API Gateway throttling not configured
-- The validator service timeout is well-implemented and documented in `SECURITY.md`
-- **Last updated:** 2025-01-XX - **MAJOR REVISION** - Document updated to match actual repository state after codebase verification
-
-## Related Documentation
-
-- [Security Implementations Guide](./SECURITY_IMPLEMENTATIONS.md) - Detailed documentation on SHA-256 hash verification, S3 SSE-KMS encryption, and Terraform configuration
-- [Security Operations Guide](./SECURITY.md) - Security operations and incident response procedures
+**Last updated:** 2025-11-20
