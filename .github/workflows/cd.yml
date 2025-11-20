@@ -215,7 +215,6 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         continue-on-error: true
         env:
-          TF_VAR_aws_region: us-east-1
           TF_VAR_artifacts_bucket: pkg-artifacts
         run: |
           # Import existing tables only if not already in state
@@ -281,7 +280,7 @@ jobs:
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}
-        run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
+        run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
 
       - name: Terraform apply
         shell: bash

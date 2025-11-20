@@ -1,8 +1,5 @@
-variable "aws_region" { 
-  type    = string
-  default = "us-east-1"
-}
-variable "artifacts_bucket" { 
+
+variable "artifacts_bucket" {
   type    = string
   default = "pkg-artifacts"
 }

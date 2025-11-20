@@ -17,18 +17,18 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
 locals {
   artifacts_bucket = "pkg-artifacts"
   ddb_tables_arnmap = {
-    users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
-    tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
-    packages  = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/packages"
-    uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
-    downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
-    artifacts = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/artifacts"
+    users     = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/users"
+    tokens    = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/tokens"
+    packages  = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/packages"
+    uploads   = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/uploads"
+    downloads = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/downloads"
+    artifacts = "arn:aws:dynamodb:us-east-1:${var.aws_account_id}:table/artifacts"
   }
 }
 
@@ -37,7 +37,6 @@ module "s3" {
   artifacts_name = local.artifacts_bucket
   environment    = "dev"
 }
-
 
 module "ddb" {
   source = "../../modules/dynamodb"
@@ -75,7 +74,7 @@ module "api_gateway" {
 module "cloudfront" {
   source       = "../../modules/cloudfront"
   alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
-  aws_region   = var.aws_region
+  aws_region   = "us-east-1"
 }
 
 output "artifacts_bucket" { value = local.artifacts_bucket }
