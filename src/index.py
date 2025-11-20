@@ -137,29 +137,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             f"=== MIDDLEWARE START: {request.method} {request.url.path} ===", flush=True
         )
         logger.info(f"=== MIDDLEWARE START: {request.method} {request.url.path} ===")
-        
-        # Redact sensitive headers
-        headers = dict(request.headers)
-        if "authorization" in headers:
-            headers["authorization"] = "[REDACTED]"
-        if "cookie" in headers:
-            headers["cookie"] = "[REDACTED]"
-            
-        logger.info(f"=== MIDDLEWARE: Headers: {headers} ===")
+        logger.info(f"=== MIDDLEWARE: Headers: {dict(request.headers)} ===")
 
         # Log and pass through all requests
         try:
             logger.info(f"=== MIDDLEWARE: Calling call_next ===")
             response = await call_next(request)
-            
-            # Log user info if authenticated
-            user_info = "Anonymous"
-            if hasattr(request.state, "user") and request.state.user:
-                user_id = request.state.user.get("user_id", "Unknown")
-                username = request.state.user.get("username", "Unknown")
-                user_info = f"User(id={user_id}, username={username})"
-            
-            logger.info(f"=== MIDDLEWARE: Response status {response.status_code} | {user_info} ===")
+            logger.info(f"=== MIDDLEWARE: Response status {response.status_code} ===")
             return response
         except Exception as e:
             print(f"=== MIDDLEWARE ERROR: {str(e)} ===", flush=True)
@@ -233,7 +217,6 @@ def sanitize_model_id_for_s3(model_id: str) -> str:
     )
 
 
-<<<<<<< Updated upstream
 def _run_async_rating(artifact_id: str, model_name: str, version: str):
     """
     Run rating asynchronously in background thread.
@@ -314,72 +297,10 @@ def _get_model_name_for_s3(artifact_id: str) -> Optional[str]:
     except Exception as e:
         logger.debug(f"Error getting model name for S3: {str(e)}")
         return None
-=======
-def require_auth(request: Request) -> dict[str, Any]:
-    """
-    Validate the incoming request using JWT auth.
-    
-    Checks if the token is valid (signature) AND active in the database (revocation/usage limits).
-    """
-    # 1. Get payload (either from middleware or manual verification)
-    payload = None
-    if hasattr(request.state, "user") and request.state.user:
-        payload = request.state.user
-    else:
-        token = _extract_token(request)
-        payload = verify_jwt_token(token)
-        
-    if not payload:
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # 2. Validate against DynamoDB (Revocation & Usage Limits)
-    # We need to import consume_token_use here to avoid circular imports if possible,
-    # or rely on the import at the top of the file.
-    # The import `from .services.auth_service import ...` is already at the top.
-    # However, consume_token_use was NOT imported. We need to add it to the imports or import locally.
-    # Checking imports... `consume_token_use` is NOT in the top-level imports.
-    # We will import it locally to be safe and avoid modifying top-level imports for now.
-    from .services.auth_service import consume_token_use
-
-    token_id = payload.get("jti")
-    if not token_id:
-         raise HTTPException(
-            status_code=401,
-            detail="Invalid token: missing jti",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Check DB state
-    # Note: consume_token_use decrements the usage count.
-    # Ideally, for high-frequency APIs, we might want a 'check_token' that doesn't decrement,
-    # but the requirement implies enforcing usage limits, so consuming is correct.
-    token_item = consume_token_use(token_id)
-    
-    if not token_item:
-        raise HTTPException(
-            status_code=401,
-            detail="Token revoked or expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Update payload with latest info from DB (e.g. if roles changed)
-    # But keep original claims if needed. For now, we trust the DB state.
-    # We'll merge them or just return the payload. 
-    # The original code returned the JWT payload. Let's stick to that but ensure it's valid.
-    
-    request.state.auth = payload
-    request.state.user = payload
-    return payload
->>>>>>> Stashed changes
 
 
 def verify_auth_token(request: Request) -> bool:
     """
-<<<<<<< Updated upstream
     Verify auth token from either Authorization or X-Authorization header.
     Per OpenAPI spec, X-Authorization is the required header, but we also accept
     Authorization for flexibility. Uses proper JWT verification from auth_service.
@@ -413,23 +334,6 @@ def verify_auth_token(request: Request) -> bool:
     from .services.auth_public import STATIC_TOKEN
     if token == STATIC_TOKEN:
         logger.debug("DEBUG: Static token from /authenticate accepted")
-=======
-    Check if the request is authenticated.
-    
-    Uses request.state.user from JWTAuthMiddleware if available,
-    otherwise falls back to require_auth() for manual verification.
-    """
-    # Check if middleware has already authenticated the request
-    if hasattr(request.state, "user") and request.state.user:
-        # Middleware has validated the token
-        # Also set request.state.auth for backwards compatibility
-        request.state.auth = request.state.user
-        return True
-    
-    # Fallback: try manual verification
-    try:
-        require_auth(request)
->>>>>>> Stashed changes
         return True
 
     # Basic format check: JWT should have 3 parts separated by dots
@@ -3936,6 +3840,26 @@ def get_package_rate(id: str, request: Request):
 #        raise
 #    except Exception as e:
 #        raise HTTPException(status_code=500, detail=f"Failed to get artifacts by type: {str(e)}")
+# @app.post("/upload")
+# async def upload_artifact_model(request: Request, file: UploadFile = File(...), model_id: str = None, version: str = None):
+#    try:
+#        if not file or not file.filename:
+#            raise HTTPException(status_code=400, detail="File is required")
+#        if not file.filename.endswith('.zip'):
+#            raise HTTPException(status_code=400, detail="Only ZIP files are supported")
+#        filename = file.filename.replace('.zip', '').strip()
+#        effective_model_id = model_id or filename if filename else "uploaded-model"
+#        effective_version = version or "1.0.0"
+#        file_content = await file.read()
+#        if not file_content:
+#            raise HTTPException(status_code=400, detail="File content is empty")
+#        result = upload_model(file_content, effective_model_id, effective_version)
+#        return {"message": "Upload successful", "details": result, "model_id": effective_model_id, "version": effective_version}
+#    except HTTPException:
+#        raise
+#    except Exception as e:
+#        import traceback
+#        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
 # @app.get("/artifact/model/{id}/upload-url")
