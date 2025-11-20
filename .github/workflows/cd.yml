@@ -39,10 +39,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
 
+      - name: Ensure Terraform plugin cache dir exists
+        run: mkdir -p ~/.terraform.d/plugin-cache
+
       - name: Cache Terraform plugins
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: /home/runner/.terraform.d/plugin-cache
+          path: ~/.terraform.d/plugin-cache
           key: ${{ runner.os }}-tf-${{ hashFiles('**/*.tf') }}
           restore-keys: |
             ${{ runner.os }}-tf-
@@ -60,7 +63,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::838693051036:role/github-actions-oidc-role
           role-session-name: GitHubActions-CDPipeline
-      
 
       - name: Configure AWS credentials (Static)
         if: ${{ env.USE_OIDC != 'true' }}
@@ -101,8 +103,10 @@ jobs:
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         env:
-          TF_PLUGIN_CACHE_DIR: /home/runner/.terraform.d/plugin-cache
-        run: terraform init -input=false -lock-timeout=5m
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false -lock-timeout=5m
 
       - name: Select or create workspace
         shell: bash
@@ -139,7 +143,7 @@ jobs:
               terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" "${resource_address}" "${table_name}" || echo "Failed to import ${table_name} (may not exist or already imported)"
             fi
           }
-          
+
           import_table 'module.ddb.aws_dynamodb_table.this["artifacts"]' artifacts
           import_table 'module.ddb.aws_dynamodb_table.this["users"]' users
           import_table 'module.ddb.aws_dynamodb_table.this["uploads"]' uploads
@@ -175,15 +179,15 @@ jobs:
             --services $ECS_SERVICE \
             --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount,deployments:deployments[*].{id:id,status:status,runningCount:runningCount,desiredCount:desiredCount}}' \
             --output table
-          
+
           echo "Starting wait for PRIMARY deployment to stabilize (max 15 minutes)..."
           MAX_ATTEMPTS=60
           ATTEMPT=0
           SLEEP_INTERVAL=15
-          
+
           FAILED_ATTEMPTS=0
           MAX_FAILED_ATTEMPTS=5  # Fail after 5 consecutive failures (75 seconds)
-          
+
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             ATTEMPT=$((ATTEMPT + 1))
             echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Checking service status..."
@@ -287,7 +291,7 @@ jobs:
             
             sleep $SLEEP_INTERVAL
           done
-          
+
           echo "Service stabilization wait timed out after $MAX_ATTEMPTS attempts"
           echo "Checking final service status..."
           aws ecs describe-services \
