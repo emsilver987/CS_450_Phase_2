@@ -1,0 +1,810 @@
+[0m[1mdata.aws_iam_policy_document.validator_ddb_min_rw: Reading...[0m[0m
+[0m[1mmodule.monitoring.data.aws_secretsmanager_secret.admin_secret: Reading...[0m[0m
+[0m[1mmodule.api_gateway.aws_iam_policy.lambda_ddb_policy: Refreshing state... [id=arn:aws:iam::838693051036:policy/lambda-ddb-policy][0m
+[0m[1mmodule.ecs.aws_cloudwatch_log_group.validator_logs: Refreshing state... [id=/ecs/validator-service][0m
+[0m[1mmodule.ecs.aws_ecr_repository.validator_repo: Refreshing state... [id=validator-service][0m
+[0m[1mmodule.ecs.aws_iam_role.ecs_execution_role: Refreshing state... [id=ecs-execution-role][0m
+[0m[1mmodule.config.aws_iam_role.config_role: Refreshing state... [id=aws-config-role][0m
+[0m[1mmodule.monitoring.aws_cloudwatch_metric_alarm.validator_high_cpu: Refreshing state... [id=validator-high-cpu][0m
+[0m[1mdata.aws_iam_policy_document.validator_ddb_min_rw: Read complete after 0s [id=1836627799][0m
+[0m[1mmodule.ecs.aws_ecs_cluster.validator_cluster: Refreshing state... [id=arn:aws:ecs:us-east-1:838693051036:cluster/validator-cluster][0m
+[0m[1mmodule.config.aws_s3_bucket.config_snapshots: Refreshing state... [id=pkg-artifacts-config-838693051036][0m
+[0m[1mdata.aws_iam_policy_document.api_s3_packages_rw: Reading...[0m[0m
+[0m[1mdata.aws_iam_policy_document.api_s3_packages_rw: Read complete after 0s [id=131127469][0m
+[0m[1mmodule.api_gateway.aws_iam_policy.lambda_s3_policy: Refreshing state... [id=arn:aws:iam::838693051036:policy/lambda-s3-packages-policy][0m
+[0m[1mmodule.monitoring.data.aws_secretsmanager_secret.admin_secret: Read complete after 1s [id=arn:aws:secretsmanager:us-east-1:838693051036:secret:my-auth-admin-secret-s5NP6c][0m
+[0m[1mdata.aws_iam_policy_document.validator_s3_inputs_ro: Reading...[0m[0m
+[0m[1mdata.aws_iam_policy_document.validator_s3_inputs_ro: Read complete after 0s [id=37455665][0m
+[0m[1mmodule.s3.aws_s3_bucket.artifacts: Refreshing state... [id=pkg-artifacts][0m
+[0m[1mmodule.ecs.aws_vpc.validator_vpc: Refreshing state... [id=vpc-0823e2a14f6aa023f][0m
+[0m[1mmodule.monitoring.aws_cloudwatch_dashboard.main_dashboard: Refreshing state... [id=acme-main-dashboard][0m
+[0m[1maws_iam_role.api_task: Refreshing state... [id=api-task-role-dev][0m
+[0m[1mmodule.ecs.aws_iam_role.ecs_task_role: Refreshing state... [id=ecs-task-role][0m
+[0m[1mmodule.api_gateway.aws_iam_role.lambda_role: Refreshing state... [id=lambda-execution-role][0m
+[0m[1mmodule.monitoring.aws_s3_bucket.cloudtrail_logs: Refreshing state... [id=pkg-artifacts-cloudtrail-logs-838693051036][0m
+[0m[1mdata.aws_iam_policy_document.api_ddb_rw: Reading...[0m[0m
+[0m[1mdata.aws_iam_policy_document.api_ddb_rw: Read complete after 0s [id=1740634139][0m
+[0m[1maws_iam_role.validator_task: Refreshing state... [id=validator-task-role-dev][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_rest_api.main_api: Refreshing state... [id=1q1x0d7k93][0m
+[0m[1mmodule.monitoring.aws_kms_key.main_key: Refreshing state... [id=8bceba21-d653-4025-ac7d-7c4f7b271162][0m
+[0m[1mmodule.ecs.data.aws_secretsmanager_secret.jwt_secret: Reading...[0m[0m
+[0m[1mmodule.iam.aws_iam_policy.group106_policy: Refreshing state... [id=arn:aws:iam::838693051036:policy/group106_project_policy][0m
+[0m[1mmodule.ecs.data.aws_secretsmanager_secret.jwt_secret: Read complete after 0s [id=arn:aws:secretsmanager:us-east-1:838693051036:secret:acme-jwt-secret-lFC1MI][0m
+[0m[1mmodule.monitoring.aws_cloudwatch_metric_alarm.validator_task_count: Refreshing state... [id=validator-task-count][0m
+[0m[1mmodule.monitoring.aws_cloudwatch_metric_alarm.validator_high_memory: Refreshing state... [id=validator-high-memory][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["artifacts"]: Refreshing state... [id=artifacts][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["packages"]: Refreshing state... [id=packages][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["downloads"]: Refreshing state... [id=downloads][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["tokens"]: Refreshing state... [id=tokens][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["uploads"]: Refreshing state... [id=uploads][0m
+[0m[1mmodule.ddb.aws_dynamodb_table.this["users"]: Refreshing state... [id=users][0m
+[0m[1mmodule.ecs.data.aws_secretsmanager_secret.admin_secret: Reading...[0m[0m
+[0m[1maws_iam_policy.validator_ddb_min_rw_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/validator-ddb-min-rw][0m
+[0m[1mmodule.ecs.data.aws_secretsmanager_secret.admin_secret: Read complete after 0s [id=arn:aws:secretsmanager:us-east-1:838693051036:secret:my-auth-admin-secret-s5NP6c][0m
+[0m[1maws_iam_policy.api_s3_packages_rw_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/api-s3-packages-rw-dev][0m
+[0m[1maws_iam_policy.validator_s3_inputs_ro_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/validator-s3-inputs-ro][0m
+[0m[1maws_iam_policy.api_ddb_rw_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/api-ddb-rw-dev][0m
+[0m[1mmodule.ecs.aws_iam_role_policy_attachment.ecs_execution_role_policy: Refreshing state... [id=ecs-execution-role/arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy][0m
+[0m[1mmodule.api_gateway.aws_iam_role_policy_attachment.lambda_basic_execution: Refreshing state... [id=lambda-execution-role/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole][0m
+[0m[1mmodule.api_gateway.aws_iam_role_policy_attachment.lambda_ddb_attachment: Refreshing state... [id=lambda-execution-role/arn:aws:iam::838693051036:policy/lambda-ddb-policy][0m
+[0m[1mmodule.api_gateway.aws_iam_role_policy_attachment.lambda_s3_attachment: Refreshing state... [id=lambda-execution-role/arn:aws:iam::838693051036:policy/lambda-s3-packages-policy][0m
+[0m[1mmodule.ecs.aws_ecs_task_definition.validator_task: Refreshing state... [id=validator-service][0m
+[0m[1mmodule.ecs.aws_iam_role_policy.ecs_task_policy: Refreshing state... [id=ecs-task-role:ecs-task-policy][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.reset: Refreshing state... [id=o375n0][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact: Refreshing state... [id=fe4cda][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.root_get: Refreshing state... [id=agm-1q1x0d7k93-vzy7aelnqk-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.health: Refreshing state... [id=ohjsdp][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.admin: Refreshing state... [id=ca79b1][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.authenticate: Refreshing state... [id=xd4rwn][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.package: Refreshing state... [id=n181lg][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.tracks: Refreshing state... [id=2dzh0p][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.upload: Refreshing state... [id=2kz9y3][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifacts: Refreshing state... [id=s1qmk5][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.directory: Refreshing state... [id=4r56us][0m
+[0m[1mmodule.ecs.aws_internet_gateway.validator_igw: Refreshing state... [id=igw-0c197294fff722b33][0m
+[0m[1mmodule.ecs.aws_subnet.validator_subnet_1: Refreshing state... [id=subnet-09d712845cafa5f2a][0m
+[0m[1mmodule.ecs.aws_security_group.validator_sg: Refreshing state... [id=sg-0103506464b34803c][0m
+[0m[1mmodule.ecs.aws_lb_target_group.validator_tg: Refreshing state... [id=arn:aws:elasticloadbalancing:us-east-1:838693051036:targetgroup/validator-tg/e602579432d9cbe6][0m
+[0m[1mmodule.ecs.aws_subnet.validator_subnet_2: Refreshing state... [id=subnet-0326c3f0b0293b419][0m
+[0m[1maws_iam_role_policy_attachment.validator_attach_ddb: Refreshing state... [id=validator-task-role-dev/arn:aws:iam::838693051036:policy/validator-ddb-min-rw][0m
+[0m[1maws_iam_role_policy_attachment.api_attach_s3: Refreshing state... [id=api-task-role-dev/arn:aws:iam::838693051036:policy/api-s3-packages-rw-dev][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.reset_delete: Refreshing state... [id=agm-1q1x0d7k93-o375n0-DELETE][0m
+[0m[1maws_iam_role_policy_attachment.validator_attach_s3: Refreshing state... [id=validator-task-role-dev/arn:aws:iam::838693051036:policy/validator-s3-inputs-ro][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_directory: Refreshing state... [id=t5wvyy][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_get: Refreshing state... [id=agm-1q1x0d7k93-fe4cda-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model: Refreshing state... [id=syihes][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_type: Refreshing state... [id=kkk5us][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_byregex: Refreshing state... [id=x6n5gk][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_byname: Refreshing state... [id=mh4zkn][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_ingest: Refreshing state... [id=oa23b7][0m
+[0m[1maws_iam_role_policy_attachment.api_attach_ddb: Refreshing state... [id=api-task-role-dev/arn:aws:iam::838693051036:policy/api-ddb-rw-dev][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.root_get_200: Refreshing state... [id=agmr-1q1x0d7k93-vzy7aelnqk-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.root_get: Refreshing state... [id=agi-1q1x0d7k93-vzy7aelnqk-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.admin_options: Refreshing state... [id=agm-1q1x0d7k93-ca79b1-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.admin_get: Refreshing state... [id=agm-1q1x0d7k93-ca79b1-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.health_components: Refreshing state... [id=pkrcir][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.health_get: Refreshing state... [id=agm-1q1x0d7k93-ohjsdp-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.authenticate_put: Refreshing state... [id=agm-1q1x0d7k93-xd4rwn-PUT][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.authenticate_options: Refreshing state... [id=agm-1q1x0d7k93-xd4rwn-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.package_id: Refreshing state... [id=aqmcfg][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.tracks_get: Refreshing state... [id=agm-1q1x0d7k93-2dzh0p-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.directory_options: Refreshing state... [id=agm-1q1x0d7k93-4r56us-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.directory_get: Refreshing state... [id=agm-1q1x0d7k93-4r56us-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.upload_post: Refreshing state... [id=agm-1q1x0d7k93-2kz9y3-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.upload_get: Refreshing state... [id=agm-1q1x0d7k93-2kz9y3-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.upload_options: Refreshing state... [id=agm-1q1x0d7k93-2kz9y3-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifacts_post: Refreshing state... [id=agm-1q1x0d7k93-s1qmk5-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifacts_options: Refreshing state... [id=agm-1q1x0d7k93-s1qmk5-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifacts_type: Refreshing state... [id=eryvqa][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.reset_delete_200: Refreshing state... [id=agmr-1q1x0d7k93-o375n0-DELETE-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.reset_delete_401: Refreshing state... [id=agmr-1q1x0d7k93-o375n0-DELETE-401][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.reset_delete_403: Refreshing state... [id=agmr-1q1x0d7k93-o375n0-DELETE-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_directory_get: Refreshing state... [id=agm-1q1x0d7k93-t5wvyy-GET][0m
+[0m[1mmodule.ecs.aws_route_table.validator_rt: Refreshing state... [id=rtb-0f5d4f991953d4cc7][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id: Refreshing state... [id=rgl8ze][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_byregex_post: Refreshing state... [id=agm-1q1x0d7k93-x6n5gk-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_byregex_options: Refreshing state... [id=agm-1q1x0d7k93-x6n5gk-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_type_id: Refreshing state... [id=3t3rul][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_post: Refreshing state... [id=agm-1q1x0d7k93-kkk5us-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_byname_name: Refreshing state... [id=mptn66][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_get: Refreshing state... [id=agm-1q1x0d7k93-kkk5us-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_options: Refreshing state... [id=agm-1q1x0d7k93-kkk5us-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_ingest_post: Refreshing state... [id=agm-1q1x0d7k93-oa23b7-POST][0m
+[0m[1mmodule.ecs.aws_lb.validator_lb: Refreshing state... [id=arn:aws:elasticloadbalancing:us-east-1:838693051036:loadbalancer/app/validator-lb/047eef966c56b0cf][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_ingest_get: Refreshing state... [id=agm-1q1x0d7k93-oa23b7-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.admin_options_200: Refreshing state... [id=agmr-1q1x0d7k93-ca79b1-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.admin_options: Refreshing state... [id=agi-1q1x0d7k93-ca79b1-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.root_get_200: Refreshing state... [id=agir-1q1x0d7k93-vzy7aelnqk-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.authenticate_put_400: Refreshing state... [id=agmr-1q1x0d7k93-xd4rwn-PUT-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.authenticate_put_200: Refreshing state... [id=agmr-1q1x0d7k93-xd4rwn-PUT-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.health_get_200: Refreshing state... [id=agmr-1q1x0d7k93-ohjsdp-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.health_components_get: Refreshing state... [id=agm-1q1x0d7k93-pkrcir-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.authenticate_options_200: Refreshing state... [id=agmr-1q1x0d7k93-xd4rwn-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.authenticate_options: Refreshing state... [id=agi-1q1x0d7k93-xd4rwn-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.package_id_rate: Refreshing state... [id=sokq6g][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.package_id_get: Refreshing state... [id=agm-1q1x0d7k93-aqmcfg-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.tracks_get_200: Refreshing state... [id=agmr-1q1x0d7k93-2dzh0p-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.tracks_get_500: Refreshing state... [id=agmr-1q1x0d7k93-2dzh0p-GET-500][0m
+[0m[1mmodule.monitoring.aws_kms_alias.main_key_alias: Refreshing state... [id=alias/acme-main-key][0m
+[0m[1mmodule.monitoring.aws_secretsmanager_secret.jwt_secret: Refreshing state... [id=arn:aws:secretsmanager:us-east-1:838693051036:secret:acme-jwt-secret-lFC1MI][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.directory_options: Refreshing state... [id=agi-1q1x0d7k93-4r56us-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.directory_options_200: Refreshing state... [id=agmr-1q1x0d7k93-4r56us-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.upload_options: Refreshing state... [id=agi-1q1x0d7k93-2kz9y3-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.upload_options_200: Refreshing state... [id=agmr-1q1x0d7k93-2kz9y3-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_post_413: Refreshing state... [id=agmr-1q1x0d7k93-s1qmk5-POST-413][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_post_200: Refreshing state... [id=agmr-1q1x0d7k93-s1qmk5-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_post_400: Refreshing state... [id=agmr-1q1x0d7k93-s1qmk5-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_post_403: Refreshing state... [id=agmr-1q1x0d7k93-s1qmk5-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifacts_type_id: Refreshing state... [id=9w84sm][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_options_200: Refreshing state... [id=agmr-1q1x0d7k93-s1qmk5-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifacts_options: Refreshing state... [id=agi-1q1x0d7k93-s1qmk5-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id_lineage: Refreshing state... [id=03msxm][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id_download: Refreshing state... [id=gjysud][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id_license_check: Refreshing state... [id=56vqc9][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id_upload: Refreshing state... [id=qqpdrh][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_model_id_rate: Refreshing state... [id=izwvla][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byregex_post_404: Refreshing state... [id=agmr-1q1x0d7k93-x6n5gk-POST-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byregex_post_403: Refreshing state... [id=agmr-1q1x0d7k93-x6n5gk-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byregex_post_200: Refreshing state... [id=agmr-1q1x0d7k93-x6n5gk-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byregex_post_400: Refreshing state... [id=agmr-1q1x0d7k93-x6n5gk-POST-400][0m
+[0m[1mmodule.ecs.aws_route_table_association.validator_rta_1: Refreshing state... [id=rtbassoc-02f0ecf201ada78b8][0m
+[0m[1mmodule.ecs.aws_route_table_association.validator_rta_2: Refreshing state... [id=rtbassoc-031e6daa2ad1a6af2][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_byname_name_get: Refreshing state... [id=agm-1q1x0d7k93-mptn66-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byregex_options_200: Refreshing state... [id=agmr-1q1x0d7k93-x6n5gk-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_id_get: Refreshing state... [id=agm-1q1x0d7k93-3t3rul-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_byregex_options: Refreshing state... [id=agi-1q1x0d7k93-x6n5gk-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_type_id_cost: Refreshing state... [id=y9it09][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_resource.artifact_type_id_audit: Refreshing state... [id=ig48ji][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_options_200: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_options: Refreshing state... [id=agi-1q1x0d7k93-kkk5us-OPTIONS][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_202: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-202][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_409: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-409][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_424: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-424][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_403: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_201: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-201][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_post_400: Refreshing state... [id=agmr-1q1x0d7k93-kkk5us-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.admin_options_200: Refreshing state... [id=agir-1q1x0d7k93-ca79b1-OPTIONS-200][0m
+[0m[1maws_iam_policy.api_kms_s3_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/api-kms-s3-dev][0m
+[0m[1maws_iam_policy.validator_kms_s3_ro_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/validator-kms-s3-ro][0m
+[0m[1maws_iam_policy.api_secrets_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/api-secrets-manager-dev][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.health_components_get_200: Refreshing state... [id=agmr-1q1x0d7k93-pkrcir-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.authenticate_options_200: Refreshing state... [id=agir-1q1x0d7k93-xd4rwn-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_get_403: Refreshing state... [id=agmr-1q1x0d7k93-aqmcfg-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_get_404: Refreshing state... [id=agmr-1q1x0d7k93-aqmcfg-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_get_200: Refreshing state... [id=agmr-1q1x0d7k93-aqmcfg-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_get_500: Refreshing state... [id=agmr-1q1x0d7k93-aqmcfg-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_get_400: Refreshing state... [id=agmr-1q1x0d7k93-aqmcfg-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.package_id_rate_get: Refreshing state... [id=agm-1q1x0d7k93-sokq6g-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.directory_options_200: Refreshing state... [id=agir-1q1x0d7k93-4r56us-OPTIONS-200][0m
+[0m[1mmodule.monitoring.aws_secretsmanager_secret_version.jwt_secret: Refreshing state... [id=arn:aws:secretsmanager:us-east-1:838693051036:secret:acme-jwt-secret-lFC1MI|terraform-20251014192538721200000002][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.upload_options_200: Refreshing state... [id=agir-1q1x0d7k93-2kz9y3-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifacts_type_id_delete: Refreshing state... [id=agm-1q1x0d7k93-9w84sm-DELETE][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifacts_type_id_put: Refreshing state... [id=agm-1q1x0d7k93-9w84sm-PUT][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifacts_type_id_get: Refreshing state... [id=agm-1q1x0d7k93-9w84sm-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_model_id_lineage_get: Refreshing state... [id=agm-1q1x0d7k93-03msxm-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_model_id_download_get: Refreshing state... [id=agm-1q1x0d7k93-gjysud-GET][0m
+[0m[1mmodule.ecs.aws_lb_listener.validator_listener: Refreshing state... [id=arn:aws:elasticloadbalancing:us-east-1:838693051036:listener/app/validator-lb/047eef966c56b0cf/e031bfcc25cca3ee][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_model_id_upload_post: Refreshing state... [id=agm-1q1x0d7k93-qqpdrh-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_options_200: Refreshing state... [id=agir-1q1x0d7k93-s1qmk5-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_model_id_rate_get: Refreshing state... [id=agm-1q1x0d7k93-izwvla-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_model_id_license_check_post: Refreshing state... [id=agm-1q1x0d7k93-56vqc9-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_id_audit_get: Refreshing state... [id=agm-1q1x0d7k93-ig48ji-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method.artifact_type_id_cost_get: Refreshing state... [id=agm-1q1x0d7k93-y9it09-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byname_name_get_403: Refreshing state... [id=agmr-1q1x0d7k93-mptn66-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byname_name_get_404: Refreshing state... [id=agmr-1q1x0d7k93-mptn66-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byname_name_get_200: Refreshing state... [id=agmr-1q1x0d7k93-mptn66-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_byname_name_get_400: Refreshing state... [id=agmr-1q1x0d7k93-mptn66-GET-400][0m
+[0m[1mmodule.ecs.aws_iam_role_policy.ecs_execution_secrets_policy: Refreshing state... [id=ecs-execution-role:ecs-execution-secrets-policy][0m
+[0m[1mmodule.api_gateway.aws_iam_policy.lambda_kms_policy: Refreshing state... [id=arn:aws:iam::838693051036:policy/lambda-kms-s3-policy][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byregex_options_200: Refreshing state... [id=agir-1q1x0d7k93-x6n5gk-OPTIONS-200][0m
+[0m[1maws_iam_role_policy_attachment.validator_attach_kms: Refreshing state... [id=validator-task-role-dev/arn:aws:iam::838693051036:policy/validator-kms-s3-ro][0m
+[0m[1maws_iam_role_policy_attachment.api_attach_kms: Refreshing state... [id=api-task-role-dev/arn:aws:iam::838693051036:policy/api-kms-s3-dev][0m
+[0m[1maws_iam_role_policy_attachment.api_attach_secrets: Refreshing state... [id=api-task-role-dev/arn:aws:iam::838693051036:policy/api-secrets-manager-dev][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_rate_get_200: Refreshing state... [id=agmr-1q1x0d7k93-sokq6g-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_rate_get_400: Refreshing state... [id=agmr-1q1x0d7k93-sokq6g-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_rate_get_403: Refreshing state... [id=agmr-1q1x0d7k93-sokq6g-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_rate_get_500: Refreshing state... [id=agmr-1q1x0d7k93-sokq6g-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.package_id_rate_get_404: Refreshing state... [id=agmr-1q1x0d7k93-sokq6g-GET-404][0m
+[0m[1maws_iam_policy.validator_secrets_jwt_ro_managed: Refreshing state... [id=arn:aws:iam::838693051036:policy/validator-secrets-jwt-ro][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_options_200: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-OPTIONS-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_delete_403: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-DELETE-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_delete_400: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-DELETE-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_delete_404: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-DELETE-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_delete_200: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-DELETE-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_put_200: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-PUT-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_put_400: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-PUT-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_put_404: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-PUT-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_put_403: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-PUT-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_get_200: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_get_404: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_get_400: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifacts_type_id_get_403: Refreshing state... [id=agmr-1q1x0d7k93-9w84sm-GET-403][0m
+[0m[1mmodule.ecs.aws_ecs_service.validator_service: Refreshing state... [id=arn:aws:ecs:us-east-1:838693051036:service/validator-cluster/validator-service][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_rate_get_403: Refreshing state... [id=agmr-1q1x0d7k93-izwvla-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_rate_get_404: Refreshing state... [id=agmr-1q1x0d7k93-izwvla-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_rate_get_500: Refreshing state... [id=agmr-1q1x0d7k93-izwvla-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_rate_get_200: Refreshing state... [id=agmr-1q1x0d7k93-izwvla-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_rate_get_400: Refreshing state... [id=agmr-1q1x0d7k93-izwvla-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_license_check_post_502: Refreshing state... [id=agmr-1q1x0d7k93-56vqc9-POST-502][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_license_check_post_400: Refreshing state... [id=agmr-1q1x0d7k93-56vqc9-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_license_check_post_200: Refreshing state... [id=agmr-1q1x0d7k93-56vqc9-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_license_check_post_403: Refreshing state... [id=agmr-1q1x0d7k93-56vqc9-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_license_check_post_404: Refreshing state... [id=agmr-1q1x0d7k93-56vqc9-POST-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_cost_get_200: Refreshing state... [id=agmr-1q1x0d7k93-y9it09-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_cost_get_404: Refreshing state... [id=agmr-1q1x0d7k93-y9it09-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_cost_get_500: Refreshing state... [id=agmr-1q1x0d7k93-y9it09-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_cost_get_400: Refreshing state... [id=agmr-1q1x0d7k93-y9it09-GET-400][0m
+[0m[1maws_iam_role_policy_attachment.validator_attach_secrets: Refreshing state... [id=validator-task-role-dev/arn:aws:iam::838693051036:policy/validator-secrets-jwt-ro][0m
+[0m[1mmodule.api_gateway.aws_iam_role_policy_attachment.lambda_kms_attachment: Refreshing state... [id=lambda-execution-role/arn:aws:iam::838693051036:policy/lambda-kms-s3-policy][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_cost_get_403: Refreshing state... [id=agmr-1q1x0d7k93-y9it09-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.admin_get: Refreshing state... [id=agi-1q1x0d7k93-ca79b1-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_model_id_license_check_post: Refreshing state... [id=agi-1q1x0d7k93-56vqc9-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifacts_type_id_put: Refreshing state... [id=agi-1q1x0d7k93-9w84sm-PUT][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_ingest_post: Refreshing state... [id=agi-1q1x0d7k93-oa23b7-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_ingest_get: Refreshing state... [id=agi-1q1x0d7k93-oa23b7-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_get: Refreshing state... [id=agi-1q1x0d7k93-kkk5us-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.reset_delete: Refreshing state... [id=agi-1q1x0d7k93-o375n0-DELETE][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.package_id_get: Refreshing state... [id=agi-1q1x0d7k93-aqmcfg-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_model_id_download_get: Refreshing state... [id=agi-1q1x0d7k93-gjysud-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_directory_get: Refreshing state... [id=agi-1q1x0d7k93-t5wvyy-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_get: Refreshing state... [id=agi-1q1x0d7k93-fe4cda-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.authenticate_put: Refreshing state... [id=agi-1q1x0d7k93-xd4rwn-PUT][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_id_get: Refreshing state... [id=agi-1q1x0d7k93-3t3rul-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.health_components_get: Refreshing state... [id=agi-1q1x0d7k93-pkrcir-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.package_id_rate_get: Refreshing state... [id=agi-1q1x0d7k93-sokq6g-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_id_cost_get: Refreshing state... [id=agi-1q1x0d7k93-y9it09-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.upload_get: Refreshing state... [id=agi-1q1x0d7k93-2kz9y3-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_byname_name_get: Refreshing state... [id=agi-1q1x0d7k93-mptn66-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifacts_type_id_delete: Refreshing state... [id=agi-1q1x0d7k93-9w84sm-DELETE][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_byregex_post: Refreshing state... [id=agi-1q1x0d7k93-x6n5gk-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_model_id_upload_post: Refreshing state... [id=agi-1q1x0d7k93-qqpdrh-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.upload_post: Refreshing state... [id=agi-1q1x0d7k93-2kz9y3-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifacts_type_id_get: Refreshing state... [id=agi-1q1x0d7k93-9w84sm-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.tracks_get: Refreshing state... [id=agi-1q1x0d7k93-2dzh0p-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.health_get: Refreshing state... [id=agi-1q1x0d7k93-ohjsdp-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_model_id_rate_get: Refreshing state... [id=agi-1q1x0d7k93-izwvla-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.directory_get: Refreshing state... [id=agi-1q1x0d7k93-4r56us-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifacts_post: Refreshing state... [id=agi-1q1x0d7k93-s1qmk5-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_post: Refreshing state... [id=agi-1q1x0d7k93-kkk5us-POST][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_lineage_get_403: Refreshing state... [id=agmr-1q1x0d7k93-03msxm-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_lineage_get_404: Refreshing state... [id=agmr-1q1x0d7k93-03msxm-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_model_id_lineage_get: Refreshing state... [id=agi-1q1x0d7k93-03msxm-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_lineage_get_400: Refreshing state... [id=agmr-1q1x0d7k93-03msxm-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_model_id_lineage_get_200: Refreshing state... [id=agmr-1q1x0d7k93-03msxm-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_license_check_post_404: Refreshing state... [id=agir-1q1x0d7k93-56vqc9-POST-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_license_check_post_200: Refreshing state... [id=agir-1q1x0d7k93-56vqc9-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_license_check_post_502: Refreshing state... [id=agir-1q1x0d7k93-56vqc9-POST-502][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_license_check_post_403: Refreshing state... [id=agir-1q1x0d7k93-56vqc9-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_put_404: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-PUT-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_put_400: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-PUT-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_put_200: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-PUT-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_put_403: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-PUT-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_license_check_post_400: Refreshing state... [id=agir-1q1x0d7k93-56vqc9-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_get_200: Refreshing state... [id=agir-1q1x0d7k93-aqmcfg-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_get_403: Refreshing state... [id=agir-1q1x0d7k93-aqmcfg-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_get_500: Refreshing state... [id=agir-1q1x0d7k93-aqmcfg-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.reset_delete_200: Refreshing state... [id=agir-1q1x0d7k93-o375n0-DELETE-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.reset_delete_401: Refreshing state... [id=agir-1q1x0d7k93-o375n0-DELETE-401][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.reset_delete_403: Refreshing state... [id=agir-1q1x0d7k93-o375n0-DELETE-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.authenticate_put_200: Refreshing state... [id=agir-1q1x0d7k93-xd4rwn-PUT-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.authenticate_put_400: Refreshing state... [id=agir-1q1x0d7k93-xd4rwn-PUT-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_get_400: Refreshing state... [id=agir-1q1x0d7k93-aqmcfg-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_rate_get_404: Refreshing state... [id=agir-1q1x0d7k93-sokq6g-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_rate_get_500: Refreshing state... [id=agir-1q1x0d7k93-sokq6g-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_rate_get_400: Refreshing state... [id=agir-1q1x0d7k93-sokq6g-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_rate_get_403: Refreshing state... [id=agir-1q1x0d7k93-sokq6g-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_rate_get_200: Refreshing state... [id=agir-1q1x0d7k93-sokq6g-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_cost_get_404: Refreshing state... [id=agir-1q1x0d7k93-y9it09-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_cost_get_200: Refreshing state... [id=agir-1q1x0d7k93-y9it09-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_cost_get_500: Refreshing state... [id=agir-1q1x0d7k93-y9it09-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_cost_get_403: Refreshing state... [id=agir-1q1x0d7k93-y9it09-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_cost_get_400: Refreshing state... [id=agir-1q1x0d7k93-y9it09-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byname_name_get_200: Refreshing state... [id=agir-1q1x0d7k93-mptn66-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byname_name_get_400: Refreshing state... [id=agir-1q1x0d7k93-mptn66-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byname_name_get_404: Refreshing state... [id=agir-1q1x0d7k93-mptn66-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byname_name_get_403: Refreshing state... [id=agir-1q1x0d7k93-mptn66-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byregex_post_200: Refreshing state... [id=agir-1q1x0d7k93-x6n5gk-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byregex_post_403: Refreshing state... [id=agir-1q1x0d7k93-x6n5gk-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byregex_post_400: Refreshing state... [id=agir-1q1x0d7k93-x6n5gk-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_byregex_post_404: Refreshing state... [id=agir-1q1x0d7k93-x6n5gk-POST-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_get_200: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_get_400: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_get_403: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_get_404: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.tracks_get_200: Refreshing state... [id=agir-1q1x0d7k93-2dzh0p-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.tracks_get_500: Refreshing state... [id=agir-1q1x0d7k93-2dzh0p-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.health_get_200: Refreshing state... [id=agir-1q1x0d7k93-ohjsdp-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_rate_get_403: Refreshing state... [id=agir-1q1x0d7k93-izwvla-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_rate_get_404: Refreshing state... [id=agir-1q1x0d7k93-izwvla-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_rate_get_500: Refreshing state... [id=agir-1q1x0d7k93-izwvla-GET-500][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_rate_get_400: Refreshing state... [id=agir-1q1x0d7k93-izwvla-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_rate_get_200: Refreshing state... [id=agir-1q1x0d7k93-izwvla-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_202: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-202][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_409: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-409][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_201: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-201][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_400: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_403: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_post_424: Refreshing state... [id=agir-1q1x0d7k93-kkk5us-POST-424][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_post_200: Refreshing state... [id=agir-1q1x0d7k93-s1qmk5-POST-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_post_400: Refreshing state... [id=agir-1q1x0d7k93-s1qmk5-POST-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_post_413: Refreshing state... [id=agir-1q1x0d7k93-s1qmk5-POST-413][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_post_403: Refreshing state... [id=agir-1q1x0d7k93-s1qmk5-POST-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_delete_200: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-DELETE-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_delete_404: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-DELETE-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_delete_403: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-DELETE-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifacts_type_id_delete_400: Refreshing state... [id=agir-1q1x0d7k93-9w84sm-DELETE-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_lineage_get_404: Refreshing state... [id=agir-1q1x0d7k93-03msxm-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_lineage_get_400: Refreshing state... [id=agir-1q1x0d7k93-03msxm-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_lineage_get_403: Refreshing state... [id=agir-1q1x0d7k93-03msxm-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_model_id_lineage_get_200: Refreshing state... [id=agir-1q1x0d7k93-03msxm-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.package_id_get_404: Refreshing state... [id=agir-1q1x0d7k93-aqmcfg-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_audit_get_200: Refreshing state... [id=agmr-1q1x0d7k93-ig48ji-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_audit_get_400: Refreshing state... [id=agmr-1q1x0d7k93-ig48ji-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_audit_get_403: Refreshing state... [id=agmr-1q1x0d7k93-ig48ji-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_response.artifact_type_id_audit_get_404: Refreshing state... [id=agmr-1q1x0d7k93-ig48ji-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration.artifact_type_id_audit_get: Refreshing state... [id=agi-1q1x0d7k93-ig48ji-GET][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_audit_get_400: Refreshing state... [id=agir-1q1x0d7k93-ig48ji-GET-400][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_audit_get_200: Refreshing state... [id=agir-1q1x0d7k93-ig48ji-GET-200][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_audit_get_403: Refreshing state... [id=agir-1q1x0d7k93-ig48ji-GET-403][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.artifact_type_id_audit_get_404: Refreshing state... [id=agir-1q1x0d7k93-ig48ji-GET-404][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_deployment.main_deployment: Refreshing state... [id=omlfvn][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_stage.main_stage: Refreshing state... [id=ags-1q1x0d7k93-prod][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_method_settings.throttle_settings: Refreshing state... [id=1q1x0d7k93-prod-*/*][0m
+[0m[1mmodule.api_gateway.aws_api_gateway_integration_response.health_components_get_200: Refreshing state... [id=agir-1q1x0d7k93-pkrcir-GET-200][0m
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  [32m+[0m create[0m
+  [33m~[0m update in-place[0m
+[32m+[0m/[31m-[0m create replacement and then destroy[0m
+
+Terraform will perform the following actions:
+
+[1m  # module.api_gateway.aws_api_gateway_deployment.main_deployment[0m must be [1m[31mreplaced[0m
+[0m[32m+[0m/[31m-[0m[0m resource "aws_api_gateway_deployment" "main_deployment" {
+      [33m~[0m[0m created_date = "2025-11-20T01:05:32Z" -> (known after apply)
+      [33m~[0m[0m id           = "omlfvn" -> (known after apply)
+      [33m~[0m[0m triggers     = {
+          [31m-[0m[0m "redeployment" = "09d244da6b3ef2c8f4e0d50ac87d446a377c2090"
+        } -> (known after apply) [31m# forces replacement[0m[0m
+        [90m# (3 unchanged attributes hidden)[0m[0m
+    }
+
+[1m  # module.api_gateway.aws_api_gateway_stage.main_stage[0m will be updated in-place
+[0m  [33m~[0m[0m resource "aws_api_gateway_stage" "main_stage" {
+      [33m~[0m[0m deployment_id         = "omlfvn" -> (known after apply)
+        id                    = "ags-1q1x0d7k93-prod"
+        tags                  = {
+            "Environment" = "dev"
+            "Name"        = "acme-api-prod"
+            "Project"     = "CS_450_Phase_2"
+        }
+        [90m# (15 unchanged attributes hidden)[0m[0m
+    }
+
+[1m  # module.config.aws_config_configuration_recorder.config_recorder[0m will be created
+[0m  [32m+[0m[0m resource "aws_config_configuration_recorder" "config_recorder" {
+      [32m+[0m[0m id       = (known after apply)
+      [32m+[0m[0m name     = "acme-config-recorder"
+      [32m+[0m[0m region   = "us-east-1"
+      [32m+[0m[0m role_arn = "arn:aws:iam::838693051036:role/aws-config-role"
+
+      [32m+[0m[0m recording_group {
+          [32m+[0m[0m all_supported                 = true
+          [32m+[0m[0m include_global_resource_types = true
+
+          [32m+[0m[0m exclusion_by_resource_types (known after apply)
+
+          [32m+[0m[0m recording_strategy (known after apply)
+        }
+
+      [32m+[0m[0m recording_mode (known after apply)
+    }
+
+[1m  # module.config.aws_config_configuration_recorder_status.config_recorder[0m will be created
+[0m  [32m+[0m[0m resource "aws_config_configuration_recorder_status" "config_recorder" {
+      [32m+[0m[0m id         = (known after apply)
+      [32m+[0m[0m is_enabled = true
+      [32m+[0m[0m name       = "acme-config-recorder"
+      [32m+[0m[0m region     = "us-east-1"
+    }
+
+[1m  # module.config.aws_config_delivery_channel.config_delivery[0m will be created
+[0m  [32m+[0m[0m resource "aws_config_delivery_channel" "config_delivery" {
+      [32m+[0m[0m id             = (known after apply)
+      [32m+[0m[0m name           = "acme-config-delivery"
+      [32m+[0m[0m region         = "us-east-1"
+      [32m+[0m[0m s3_bucket_name = "pkg-artifacts-config-838693051036"
+      [32m+[0m[0m s3_key_prefix  = "config-snapshots"
+
+      [32m+[0m[0m snapshot_delivery_properties {
+          [32m+[0m[0m delivery_frequency = "TwentyFour_Hours"
+        }
+    }
+
+[1m  # module.config.aws_iam_role.config_role[0m will be updated in-place
+[0m  [33m~[0m[0m resource "aws_iam_role" "config_role" {
+      [33m~[0m[0m assume_role_policy    = jsonencode(
+          [33m~[0m[0m {
+              [33m~[0m[0m Statement = [
+                  [33m~[0m[0m {
+                      [31m-[0m[0m Condition = {
+                          [31m-[0m[0m StringEquals = {
+                              [31m-[0m[0m "AWS:SourceAccount" = "838693051036"
+                            }
+                        }
+                        [90m# (3 unchanged attributes hidden)[0m[0m
+                    },
+                ]
+                [90m# (1 unchanged attribute hidden)[0m[0m
+            }
+        )
+        id                    = "aws-config-role"
+        name                  = "aws-config-role"
+      [33m~[0m[0m tags                  = {
+            "Environment" = "dev"
+            "Name"        = "aws-config-role"
+            "Project"     = "CS_450_Phase_2"
+          [32m+[0m[0m "Purpose"     = "IAM role for AWS Config service"
+        }
+      [33m~[0m[0m tags_all              = {
+          [32m+[0m[0m "Purpose"     = "IAM role for AWS Config service"
+            [90m# (3 unchanged elements hidden)[0m[0m
+        }
+        [90m# (10 unchanged attributes hidden)[0m[0m
+
+        [90m# (1 unchanged block hidden)[0m[0m
+    }
+
+[1m  # module.config.aws_iam_role_policy.config_role_policy[0m will be created
+[0m  [32m+[0m[0m resource "aws_iam_role_policy" "config_role_policy" {
+      [32m+[0m[0m id          = (known after apply)
+      [32m+[0m[0m name        = "aws-config-role-policy"
+      [32m+[0m[0m name_prefix = (known after apply)
+      [32m+[0m[0m policy      = jsonencode(
+            {
+              [32m+[0m[0m Statement = [
+                  [32m+[0m[0m {
+                      [32m+[0m[0m Action    = [
+                          [32m+[0m[0m "s3:PutObject",
+                          [32m+[0m[0m "s3:GetBucketAcl",
+                        ]
+                      [32m+[0m[0m Condition = {
+                          [32m+[0m[0m StringEquals = {
+                              [32m+[0m[0m "s3:x-amz-acl" = "bucket-owner-full-control"
+                            }
+                        }
+                      [32m+[0m[0m Effect    = "Allow"
+                      [32m+[0m[0m Resource  = [
+                          [32m+[0m[0m "arn:aws:s3:::pkg-artifacts-config-838693051036/*",
+                          [32m+[0m[0m "arn:aws:s3:::pkg-artifacts-config-838693051036",
+                        ]
+                    },
+                  [32m+[0m[0m {
+                      [32m+[0m[0m Action   = "s3:GetBucketAcl"
+                      [32m+[0m[0m Effect   = "Allow"
+                      [32m+[0m[0m Resource = "arn:aws:s3:::pkg-artifacts-config-838693051036"
+                    },
+                ]
+              [32m+[0m[0m Version   = "2012-10-17"
+            }
+        )
+      [32m+[0m[0m role        = "aws-config-role"
+    }
+
+[1m  # module.config.aws_iam_role_policy_attachment.config_role_policy[0m will be created
+[0m  [32m+[0m[0m resource "aws_iam_role_policy_attachment" "config_role_policy" {
+      [32m+[0m[0m id         = (known after apply)
+      [32m+[0m[0m policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
+      [32m+[0m[0m role       = "aws-config-role"
+    }
+
+[1m  # module.config.aws_s3_bucket.config_snapshots[0m will be updated in-place
+[0m  [33m~[0m[0m resource "aws_s3_bucket" "config_snapshots" {
+        id                          = "pkg-artifacts-config-838693051036"
+      [33m~[0m[0m tags                        = {
+            "Environment" = "dev"
+          [33m~[0m[0m "Name"        = "aws-config-snapshots" [33m->[0m[0m "acme-config-snapshots"
+            "Project"     = "CS_450_Phase_2"
+          [32m+[0m[0m "Purpose"     = "AWS Config snapshots"
+        }
+      [33m~[0m[0m tags_all                    = {
+          [33m~[0m[0m "Name"        = "aws-config-snapshots" [33m->[0m[0m "acme-config-snapshots"
+          [32m+[0m[0m "Purpose"     = "AWS Config snapshots"
+            [90m# (2 unchanged elements hidden)[0m[0m
+        }
+        [90m# (13 unchanged attributes hidden)[0m[0m
+
+        [90m# (3 unchanged blocks hidden)[0m[0m
+    }
+
+[1m  # module.config.aws_s3_bucket_lifecycle_configuration.config_snapshots[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_lifecycle_configuration" "config_snapshots" {
+      [32m+[0m[0m bucket                                 = "pkg-artifacts-config-838693051036"
+      [32m+[0m[0m expected_bucket_owner                  = (known after apply)
+      [32m+[0m[0m id                                     = (known after apply)
+      [32m+[0m[0m region                                 = "us-east-1"
+      [32m+[0m[0m transition_default_minimum_object_size = "all_storage_classes_128K"
+
+      [32m+[0m[0m rule {
+          [32m+[0m[0m id     = "transition-to-glacier"
+          [32m+[0m[0m status = "Enabled"
+            [90m# (1 unchanged attribute hidden)[0m[0m
+
+          [32m+[0m[0m transition {
+              [32m+[0m[0m days          = 90
+              [32m+[0m[0m storage_class = "GLACIER"
+            }
+        }
+    }
+
+[1m  # module.config.aws_s3_bucket_public_access_block.config_snapshots[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_public_access_block" "config_snapshots" {
+      [32m+[0m[0m block_public_acls       = true
+      [32m+[0m[0m block_public_policy     = true
+      [32m+[0m[0m bucket                  = "pkg-artifacts-config-838693051036"
+      [32m+[0m[0m id                      = (known after apply)
+      [32m+[0m[0m ignore_public_acls      = true
+      [32m+[0m[0m region                  = "us-east-1"
+      [32m+[0m[0m restrict_public_buckets = true
+    }
+
+[1m  # module.config.aws_s3_bucket_server_side_encryption_configuration.config_snapshots[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_server_side_encryption_configuration" "config_snapshots" {
+      [32m+[0m[0m bucket = "pkg-artifacts-config-838693051036"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m rule {
+          [32m+[0m[0m bucket_key_enabled = true
+
+          [32m+[0m[0m apply_server_side_encryption_by_default {
+              [32m+[0m[0m kms_master_key_id = "arn:aws:kms:us-east-1:838693051036:key/8bceba21-d653-4025-ac7d-7c4f7b271162"
+              [32m+[0m[0m sse_algorithm     = "aws:kms"
+            }
+        }
+    }
+
+[1m  # module.config.aws_s3_bucket_versioning.config_snapshots[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_versioning" "config_snapshots" {
+      [32m+[0m[0m bucket = "pkg-artifacts-config-838693051036"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m versioning_configuration {
+          [32m+[0m[0m mfa_delete = (known after apply)
+          [32m+[0m[0m status     = "Enabled"
+        }
+    }
+
+[1m  # module.monitoring.aws_cloudtrail.audit_trail[0m will be created
+[0m  [32m+[0m[0m resource "aws_cloudtrail" "audit_trail" {
+      [32m+[0m[0m arn                           = (known after apply)
+      [32m+[0m[0m enable_log_file_validation    = true
+      [32m+[0m[0m enable_logging                = true
+      [32m+[0m[0m home_region                   = (known after apply)
+      [32m+[0m[0m id                            = (known after apply)
+      [32m+[0m[0m include_global_service_events = true
+      [32m+[0m[0m is_multi_region_trail         = true
+      [32m+[0m[0m is_organization_trail         = false
+      [32m+[0m[0m kms_key_id                    = "arn:aws:kms:us-east-1:838693051036:key/8bceba21-d653-4025-ac7d-7c4f7b271162"
+      [32m+[0m[0m name                          = "acme-audit-trail"
+      [32m+[0m[0m region                        = "us-east-1"
+      [32m+[0m[0m s3_bucket_name                = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m sns_topic_arn                 = (known after apply)
+      [32m+[0m[0m tags                          = {
+          [32m+[0m[0m "Environment" = "dev"
+          [32m+[0m[0m "Name"        = "acme-audit-trail"
+          [32m+[0m[0m "Project"     = "CS_450_Phase_2"
+          [32m+[0m[0m "Purpose"     = "Audit logging for compliance and security"
+        }
+      [32m+[0m[0m tags_all                      = {
+          [32m+[0m[0m "Environment" = "dev"
+          [32m+[0m[0m "Name"        = "acme-audit-trail"
+          [32m+[0m[0m "Project"     = "CS_450_Phase_2"
+          [32m+[0m[0m "Purpose"     = "Audit logging for compliance and security"
+        }
+
+      [32m+[0m[0m event_selector {
+          [32m+[0m[0m include_management_events = true
+          [32m+[0m[0m read_write_type           = "All"
+
+          [32m+[0m[0m data_resource {
+              [32m+[0m[0m type   = "AWS::S3::Object"
+              [32m+[0m[0m values = [
+                  [32m+[0m[0m "arn:aws:s3:::pkg-artifacts/*",
+                ]
+            }
+        }
+      [32m+[0m[0m event_selector {
+          [32m+[0m[0m include_management_events = true
+          [32m+[0m[0m read_write_type           = "All"
+
+          [32m+[0m[0m data_resource {
+              [32m+[0m[0m type   = "AWS::DynamoDB::Table"
+              [32m+[0m[0m values = [
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/artifacts",
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/downloads",
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/packages",
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/tokens",
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/uploads",
+                  [32m+[0m[0m "arn:aws:dynamodb:us-east-1:838693051036:table/users",
+                ]
+            }
+        }
+    }
+
+[1m  # module.monitoring.aws_cloudwatch_log_group.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_cloudwatch_log_group" "cloudtrail_logs" {
+      [32m+[0m[0m arn               = (known after apply)
+      [32m+[0m[0m id                = (known after apply)
+      [32m+[0m[0m kms_key_id        = "arn:aws:kms:us-east-1:838693051036:key/8bceba21-d653-4025-ac7d-7c4f7b271162"
+      [32m+[0m[0m log_group_class   = (known after apply)
+      [32m+[0m[0m name              = "/aws/cloudtrail/acme-audit-trail"
+      [32m+[0m[0m name_prefix       = (known after apply)
+      [32m+[0m[0m region            = "us-east-1"
+      [32m+[0m[0m retention_in_days = 90
+      [32m+[0m[0m skip_destroy      = false
+      [32m+[0m[0m tags              = {
+          [32m+[0m[0m "Environment" = "dev"
+          [32m+[0m[0m "Name"        = "cloudtrail-logs"
+          [32m+[0m[0m "Project"     = "CS_450_Phase_2"
+        }
+      [32m+[0m[0m tags_all          = {
+          [32m+[0m[0m "Environment" = "dev"
+          [32m+[0m[0m "Name"        = "cloudtrail-logs"
+          [32m+[0m[0m "Project"     = "CS_450_Phase_2"
+        }
+    }
+
+[1m  # module.monitoring.aws_s3_bucket_lifecycle_configuration.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_logs" {
+      [32m+[0m[0m bucket                                 = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m expected_bucket_owner                  = (known after apply)
+      [32m+[0m[0m id                                     = (known after apply)
+      [32m+[0m[0m region                                 = "us-east-1"
+      [32m+[0m[0m transition_default_minimum_object_size = "all_storage_classes_128K"
+
+      [32m+[0m[0m rule {
+          [32m+[0m[0m id     = "transition-to-glacier"
+          [32m+[0m[0m status = "Enabled"
+            [90m# (1 unchanged attribute hidden)[0m[0m
+
+          [32m+[0m[0m transition {
+              [32m+[0m[0m days          = 90
+              [32m+[0m[0m storage_class = "GLACIER"
+            }
+        }
+    }
+
+[1m  # module.monitoring.aws_s3_bucket_policy.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_policy" "cloudtrail_logs" {
+      [32m+[0m[0m bucket = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m policy = jsonencode(
+            {
+              [32m+[0m[0m Statement = [
+                  [32m+[0m[0m {
+                      [32m+[0m[0m Action    = "s3:GetBucketAcl"
+                      [32m+[0m[0m Condition = {
+                          [32m+[0m[0m StringEquals = {
+                              [32m+[0m[0m "AWS:SourceArn" = "arn:aws:cloudtrail:us-east-1:838693051036:trail/acme-audit-trail"
+                            }
+                        }
+                      [32m+[0m[0m Effect    = "Allow"
+                      [32m+[0m[0m Principal = {
+                          [32m+[0m[0m Service = "cloudtrail.amazonaws.com"
+                        }
+                      [32m+[0m[0m Resource  = "arn:aws:s3:::pkg-artifacts-cloudtrail-logs-838693051036"
+                      [32m+[0m[0m Sid       = "AWSCloudTrailAclCheck"
+                    },
+                  [32m+[0m[0m {
+                      [32m+[0m[0m Action    = "s3:PutObject"
+                      [32m+[0m[0m Condition = {
+                          [32m+[0m[0m StringEquals = {
+                              [32m+[0m[0m "AWS:SourceArn"     = "arn:aws:cloudtrail:us-east-1:838693051036:trail/acme-audit-trail"
+                              [32m+[0m[0m "aws:SourceAccount" = "838693051036"
+                              [32m+[0m[0m "s3:x-amz-acl"      = "bucket-owner-full-control"
+                            }
+                        }
+                      [32m+[0m[0m Effect    = "Allow"
+                      [32m+[0m[0m Principal = {
+                          [32m+[0m[0m Service = "cloudtrail.amazonaws.com"
+                        }
+                      [32m+[0m[0m Resource  = "arn:aws:s3:::pkg-artifacts-cloudtrail-logs-838693051036/*"
+                      [32m+[0m[0m Sid       = "AWSCloudTrailWrite"
+                    },
+                ]
+              [32m+[0m[0m Version   = "2012-10-17"
+            }
+        )
+      [32m+[0m[0m region = "us-east-1"
+    }
+
+[1m  # module.monitoring.aws_s3_bucket_public_access_block.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_public_access_block" "cloudtrail_logs" {
+      [32m+[0m[0m block_public_acls       = true
+      [32m+[0m[0m block_public_policy     = true
+      [32m+[0m[0m bucket                  = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m id                      = (known after apply)
+      [32m+[0m[0m ignore_public_acls      = true
+      [32m+[0m[0m region                  = "us-east-1"
+      [32m+[0m[0m restrict_public_buckets = true
+    }
+
+[1m  # module.monitoring.aws_s3_bucket_server_side_encryption_configuration.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail_logs" {
+      [32m+[0m[0m bucket = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m rule {
+          [32m+[0m[0m bucket_key_enabled = true
+
+          [32m+[0m[0m apply_server_side_encryption_by_default {
+              [32m+[0m[0m kms_master_key_id = "arn:aws:kms:us-east-1:838693051036:key/8bceba21-d653-4025-ac7d-7c4f7b271162"
+              [32m+[0m[0m sse_algorithm     = "aws:kms"
+            }
+        }
+    }
+
+[1m  # module.monitoring.aws_s3_bucket_versioning.cloudtrail_logs[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_versioning" "cloudtrail_logs" {
+      [32m+[0m[0m bucket = "pkg-artifacts-cloudtrail-logs-838693051036"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m versioning_configuration {
+          [32m+[0m[0m mfa_delete = (known after apply)
+          [32m+[0m[0m status     = "Enabled"
+        }
+    }
+
+[1m  # module.s3.aws_s3_bucket.artifacts[0m will be updated in-place
+[0m  [33m~[0m[0m resource "aws_s3_bucket" "artifacts" {
+      [33m~[0m[0m force_destroy               = false [33m->[0m[0m true
+        id                          = "pkg-artifacts"
+        tags                        = {}
+        [90m# (13 unchanged attributes hidden)[0m[0m
+
+        [90m# (3 unchanged blocks hidden)[0m[0m
+    }
+
+[1m  # module.s3.aws_s3_bucket_server_side_encryption_configuration.this[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+      [32m+[0m[0m bucket = "pkg-artifacts"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m rule {
+          [32m+[0m[0m apply_server_side_encryption_by_default {
+              [32m+[0m[0m kms_master_key_id = "arn:aws:kms:us-east-1:838693051036:key/8bceba21-d653-4025-ac7d-7c4f7b271162"
+              [32m+[0m[0m sse_algorithm     = "aws:kms"
+            }
+        }
+    }
+
+[1m  # module.s3.aws_s3_bucket_versioning.this[0m will be created
+[0m  [32m+[0m[0m resource "aws_s3_bucket_versioning" "this" {
+      [32m+[0m[0m bucket = "pkg-artifacts"
+      [32m+[0m[0m id     = (known after apply)
+      [32m+[0m[0m region = "us-east-1"
+
+      [32m+[0m[0m versioning_configuration {
+          [32m+[0m[0m mfa_delete = (known after apply)
+          [32m+[0m[0m status     = "Enabled"
+        }
+    }
+
+[1mPlan:[0m 19 to add, 4 to change, 1 to destroy.
+[0m
+Changes to Outputs:
+  [32m+[0m[0m cloudtrail_trail_arn   = (known after apply)
+  [32m+[0m[0m config_recorder_name   = "acme-config-recorder"
+[90m
+─────────────────────────────────────────────────────────────────────────────[0m
+
+Saved the plan to: tfplan
+
+To perform exactly these actions, run the following command to apply:
+    terraform apply "tfplan"

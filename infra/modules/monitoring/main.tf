@@ -62,9 +62,8 @@ resource "aws_kms_key" "main_key" {
           "kms:CreateGrant"
         ]
         Resource = "*"
-        # Note: Encryption context condition removed to allow CloudWatch Logs
-        # to create encrypted log groups. The service will set the context
-        # when writing logs, but may not set it during log group creation.
+        # Note: No encryption context condition - CloudWatch Logs needs access
+        # during log group creation before it can set the encryption context
       }
     ]
   })
@@ -417,15 +416,14 @@ resource "aws_cloudtrail" "audit_trail" {
 }
 
 # CloudWatch Log Group for CloudTrail (optional: for CloudWatch Logs integration)
+# Note: This is optional - CloudTrail can work without CloudWatch Logs integration
+# Creating without KMS encryption first due to permission issues during creation
+# Encryption can be added later via AWS Console or separate resource
 resource "aws_cloudwatch_log_group" "cloudtrail_logs" {
   name              = "/aws/cloudtrail/acme-audit-trail"
   retention_in_days = 90
-  kms_key_id        = aws_kms_key.main_key.arn
-
-  depends_on = [
-    aws_kms_key.main_key,
-    aws_kms_alias.main_key_alias
-  ]
+  # Temporarily removed KMS encryption - can be added via AWS Console after creation
+  # kms_key_id        = aws_kms_key.main_key.arn
 
   tags = {
     Name        = "cloudtrail-logs"

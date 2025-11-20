@@ -1,6 +1,6 @@
 variable "aws_region" {
   type        = string
-  description = "AWS region for AWS Config resources"
+  description = "AWS region for resource deployment"
 }
 
 variable "config_bucket_name" {
@@ -10,52 +10,30 @@ variable "config_bucket_name" {
 
 variable "kms_key_arn" {
   type        = string
-  description = "KMS key ARN for encrypting Config snapshots"
+  description = "ARN of the KMS key for encryption"
 }
 
 variable "tags" {
   type        = map(string)
+  description = "Tags to apply to resources"
   default     = {}
-  description = "Tags to apply to AWS Config resources"
 }
 
-# S3 bucket for AWS Config snapshots
+# S3 Bucket for AWS Config snapshots
 resource "aws_s3_bucket" "config_snapshots" {
-  bucket = var.config_bucket_name
+  bucket        = var.config_bucket_name
+  force_destroy = false # Prevent accidental deletion of config snapshots
 
   tags = merge(
     var.tags,
     {
-      Name        = "aws-config-snapshots"
-      Environment = "dev"
-      Project     = "CS_450_Phase_2"
+      Name    = "acme-config-snapshots"
+      Purpose = "AWS Config snapshots"
     }
   )
 }
 
-# S3 bucket versioning
-resource "aws_s3_bucket_versioning" "config_snapshots" {
-  bucket = aws_s3_bucket.config_snapshots.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# S3 bucket encryption
-resource "aws_s3_bucket_server_side_encryption_configuration" "config_snapshots" {
-  bucket = aws_s3_bucket.config_snapshots.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = var.kms_key_arn
-    }
-    bucket_key_enabled = true
-  }
-}
-
-# S3 bucket public access block
+# Block public access to Config snapshots bucket
 resource "aws_s3_bucket_public_access_block" "config_snapshots" {
   bucket = aws_s3_bucket.config_snapshots.id
 
@@ -65,66 +43,42 @@ resource "aws_s3_bucket_public_access_block" "config_snapshots" {
   restrict_public_buckets = true
 }
 
-# S3 bucket policy for AWS Config
-resource "aws_s3_bucket_policy" "config_snapshots" {
+# Enable versioning on Config snapshots bucket
+resource "aws_s3_bucket_versioning" "config_snapshots" {
   bucket = aws_s3_bucket.config_snapshots.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AWSConfigBucketPermissionsCheck"
-        Effect = "Allow"
-        Principal = {
-          Service = "config.amazonaws.com"
-        }
-        Action   = "s3:GetBucketAcl"
-        Resource = aws_s3_bucket.config_snapshots.arn
-        Condition = {
-          StringEquals = {
-            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
-          }
-        }
-      },
-      {
-        Sid    = "AWSConfigBucketExistenceCheck"
-        Effect = "Allow"
-        Principal = {
-          Service = "config.amazonaws.com"
-        }
-        Action   = "s3:ListBucket"
-        Resource = aws_s3_bucket.config_snapshots.arn
-        Condition = {
-          StringEquals = {
-            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
-          }
-        }
-      },
-      {
-        Sid    = "AWSConfigBucketDelivery"
-        Effect = "Allow"
-        Principal = {
-          Service = "config.amazonaws.com"
-        }
-        Action = [
-          "s3:PutObject"
-        ]
-        Resource = "${aws_s3_bucket.config_snapshots.arn}/*"
-        Condition = {
-          StringEquals = {
-            "s3:x-amz-acl"     = "bucket-owner-full-control"
-            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
-          }
-        }
-      }
-    ]
-  })
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
-# Get current AWS account ID
-data "aws_caller_identity" "current" {}
+# Encrypt Config snapshots bucket with KMS
+resource "aws_s3_bucket_server_side_encryption_configuration" "config_snapshots" {
+  bucket = aws_s3_bucket.config_snapshots.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
+    }
+    bucket_key_enabled = true
+  }
+}
 
-# IAM role for AWS Config
+# Lifecycle policy for Config snapshots (optional: move to Glacier after 90 days)
+resource "aws_s3_bucket_lifecycle_configuration" "config_snapshots" {
+  bucket = aws_s3_bucket.config_snapshots.id
+
+  rule {
+    id     = "transition-to-glacier"
+    status = "Enabled"
+
+    transition {
+      days          = 90
+      storage_class = "GLACIER"
+    }
+  }
+}
+
+# IAM Role for AWS Config
 resource "aws_iam_role" "config_role" {
   name = "aws-config-role"
 
@@ -137,11 +91,6 @@ resource "aws_iam_role" "config_role" {
           Service = "config.amazonaws.com"
         }
         Action = "sts:AssumeRole"
-        Condition = {
-          StringEquals = {
-            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
-          }
-        }
       }
     ]
   })
@@ -149,16 +98,15 @@ resource "aws_iam_role" "config_role" {
   tags = merge(
     var.tags,
     {
-      Name        = "aws-config-role"
-      Environment = "dev"
-      Project     = "CS_450_Phase_2"
+      Name    = "aws-config-role"
+      Purpose = "IAM role for AWS Config service"
     }
   )
 }
 
-# IAM policy for AWS Config
-resource "aws_iam_role_policy" "config_policy" {
-  name = "aws-config-policy"
+# IAM Policy for AWS Config to deliver snapshots to S3
+resource "aws_iam_role_policy" "config_role_policy" {
+  name = "aws-config-role-policy"
   role = aws_iam_role.config_role.id
 
   policy = jsonencode({
@@ -167,9 +115,13 @@ resource "aws_iam_role_policy" "config_policy" {
       {
         Effect = "Allow"
         Action = [
-          "s3:PutObject"
+          "s3:PutObject",
+          "s3:GetBucketAcl"
         ]
-        Resource = "${aws_s3_bucket.config_snapshots.arn}/*"
+        Resource = [
+          "${aws_s3_bucket.config_snapshots.arn}/*",
+          aws_s3_bucket.config_snapshots.arn
+        ]
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"
@@ -178,45 +130,36 @@ resource "aws_iam_role_policy" "config_policy" {
       },
       {
         Effect = "Allow"
-        Action = [
-          "s3:GetBucketAcl"
-        ]
+        Action = "s3:GetBucketAcl"
         Resource = aws_s3_bucket.config_snapshots.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "config:Put*"
-        ]
-        Resource = "*"
       }
     ]
   })
 }
 
-# Attach AWS managed policy for Config
-resource "aws_iam_role_policy_attachment" "config_policy" {
+# Attach AWS managed policy for Config service
+resource "aws_iam_role_policy_attachment" "config_role_policy" {
   role       = aws_iam_role.config_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
 }
 
-# SNS topic for AWS Config notifications
-resource "aws_sns_topic" "config_notifications" {
-  name              = "aws-config-notifications"
-  kms_master_key_id = var.kms_key_arn
+# AWS Config Delivery Channel
+# Note: Delivery channel must be created before the recorder
+resource "aws_config_delivery_channel" "config_delivery" {
+  name           = "aws-config-delivery-channel"
+  s3_bucket_name = aws_s3_bucket.config_snapshots.id
+  s3_key_prefix  = "config-snapshots"
 
-  tags = merge(
-    var.tags,
-    {
-      Name        = "aws-config-notifications"
-      Environment = "dev"
-      Project     = "CS_450_Phase_2"
-    }
-  )
+  snapshot_delivery_properties {
+    delivery_frequency = "TwentyFour_Hours"
+  }
+
+  # No dependency on recorder - this creates a cycle
+  # The delivery channel can exist independently
 }
 
 # AWS Config Configuration Recorder
-resource "aws_config_configuration_recorder" "main" {
+resource "aws_config_configuration_recorder" "config_recorder" {
   name     = "aws-config-recorder"
   role_arn = aws_iam_role.config_role.arn
 
@@ -225,60 +168,35 @@ resource "aws_config_configuration_recorder" "main" {
     include_global_resource_types = true
   }
 
+  # Recorder should depend on delivery channel being ready
   depends_on = [
-    aws_iam_role.config_role
+    aws_config_delivery_channel.config_delivery
   ]
 }
 
-# AWS Config Delivery Channel
-resource "aws_config_delivery_channel" "main" {
-  name           = "aws-config-delivery-channel"
-  s3_bucket_name = aws_s3_bucket.config_snapshots.bucket
-  sns_topic_arn  = aws_sns_topic.config_notifications.arn
-
-  snapshot_delivery_properties {
-    delivery_frequency = "TwentyFour_Hours"
-  }
-
-  depends_on = [
-    aws_config_configuration_recorder.main,
-    aws_s3_bucket_policy.config_snapshots
-  ]
-}
-
-# Start the Configuration Recorder
-resource "aws_config_configuration_recorder_status" "main" {
-  name       = aws_config_configuration_recorder.main.name
+# Start the Config recorder
+# This must be created after both the recorder and delivery channel exist
+resource "aws_config_configuration_recorder_status" "config_recorder" {
+  name       = aws_config_configuration_recorder.config_recorder.name
   is_enabled = true
-
+  
   depends_on = [
-    aws_config_delivery_channel.main
+    aws_config_configuration_recorder.config_recorder,
+    aws_config_delivery_channel.config_delivery
   ]
 }
 
-# Outputs
 output "config_bucket_name" {
-  value       = aws_s3_bucket.config_snapshots.bucket
-  description = "Name of the S3 bucket storing AWS Config snapshots"
+  value       = aws_s3_bucket.config_snapshots.id
+  description = "Name of the S3 bucket for AWS Config snapshots"
 }
 
-output "config_bucket_arn" {
-  value       = aws_s3_bucket.config_snapshots.arn
-  description = "ARN of the S3 bucket storing AWS Config snapshots"
+output "config_recorder_name" {
+  value       = aws_config_configuration_recorder.config_recorder.name
+  description = "Name of the AWS Config recorder"
 }
 
 output "config_role_arn" {
   value       = aws_iam_role.config_role.arn
-  description = "ARN of the IAM role used by AWS Config"
+  description = "ARN of the IAM role for AWS Config"
 }
-
-output "config_recorder_name" {
-  value       = aws_config_configuration_recorder.main.name
-  description = "Name of the AWS Config Configuration Recorder"
-}
-
-output "sns_topic_arn" {
-  value       = aws_sns_topic.config_notifications.arn
-  description = "ARN of the SNS topic for AWS Config notifications"
-}
-
