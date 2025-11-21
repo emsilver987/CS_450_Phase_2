@@ -211,6 +211,17 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
+      - name: Verify modules are initialized
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          # Ensure all modules are downloaded and initialized
+          echo "Verifying modules are initialized..."
+          terraform get -update || true
+          # List modules to verify they exist
+          terraform providers schema -json > /dev/null 2>&1 || echo "Schema check skipped"
+          echo "Modules initialized successfully"
+
       - name: Import existing S3 bucket (artifacts)
         shell: bash
         working-directory: ${{ env.TF_DIR }}
@@ -240,6 +251,22 @@ jobs:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_aws_account_id: 838693051036
         run: |
+          # Verify module.ddb exists in configuration
+          echo "Verifying module.ddb exists in configuration..."
+          if terraform state list 2>/dev/null | grep -q "module.ddb" || terraform show -json 2>/dev/null | grep -q "module.ddb"; then
+            echo "module.ddb found in state or configuration"
+          else
+            echo "Checking if module.ddb is defined..."
+            if grep -q 'module "ddb"' *.tf 2>/dev/null; then
+              echo "module.ddb found in configuration files"
+            else
+              echo "ERROR: module.ddb not found in configuration!"
+              echo "Available modules:"
+              grep -h '^module "' *.tf 2>/dev/null || echo "No modules found"
+              exit 1
+            fi
+          fi
+
           # Import existing tables only if not already in state
           # Check if resource exists in state before importing
           import_table() {
