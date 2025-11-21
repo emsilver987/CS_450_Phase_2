@@ -681,19 +681,25 @@ class StrideCoverageAnalyzer:
             ))
         
         # 6. AWS WAF
-        # Check all Terraform files for WAF
+        # Check all Terraform files for WAF (both v1 and v2)
         tf_files = list(self.root_dir.glob("infra/**/*.tf"))
         waf_resource = False
+        waf_evidence = []
         for tf_file in tf_files:
-            if self._check_terraform_resource(str(tf_file.relative_to(self.root_dir)), "aws_waf"):
+            rel_path = str(tf_file.relative_to(self.root_dir))
+            # Check for WAF v1 (aws_waf) or WAF v2 (aws_wafv2)
+            if self._check_terraform_resource(rel_path, "aws_waf") or \
+               self._check_terraform_resource(rel_path, "aws_wafv2_web_acl"):
                 waf_resource = True
+                waf_evidence.append(rel_path)
                 break
         
         if waf_resource:
             category.mitigations.append(MitigationCheck(
                 name="AWS WAF",
                 status=Status.IMPLEMENTED,
-                notes="AWS WAF configured"
+                notes="AWS WAF configured",
+                evidence=waf_evidence
             ))
         else:
             category.mitigations.append(MitigationCheck(
