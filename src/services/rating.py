@@ -472,7 +472,8 @@ def analyze_model_content(
         if suppress_errors:
             return None
         print(f"Error analyzing model {target}: {e}")
-        traceback.print_exc()
+        import traceback as tb
+        tb.print_exc()
         raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
 
 

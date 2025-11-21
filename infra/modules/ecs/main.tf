@@ -403,7 +403,8 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
-          "dynamodb:Query"
+          "dynamodb:Query",
+          "dynamodb:Scan"
         ]
         Resource = values(var.ddb_tables_arnmap)
       }
