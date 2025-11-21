@@ -103,6 +103,22 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 audience=aud if aud else None,
                 leeway=leeway,
             )
+            
+            # Enforce token use-count tracking
+            # Extract jti (JWT ID) from claims to track token usage
+            jti = claims.get("jti")
+            if jti:
+                # Lazy import to avoid circular dependency
+                from src.services.auth_service import consume_token_use
+                token_item = consume_token_use(jti)
+                if not token_item:
+                    # Token exhausted or doesn't exist in DynamoDB
+                    return JSONResponse(
+                        {"detail": "Token expired or exhausted"},
+                        status_code=401,
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            
             request.state.user = claims
         except ExpiredSignatureError:
             return JSONResponse(

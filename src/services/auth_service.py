@@ -323,9 +323,15 @@ async def get_current_user(
     payload = verify_jwt_token(credentials.credentials)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    item = consume_token_use(payload["jti"])
-    if not item:
+    
+    # Token use was already consumed by the middleware
+    # Just retrieve the current token info (don't consume again)
+    table = dynamodb.Table(TOKENS_TABLE)
+    resp = table.get_item(Key={"token_id": payload["jti"]})
+    if "Item" not in resp:
         raise HTTPException(status_code=401, detail="Token expired or exhausted")
+    
+    item = resp["Item"]
     return TokenInfo(
         token_id=payload["jti"],
         user_id=item["user_id"],
