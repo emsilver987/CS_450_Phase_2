@@ -20,30 +20,32 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Provider for us-east-1 (required for WAF with CloudFront)
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
 locals {
   artifacts_bucket = "pkg-artifacts"
+  ddb_tables_arnmap = {
+    users     = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/users"
+    tokens    = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/tokens"
+    packages  = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/packages"
+    uploads   = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/uploads"
+    downloads = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/downloads"
+    artifacts = "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/artifacts"
+  }
 }
+
+# module "s3" {
+#   source         = "../../modules/s3"
+#   artifacts_name = var.artifacts_bucket
+# }
 
 module "ddb" {
   source = "../../modules/dynamodb"
 }
 
-locals {
-  # Use DynamoDB module output for table ARNs
-  ddb_tables_arnmap = module.ddb.arn_map
-}
-
-# Create monitoring module first to ensure KMS key exists
 module "monitoring" {
-  source            = "../../modules/monitoring"
-  artifacts_bucket  = local.artifacts_bucket
-  ddb_tables_arnmap = local.ddb_tables_arnmap
+  source                = "../../modules/monitoring"
+  artifacts_bucket      = local.artifacts_bucket
+  validator_service_url = "http://placeholder"
+  ddb_tables_arnmap     = local.ddb_tables_arnmap
 }
 
 module "iam" {
@@ -52,30 +54,20 @@ module "iam" {
   ddb_tables_arnmap = local.ddb_tables_arnmap
 }
 
-# S3 module now receives KMS key ARN from monitoring module
-module "s3" {
-  source         = "../../modules/s3"
-  artifacts_name = local.artifacts_bucket
-  environment    = "dev"
-  kms_key_arn    = module.monitoring.kms_key_arn
-}
-
 module "ecs" {
   source            = "../../modules/ecs"
   artifacts_bucket  = local.artifacts_bucket
-  ddb_tables_arnmap = local.ddb_tables_arnmap
   image_tag         = var.image_tag
+  ddb_tables_arnmap = local.ddb_tables_arnmap
+  kms_key_arn       = module.monitoring.kms_key_arn
 }
 
-# WAF Module - Must be created in us-east-1 for CloudFront
-module "waf" {
-  source      = "../../modules/waf"
-  environment = "dev"
-  rate_limit  = 2000
-
-  providers = {
-    aws = aws.us_east_1
-  }
+module "api_gateway" {
+  source                = "../../modules/api-gateway"
+  artifacts_bucket      = local.artifacts_bucket
+  validator_service_url = module.ecs.validator_service_url
+  kms_key_arn           = module.monitoring.kms_key_arn
+  ddb_tables_arnmap     = local.ddb_tables_arnmap
 }
 
 # Extract ALB DNS name from the validator service URL (e.g., "http://validator-lb-xxx.elb.amazonaws.com" -> "validator-lb-xxx.elb.amazonaws.com")
@@ -83,17 +75,6 @@ module "cloudfront" {
   source       = "../../modules/cloudfront"
   alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
   aws_region   = var.aws_region
-  web_acl_id   = module.waf.web_acl_arn # CloudFront requires ARN, not ID
-}
-
-# API Gateway module - provides REST API endpoints and throttling
-module "api_gateway" {
-  source                = "../../modules/api-gateway"
-  artifacts_bucket      = local.artifacts_bucket
-  ddb_tables_arnmap     = local.ddb_tables_arnmap
-  validator_service_url = module.ecs.validator_service_url
-  aws_region            = var.aws_region
-  kms_key_arn           = module.monitoring.kms_key_arn
 }
 
 output "artifacts_bucket" { value = local.artifacts_bucket }
@@ -105,4 +86,3 @@ output "ecr_repository_url" { value = module.ecs.ecr_repository_url }
 output "cloudfront_url" { value = module.cloudfront.cloudfront_url }
 output "cloudfront_domain_name" { value = module.cloudfront.cloudfront_domain_name }
 output "cloudfront_distribution_id" { value = module.cloudfront.cloudfront_distribution_id }
-output "kms_admin_policy_arn" { value = aws_iam_policy.kms_admin.arn }
