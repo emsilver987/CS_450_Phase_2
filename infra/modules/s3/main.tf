@@ -1,3 +1,13 @@
+# Look up KMS key by alias if kms_key_arn is not provided
+data "aws_kms_alias" "main_key" {
+  count = var.kms_key_arn == "" ? 1 : 0
+  name  = "alias/acme-main-key"
+}
+
+locals {
+  kms_key_id = var.kms_key_arn != "" ? var.kms_key_arn : data.aws_kms_alias.main_key[0].target_key_arn
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket        = var.artifacts_name
   force_destroy = false
@@ -16,7 +26,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = var.kms_key_arn
+      kms_master_key_id = local.kms_key_id
     }
   }
 }
