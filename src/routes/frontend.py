@@ -21,6 +21,8 @@ from ..services.s3_service import (
     get_model_sizes,
 )
 from ..services.rating import run_scorer, alias
+from ..services.validator_service import log_upload_event
+from ..services.auth_service import verify_jwt_token
 
 templates: Jinja2Templates | None = None
 routes_registered = False
@@ -33,6 +35,45 @@ PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
 def set_templates(templates_instance: Jinja2Templates | None):
     global templates
     templates = templates_instance
+
+
+def _get_user_id_from_request(request: Request) -> str:
+    """
+    Extract user_id from JWT token in request headers for audit logging.
+    Returns 'unknown' if token cannot be decoded.
+    """
+    raw = (
+        request.headers.get("x-authorization")
+        or request.headers.get("authorization")
+        or ""
+    )
+    raw = raw.strip()
+
+    if not raw:
+        return "unknown"
+
+    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+
+    if not token:
+        return "unknown"
+
+    # Check if this is the static token (autograder compatibility)
+    if token == "1982jhk12h3123":
+        return "autograder"
+
+    # Try to decode JWT to extract user_id
+    try:
+        decoded_token = verify_jwt_token(token)
+        if decoded_token:
+            return decoded_token.get('user_id', decoded_token.get('username', 'unknown'))
+    except Exception:
+        pass
+    
+    return "unknown"
 
 
 def setup_app(
@@ -267,6 +308,18 @@ def register_routes(app: FastAPI):
             except Exception as e:
                 print(f"Failed to store metadata in DynamoDB: {e}")
 
+            # Log upload event for non-repudiation
+            user_id = _get_user_id_from_request(request)
+            log_upload_event(
+                artifact_name=effective_model_id,
+                artifact_type="model",
+                artifact_id=effective_model_id,
+                user_id=user_id,
+                version=effective_version,
+                status="success",
+                reason="Frontend upload successful"
+            )
+            
             return {"message": "Upload successful", "details": result}
         except Exception as e:
             return {"error": f"Upload failed: {str(e)}"}
@@ -370,6 +423,18 @@ def register_routes(app: FastAPI):
 
                 ingestion_result = model_ingestion(name, version)
                 result = {"message": "Ingest successful", "details": ingestion_result}
+                
+                # Log upload event for non-repudiation
+                user_id = _get_user_id_from_request(request)
+                log_upload_event(
+                    artifact_name=name,
+                    artifact_type="model",
+                    artifact_id=name,
+                    user_id=user_id,
+                    version=version,
+                    status="success",
+                    reason="Frontend ingest successful"
+                )
             except HTTPException as e:
                 error_detail = e.detail
                 if isinstance(error_detail, dict) and "error" in error_detail:

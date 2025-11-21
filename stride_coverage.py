@@ -417,19 +417,34 @@ class StrideCoverageAnalyzer:
             ))
         
         # 4. Upload Event Logging
-        upload_logging = self._check_pattern_in_file("src/services/package_service.py", r"log_upload_event|upload.*log")
-        if upload_logging[0]:
+        # Check multiple files where upload logging should be implemented
+        upload_logging_packages = self._check_pattern_in_file("src/routes/packages.py", r"log_upload_event")
+        upload_logging_frontend = self._check_pattern_in_file("src/routes/frontend.py", r"log_upload_event")
+        upload_logging_index = self._check_pattern_in_file("src/index.py", r"log_upload_event")
+        upload_logging_validator = self._check_pattern_in_file("src/services/validator_service.py", r"def log_upload_event")
+        
+        if upload_logging_packages[0] or upload_logging_frontend[0] or upload_logging_index[0]:
+            evidence = []
+            if upload_logging_packages[0]:
+                evidence.append("src/routes/packages.py")
+            if upload_logging_frontend[0]:
+                evidence.append("src/routes/frontend.py")
+            if upload_logging_index[0]:
+                evidence.append("src/index.py")
+            if upload_logging_validator[0]:
+                evidence.append("src/services/validator_service.py")
+            
             category.mitigations.append(MitigationCheck(
                 name="Upload Event Logging",
                 status=Status.IMPLEMENTED,
-                notes="Upload events logged",
-                evidence=["src/services/package_service.py"]
+                notes="Upload events logged in route handlers",
+                evidence=evidence
             ))
         else:
             category.mitigations.append(MitigationCheck(
                 name="Upload Event Logging",
                 status=Status.NOT_FOUND,
-                notes="Upload event logging not found"
+                notes="Upload event logging not found in route handlers"
             ))
         
         # 5. S3 Glacier Archiving

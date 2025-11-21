@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional
 import io
@@ -15,8 +15,50 @@ from ..services.s3_service import (
     get_model_sizes,
     model_ingestion,
 )
+from ..services.validator_service import log_upload_event
+from ..services.auth_service import verify_jwt_token
 
 router = APIRouter()
+
+
+def _get_user_id_from_request(request: Request) -> str:
+    """
+    Extract user_id from JWT token in request headers for audit logging.
+    Returns 'unknown' if token cannot be decoded.
+    """
+    raw = (
+        request.headers.get("x-authorization")
+        or request.headers.get("authorization")
+        or ""
+    )
+    raw = raw.strip()
+
+    if not raw:
+        return "unknown"
+
+    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+
+    if not token:
+        return "unknown"
+
+    # Check if this is the static token (autograder compatibility)
+    # We don't import STATIC_TOKEN to avoid circular imports, just check string
+    if token == "1982jhk12h3123":  # Hardcoded fallback or check if we can import
+        return "autograder"
+
+    # Try to decode JWT to extract user_id
+    try:
+        decoded_token = verify_jwt_token(token)
+        if decoded_token:
+            return decoded_token.get('user_id', decoded_token.get('username', 'unknown'))
+    except Exception:
+        pass
+    
+    return "unknown"
 
 
 @router.get("/rate/{name}")
@@ -134,7 +176,7 @@ dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-ea
 PACKAGES_TABLE = os.getenv("DDB_TABLE_PACKAGES", "packages")
 
 @router.post("/models/{model_id}/{version}/model.zip")
-def upload_model_file(model_id: str, version: str, file: UploadFile = File(...)):
+def upload_model_file(model_id: str, version: str, request: Request, file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
     try:
@@ -158,6 +200,18 @@ def upload_model_file(model_id: str, version: str, file: UploadFile = File(...))
         except Exception as e:
             print(f"Failed to store metadata in DynamoDB: {e}")
             # We don't fail the upload if metadata storage fails, but we log it
+            
+        # Log upload event for non-repudiation
+        user_id = _get_user_id_from_request(request)
+        log_upload_event(
+            artifact_name=model_id,
+            artifact_type="model",
+            artifact_id=model_id,  # Using model_id as artifact_id for now
+            user_id=user_id,
+            version=version,
+            status="success",
+            reason="Model file uploaded successfully"
+        )
             
         return result
     except HTTPException:
@@ -221,7 +275,7 @@ def download_model_file(
 
 
 @router.post("/upload")
-def upload_package(file: UploadFile = File(...), debloat: bool = Query(False)):
+def upload_package(request: Request, file: UploadFile = File(...), debloat: bool = Query(False)):
     if not file.filename or not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
     try:
@@ -247,6 +301,18 @@ def upload_package(file: UploadFile = File(...), debloat: bool = Query(False)):
             packages_table.put_item(Item=package_item)
         except Exception as e:
             print(f"Failed to store metadata in DynamoDB: {e}")
+
+        # Log upload event for non-repudiation
+        user_id = _get_user_id_from_request(request)
+        log_upload_event(
+            artifact_name=model_id,
+            artifact_type="model",
+            artifact_id=model_id,
+            user_id=user_id,
+            version=version,
+            status="success",
+            reason="Package uploaded successfully"
+        )
 
         return result
     except HTTPException:
@@ -303,11 +369,25 @@ def get_model_sizes_api(model_id: str, version: str):
 
 @router.post("/models/ingest")
 def ingest_model(
+    request: Request,
     model_id: str = Query(..., description="HuggingFace model ID to ingest"),
     version: str = Query("main", description="Model version/revision"),
 ):
     try:
         result = model_ingestion(model_id, version)
+        
+        # Log upload event
+        user_id = _get_user_id_from_request(request)
+        log_upload_event(
+            artifact_name=model_id,
+            artifact_type="model",
+            artifact_id=model_id,
+            user_id=user_id,
+            version=version,
+            status="success",
+            reason="Model ingested successfully"
+        )
+        
         return result
     except HTTPException:
         raise
