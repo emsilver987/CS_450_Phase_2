@@ -1,6 +1,6 @@
 # STRIDE Coverage Analysis Verification Report
 
-**Date:** 2025-01-XX  
+**Date:** 2025-11-21  
 **Purpose:** Verify accuracy of claims in STRIDE_COVERAGE_ANALYSIS.md against actual repository implementation
 
 ---
@@ -53,7 +53,7 @@
     - Code: `log_download_event()` in `src/services/validator_service.py`
     - Status: ✅ Accurate
 
-12. **Upload Event Logging** ✅ - Correctly marked as implemented (2025-01-XX)
+12. **Upload Event Logging** ✅ - Correctly marked as implemented (2025-11-21)
     - Code: `log_upload_event()` in `src/services/package_service.py`
     - Status: ✅ Accurate - Logs events at init, complete, and abort stages
 
@@ -70,8 +70,8 @@
     - Status: ✅ Accurate
 
 16. **API Gateway Throttling** ✅ - Correctly marked as implemented
-    - Code: `infra/modules/api-gateway/main.tf` lines 3417-3428
-    - Status: ✅ Accurate
+    - Code: `infra/modules/api-gateway/main.tf` lines 3406-3428
+    - Status: ✅ Accurate - Configured with 100 req/s rate limit and 200 burst limit
 
 17. **CloudWatch Alarms** ✅ - Correctly marked as implemented
     - Code: 3 alarms in `infra/modules/monitoring/main.tf` lines 108-176
@@ -109,93 +109,68 @@
 
 ## ⚠️ Discrepancies Found
 
-### 1. Token Use Tracking - PARTIALLY IMPLEMENTED (Not Fully Functional)
+### 1. Token Use Tracking - ✅ FULLY IMPLEMENTED (Fixed 2025-11-21)
 
-**Document Claims:**
+**Status:** ✅ **RESOLVED** - Token use tracking is now fully implemented globally.
 
-- "Token Use Tracking ✅ **Implemented**"
-- "`consume_token_use()` tracks remaining uses in DynamoDB"
-- "Token consumption logged to DynamoDB (prevents replay)"
-
-**Actual Implementation:**
+**Implementation:**
 
 - ✅ `consume_token_use()` function exists and works correctly
 - ✅ Function decrements `remaining_uses` in DynamoDB
-- ❌ **CRITICAL GAP:** Function is ONLY called in `/auth/me` endpoint
-- ❌ JWT middleware (`JWTAuthMiddleware`) does NOT call `consume_token_use()`
-- ❌ Other protected endpoints do NOT consume token uses
+- ✅ **FIXED:** Function is now called in JWT middleware (`JWTAuthMiddleware`)
+- ✅ Global enforcement: All authenticated requests consume token uses
+- ✅ `/auth/me` endpoint updated to avoid double-consumption
 
-**Impact:**
-
-- Tokens can be reused indefinitely on most endpoints
-- Only `/auth/me` endpoint enforces use count
-- Replay protection is NOT effective for most API calls
-- The 1,000 use limit is NOT enforced on protected endpoints
-
-**Evidence:**
+**Current Implementation:**
 
 ```python
-# src/middleware/jwt_auth.py - JWT middleware does NOT consume uses
-claims = jwt.decode(token, self.secret, algorithms=[self.algorithm], ...)
-request.state.user = claims  # No consume_token_use() call
-return await call_next(request)
-
-# src/services/auth_service.py - Only /auth/me consumes uses
-@auth_private.get("/me", response_model=TokenInfo)
-async def get_current_user(...):
-    item = consume_token_use(payload["jti"])  # Only here!
+# src/middleware/jwt_auth.py - JWT middleware NOW consumes uses (lines 106-120)
+jti = claims.get("jti")
+if jti:
+    from src.services.auth_service import consume_token_use
+    token_item = consume_token_use(jti)
+    if not token_item:
+        return JSONResponse(
+            {"detail": "Token expired or exhausted"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 ```
 
-**Recommendation:**
+**Verification:**
 
-- Update document to reflect: "Token Use Tracking ⚠️ **Partially Implemented**"
-- Note: Only enforced in `/auth/me` endpoint, not in middleware
-- Add to "Issues" section: "Token use tracking not enforced in JWT middleware"
+- ✅ See [TOKEN_ENFORCEMENT_VERIFICATION.md](./TOKEN_ENFORCEMENT_VERIFICATION.md) for detailed verification
+- ✅ Token use tracking is enforced for all authenticated requests
+- ✅ Replay protection is now effective across all endpoints
+
+**Note:** This discrepancy was identified in an earlier review and has since been fixed. The STRIDE_COVERAGE_ANALYSIS.md document accurately reflects the current implementation status.
 
 ---
 
 ## 📊 Summary
 
-### Overall Accuracy: **95%**
+### Overall Accuracy: **100%**
 
 **Breakdown:**
 
-- ✅ **23 claims verified as accurate**
-- ⚠️ **1 claim partially accurate** (Token Use Tracking)
+- ✅ **24 claims verified as accurate** (including Token Use Tracking fix)
+- ⚠️ **0 claims partially accurate**
 - ❌ **0 claims completely inaccurate**
 
 ### Key Findings:
 
-1. **Most claims are accurate** - The document correctly identifies implemented features
-2. **One critical gap** - Token use tracking is only partially implemented
-3. **Documentation is generally reliable** - Can be used as a reference with the noted caveat
-
-### Recommended Updates to STRIDE_COVERAGE_ANALYSIS.md:
-
-1. **Update Token Use Tracking status:**
-
-   ```markdown
-   | Token Use Tracking | ⚠️ **Partially Implemented** | `consume_token_use()` exists but only called in `/auth/me` endpoint; not enforced in JWT middleware |
-   ```
-
-2. **Add to Issues section:**
-
-   ```markdown
-   3. Token use tracking not enforced in JWT middleware - tokens can be reused indefinitely on most endpoints
-   ```
-
-3. **Update Spoofing Identity coverage:**
-   - Change from "83.3% (5/6)" to "66.7% (4/6)" if token use tracking is considered incomplete
-   - Or keep at 83.3% but note the limitation
+1. **All claims are accurate** - The document correctly identifies implemented features
+2. **Previous gap resolved** - Token use tracking is now fully implemented globally
+3. **Documentation is reliable** - Accurately reflects current implementation status
 
 ---
 
 ## ✅ Conclusion
 
-The STRIDE_COVERAGE_ANALYSIS.md document is **highly accurate** (95% accuracy) but has **one significant gap**:
+The STRIDE_COVERAGE_ANALYSIS.md document is **fully accurate** (100% accuracy):
 
-- **Token Use Tracking** is claimed as fully implemented but is only partially functional
-- The function exists and works, but is not called in the JWT middleware
-- This means replay protection is not effective for most API endpoints
+- ✅ **Token Use Tracking** is fully implemented in JWT middleware (fixed 2025-11-21)
+- ✅ All documented security features are implemented as described
+- ✅ The document accurately reflects the current state of the codebase
 
-**Recommendation:** Update the document to reflect the partial implementation status of token use tracking, or implement full token use tracking in the JWT middleware.
+**Note:** This verification report was updated on 2025-11-21 to reflect the resolution of the token use tracking issue. See [TOKEN_ENFORCEMENT_VERIFICATION.md](./TOKEN_ENFORCEMENT_VERIFICATION.md) for details on the fix.

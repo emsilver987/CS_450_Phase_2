@@ -66,6 +66,16 @@ module "cloudfront" {
   aws_region   = var.aws_region
 }
 
+# API Gateway module - provides REST API endpoints and throttling
+module "api_gateway" {
+  source                = "../../modules/api-gateway"
+  artifacts_bucket      = local.artifacts_bucket
+  ddb_tables_arnmap     = local.ddb_tables_arnmap
+  validator_service_url = module.ecs.validator_service_url
+  aws_region            = var.aws_region
+  kms_key_arn           = module.monitoring.kms_key_arn
+}
+
 output "artifacts_bucket" { value = local.artifacts_bucket }
 output "group106_policy_arn" { value = module.iam.group106_policy_arn }
 output "ddb_tables" { value = local.ddb_tables_arnmap }

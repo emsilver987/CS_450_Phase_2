@@ -1,5 +1,8 @@
 # 🛡️ STRIDE Threat Model
 
+**Date:** 2025-11-21  
+**Last Updated:** 2025-11-21
+
 This section presents the **system-level threat model** and mitigations for the **ACME Trustworthy Module Registry**, following the **STRIDE** methodology.  
 The model covers all major components — **API Gateway, AWS Lambda, ECS Fargate Validator Service, S3, DynamoDB, KMS, Secrets Manager, CloudWatch, and CloudTrail** — and emphasizes the **Access Control Track**, where sensitive models require validation before download.
 

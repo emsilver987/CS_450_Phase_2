@@ -1,5 +1,8 @@
 # CloudTrail Configuration Guide
 
+**Date:** 2025-11-21  
+**Last Updated:** 2025-11-21
+
 ## Overview
 
 AWS CloudTrail is explicitly configured in this project to provide comprehensive audit logging for all API calls and data events. This ensures compliance, security monitoring, and non-repudiation capabilities.
@@ -100,6 +103,7 @@ resource "aws_cloudtrail" "audit_trail" {
 ```
 
 **Key Features:**
+
 - **Multi-region:** Captures events from all AWS regions
 - **Global service events:** Includes IAM, CloudFront, Route 53 events
 - **Log file validation:** Detects tampering with log files
@@ -115,7 +119,7 @@ Logs all data operations on the artifacts bucket:
 event_selector {
   read_write_type                 = "All"
   include_management_events       = true
-  
+
   data_resource {
     type   = "AWS::S3::Object"
     values = ["arn:aws:s3:::${var.artifacts_bucket}/*"]
@@ -124,6 +128,7 @@ event_selector {
 ```
 
 **Captured Events:**
+
 - `GetObject` - Package downloads
 - `PutObject` - Package uploads
 - `DeleteObject` - Package deletions
@@ -137,7 +142,7 @@ Logs all data operations on DynamoDB tables:
 event_selector {
   read_write_type                 = "All"
   include_management_events       = true
-  
+
   data_resource {
     type   = "AWS::DynamoDB::Table"
     values = values(var.ddb_tables_arnmap)
@@ -146,6 +151,7 @@ event_selector {
 ```
 
 **Captured Events:**
+
 - `PutItem` - Record creation/updates
 - `GetItem` - Record reads
 - `DeleteItem` - Record deletions
@@ -157,6 +163,7 @@ event_selector {
 **Resource:** `aws_s3_bucket.cloudtrail_logs`
 
 **Security Configuration:**
+
 - **Encryption:** SSE-KMS with `acme-main-key`
 - **Versioning:** Enabled (prevents log deletion)
 - **Public access:** Blocked
@@ -165,6 +172,7 @@ event_selector {
 
 **Bucket Policy:**
 The bucket policy ensures:
+
 - CloudTrail service can write logs
 - Only CloudTrail from the specified trail can write
 - Source account validation prevents cross-account writes
@@ -180,10 +188,7 @@ The KMS key policy includes permissions for CloudTrail:
   "Principal": {
     "Service": "cloudtrail.amazonaws.com"
   },
-  "Action": [
-    "kms:GenerateDataKey",
-    "kms:Decrypt"
-  ],
+  "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
   "Condition": {
     "StringEquals": {
       "AWS:SourceArn": "arn:aws:cloudtrail:region:account:trail/acme-audit-trail"
@@ -199,6 +204,7 @@ The KMS key policy includes permissions for CloudTrail:
 ### 1. Non-Repudiation
 
 CloudTrail provides immutable audit logs that prove:
+
 - **Who** performed an action (IAM user/role ARN)
 - **What** action was performed (API call name)
 - **When** it occurred (timestamp)
@@ -215,6 +221,7 @@ CloudTrail provides immutable audit logs that prove:
 ### 3. Compliance
 
 CloudTrail logs support compliance requirements for:
+
 - **SOC 2:** Audit trail for access controls
 - **HIPAA:** Audit logging for PHI access
 - **PCI DSS:** Transaction logging
@@ -223,6 +230,7 @@ CloudTrail logs support compliance requirements for:
 ### 4. Security Monitoring
 
 CloudTrail enables detection of:
+
 - Unauthorized access attempts
 - Privilege escalation
 - Data exfiltration
@@ -252,6 +260,7 @@ CloudTrail enables detection of:
 ### Log File Structure
 
 CloudTrail log files contain:
+
 ```json
 {
   "Records": [
@@ -293,6 +302,7 @@ aws cloudtrail get-trail-status --name acme-audit-trail
 ```
 
 **Expected Output:**
+
 ```json
 {
   "IsLogging": true,
@@ -347,10 +357,12 @@ aws cloudtrail validate-logs \
 ### Issue: Trail Not Logging
 
 **Symptoms:**
+
 - `IsLogging: false` in trail status
 - No log files in S3 bucket
 
 **Solutions:**
+
 1. Check S3 bucket policy allows CloudTrail service
 2. Verify KMS key policy allows CloudTrail
 3. Check IAM permissions for CloudTrail service role
@@ -359,9 +371,11 @@ aws cloudtrail validate-logs \
 ### Issue: Missing Data Events
 
 **Symptoms:**
+
 - Management events logged but data events missing
 
 **Solutions:**
+
 1. Verify event selectors are configured correctly
 2. Check data event selectors include correct resource ARNs
 3. Ensure `read_write_type = "All"` is set
@@ -370,9 +384,11 @@ aws cloudtrail validate-logs \
 ### Issue: Log Files Not Encrypted
 
 **Symptoms:**
+
 - Log files in S3 without encryption
 
 **Solutions:**
+
 1. Verify `kms_key_id` is set in trail configuration
 2. Check KMS key policy allows CloudTrail
 3. Verify S3 bucket encryption is configured
@@ -381,9 +397,11 @@ aws cloudtrail validate-logs \
 ### Issue: High S3 Costs
 
 **Symptoms:**
+
 - Unexpected S3 charges from CloudTrail logs
 
 **Solutions:**
+
 1. Enable lifecycle policy to transition to Glacier
 2. Review event selectors (data events generate more logs)
 3. Consider filtering unnecessary events
@@ -426,6 +444,7 @@ output "cloudtrail_logs_bucket" {
 ```
 
 **Access via:**
+
 ```bash
 terraform output cloudtrail_trail_arn
 terraform output cloudtrail_logs_bucket
@@ -435,10 +454,9 @@ terraform output cloudtrail_logs_bucket
 
 ## Change Log
 
-- **2025-01-XX:** Initial CloudTrail configuration added
+- **2025-11-20:** Initial CloudTrail configuration added
   - Multi-region trail
   - S3 and DynamoDB data event logging
   - KMS encryption
   - Log file validation
   - Dedicated S3 bucket with lifecycle management
-

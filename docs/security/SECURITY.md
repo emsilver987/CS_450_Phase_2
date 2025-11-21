@@ -1,5 +1,8 @@
 # Security Operations Guide
 
+**Date:** 2025-11-21  
+**Last Updated:** 2025-11-21
+
 This document captures the current security posture for the CS_450_Phase_2
 project: how authentication secrets are handled, how the application falls back
 during development, what to do during incidents, and where to find the output

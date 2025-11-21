@@ -11,7 +11,7 @@
 
 This audit evaluates the current security posture of the Phase 2 project against professional security engineering standards. The project demonstrates **strong foundational security** with JWT authentication, least-privilege IAM, encryption, comprehensive documentation, and **significant improvements** since initial audit. Most critical security controls are now implemented, with only WAF and MFA enforcement remaining as gaps.
 
-**Overall Security Case Readiness: 85/100** (Updated 2025-01-XX)
+**Overall Security Case Readiness: 85/100** (Updated 2025-11-21)
 
 **Key Findings:**
 
@@ -63,7 +63,7 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Needs clarification:** Is this legacy documentation or dual architecture?
 
 3. **JWT Secret Management**
-   - ✅ **FIXED** (2025-01-XX): JWT secret now retrieved from Secrets Manager (KMS-encrypted)
+   - ✅ **FIXED** (2025-11-17): JWT secret now retrieved from Secrets Manager (KMS-encrypted)
    - Implementation: `src/utils/jwt_secret.py` retrieves secret from Secrets Manager
    - Falls back to `JWT_SECRET` env var for local development
    - ECS task definition injects secret from Secrets Manager
@@ -256,7 +256,7 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** ✅ Resolved
 
 3. **Upload Event Logging**
-   - ✅ **FIXED** (2025-01-XX): Upload event logging implemented in `src/services/package_service.py`
+   - ✅ **FIXED** (2025-11-20): Upload event logging implemented in `src/services/package_service.py`
    - ✅ `log_upload_event()` function logs events at three stages: init, complete, abort
    - ✅ Events stored in DynamoDB `downloads` table with `user_id`, `timestamp`, `pkg_name`, `version`, `event_type`, `status`, `size_bytes`, `sha256_hash`
    - ✅ Uses same GSI (`user-timestamp-index`) as download events for efficient querying
@@ -423,7 +423,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 | **A06: Vulnerable Components**     | ✅ Yes       | ✅ Dependency scanning (pip-audit, Trivy)<br>✅ CI/CD security checks                                                                                              | ⚠️ Need to verify all CVEs remediated                                                         | Low      |
 | **A07: Authentication Failures**   | ⚠️ Partial   | ✅ JWT authentication<br>✅ Token expiration<br>✅ Secrets Manager for passwords<br>✅ JWT secret in Secrets Manager (KMS)                                         | ❌ No MFA enforcement                                                                         | Medium   |
 | **A08: Software & Data Integrity** | ✅ Yes       | ✅ SHA-256 hash verification<br>✅ Conditional DynamoDB writes<br>✅ S3 versioning enabled (2025-11-17)                                                            | ✅ All integrity controls implemented                                                         | Low      |
-| **A09: Security Logging**          | ✅ Yes       | ✅ CloudWatch logging<br>✅ Download event logging<br>✅ Upload event logging (2025-01-XX)<br>✅ CloudTrail explicitly configured<br>✅ Log archiving to Glacier   | ✅ Complete audit trail for all user actions                                                  | Low      |
+| **A09: Security Logging**          | ✅ Yes       | ✅ CloudWatch logging<br>✅ Download event logging<br>✅ Upload event logging (2025-11-20)<br>✅ CloudTrail explicitly configured<br>✅ Log archiving to Glacier   | ✅ Complete audit trail for all user actions                                                  | Low      |
 | **A10: SSRF**                      | ❌ No        | ❌ No SSRF protection found                                                                                                                                        | ❌ Need URL validation<br>❌ Need internal network restrictions                               | High     |
 
 ### Detailed OWASP Analysis
@@ -980,7 +980,7 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [x] Create alarms for task count
   - [x] Configure CloudWatch dashboard
 
-- [x] **Add Upload Event Logging** ✅ (2025-01-XX)
+- [x] **Add Upload Event Logging** ✅ (2025-11-20)
   - [x] Log uploads to DynamoDB
   - [x] Include user_id, timestamp, package info
   - [x] Include event_type, status, size_bytes, sha256_hash for completed uploads
@@ -1091,7 +1091,7 @@ While you have the required 4 vulnerabilities documented, consider adding:
 | **Traceability**                 | 5%     | 70/100  | 3.5            |
 | **Completeness**                 | 10%    | 85/100  | 8.5            |
 
-**Total Score: 85.45/100** → **Rounded: 85/100** (Updated 2025-01-XX)
+**Total Score: 85.45/100** → **Rounded: 85/100** (Updated 2025-11-21)
 
 ### Score Interpretation
 

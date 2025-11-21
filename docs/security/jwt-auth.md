@@ -1,5 +1,8 @@
 # JWT Authentication Enforcement
 
+**Date:** 2025-11-21  
+**Last Updated:** 2025-11-21
+
 ## Overview
 
 The API enforces JSON Web Tokens (JWT) for every endpoint that the

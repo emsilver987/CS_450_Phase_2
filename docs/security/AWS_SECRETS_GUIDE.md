@@ -1,5 +1,8 @@
 # AWS Secrets Manager Guide
 
+**Date:** 2025-11-21  
+**Last Updated:** 2025-11-21
+
 This guide explains how to find, retrieve, and manage secrets stored in AWS Secrets Manager for this project.
 
 ## Secrets Used in This Project
@@ -215,6 +218,7 @@ aws logs tail /ecs/validator-service --follow --region us-east-1
 **Error**: `ResourceNotFoundException: Secrets Manager can't find the specified secret`
 
 **Solutions**:
+
 1. Verify the secret name matches exactly (case-sensitive)
 2. Check you're in the correct AWS region
 3. Verify the secret exists:
@@ -227,6 +231,7 @@ aws logs tail /ecs/validator-service --follow --region us-east-1
 **Error**: `AccessDeniedException: User is not authorized to perform: secretsmanager:GetSecretValue`
 
 **Solutions**:
+
 1. Verify IAM role has `secretsmanager:GetSecretValue` permission
 2. Check IAM policies in:
    - `infra/envs/dev/iam_validator.tf` (for validator service)
@@ -238,6 +243,7 @@ aws logs tail /ecs/validator-service --follow --region us-east-1
 **Error**: `ValueError: No password entries found in secret dict`
 
 **Solutions**:
+
 1. Verify secret format matches expected structure:
    - List: `["password1", "password2"]`
    - Object: `{"passwords": ["password1", "password2"]}`
@@ -251,6 +257,7 @@ aws logs tail /ecs/validator-service --follow --region us-east-1
 ### Secret Not Updating After Change
 
 **Solutions**:
+
 1. **Redeploy the application** - Secrets are cached at startup
 2. Restart ECS tasks:
    ```bash
@@ -327,4 +334,3 @@ aws secretsmanager delete-secret --secret-id SECRET_NAME --region us-east-1 --re
 - [AWS CLI Secrets Manager Commands](https://docs.aws.amazon.com/cli/latest/reference/secretsmanager/)
 - Project Security Guide: `docs/security/SECURITY.md`
 - IAM Policies: `infra/envs/dev/iam_*.tf`
-
