@@ -1,23 +1,14 @@
 resource "aws_s3_bucket" "artifacts" {
   bucket        = var.artifacts_name
-  force_destroy = false  # Set to false to prevent accidental deletion of backend bucket
+  force_destroy = false
 }
 
-# KMS key for S3 bucket encryption
-resource "aws_kms_key" "s3_encryption" {
-  description             = "KMS key for S3 artifacts bucket encryption"
-  deletion_window_in_days = 10
-  enable_key_rotation     = true
-
-  tags = {
-    Name        = "s3-artifacts-encryption-key"
-    Environment = var.environment
+# Enable S3 versioning to protect against accidental overwrites and enable version recovery
+resource "aws_s3_bucket_versioning" "this" {
+  bucket = aws_s3_bucket.artifacts.id
+  versioning_configuration {
+    status = "Enabled"
   }
-}
-
-resource "aws_kms_alias" "s3_encryption" {
-  name          = "alias/s3-artifacts-encryption"
-  target_key_id = aws_kms_key.s3_encryption.key_id
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
@@ -25,16 +16,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.s3_encryption.arn
+      kms_master_key_id = var.kms_key_arn
     }
-    bucket_key_enabled = true
-  }
-}
-
-resource "aws_s3_bucket_versioning" "versioning" {
-  bucket = aws_s3_bucket.artifacts.id
-  versioning_configuration {
-    status = "Enabled"
   }
 }
 
@@ -47,7 +30,7 @@ resource "aws_s3_access_point" "main" {
     block_public_acls       = true
     block_public_policy     = true
     ignore_public_acls      = true
-    restrict_public_buckets = true
+    restrict_public_buckets  = true
   }
 
   lifecycle {
@@ -57,8 +40,8 @@ resource "aws_s3_access_point" "main" {
 }
 
 output "artifacts_bucket" { value = aws_s3_bucket.artifacts.id }
-output "access_point_arn" {
-  value = aws_s3_access_point.main.arn
+output "access_point_arn" { 
+  value = aws_s3_access_point.main.arn 
 }
 
 
