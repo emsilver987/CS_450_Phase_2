@@ -809,10 +809,10 @@ resource "aws_api_gateway_method_response" "package_id_get_500" {
 }
 
 resource "aws_api_gateway_integration_response" "package_id_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_200.status_code
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.package_id.id
+  http_method = aws_api_gateway_method.package_id_get.http_method
+  status_code = aws_api_gateway_method_response.package_id_get_200.status_code
   selection_pattern = "200"
 
   depends_on = [
@@ -2753,7 +2753,7 @@ resource "aws_api_gateway_method" "artifact_byname_name_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.proxy"             = true
+    "method.request.path.proxy"              = true
     "method.request.header.X-Authorization" = true
   }
 }
@@ -3421,15 +3421,6 @@ resource "aws_api_gateway_stage" "main_stage" {
     })
   }
 
-  # Enable execution logging for all methods
-  method_settings {
-    resource_path     = "/*/*"
-    http_method       = "*"
-    metrics_enabled   = true
-    logging_level     = "INFO"
-    data_trace_enabled = true
-  }
-
   xray_tracing_enabled = true
 
   tags = {
@@ -3439,31 +3430,19 @@ resource "aws_api_gateway_stage" "main_stage" {
   }
 }
 
-# API Gateway Method Settings - Throttling Configuration
-# This provides per-client rate limiting at the API Gateway level
-# to prevent DoS attacks and ensure fair resource usage
-resource "aws_api_gateway_method_settings" "throttle_settings" {
+# Enable execution logging for all methods
+resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   stage_name  = aws_api_gateway_stage.main_stage.stage_name
-  method_path = "*/*" # Apply to all methods and paths
+  method_path = "*/*"
 
   settings {
-    # Throttling settings
-    # Rate limit: Maximum number of requests per second per client
-    # Burst limit: Maximum number of requests that can be made in a burst
-    throttling_rate_limit  = 100 # 100 requests per second per client
-    throttling_burst_limit = 200 # Allow bursts up to 200 requests
-
-    # Logging settings
-    metrics_enabled = true
-    logging_level   = "INFO"
-
-    # Caching (disabled for now, can be enabled per method if needed)
-    caching_enabled = false
-
-    # Data tracing (useful for debugging, can be disabled in production)
-    data_trace_enabled = false
+    metrics_enabled    = true
+    logging_level      = "INFO"
+    data_trace_enabled = true
   }
+
+  depends_on = [aws_api_gateway_stage.main_stage]
 }
 
 # ===== LAMBDA IAM ROLE AND POLICIES =====
