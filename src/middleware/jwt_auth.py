@@ -10,6 +10,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from src.utils.jwt_secret import get_jwt_secret
+
 
 # Public endpoints that should bypass auth
 DEFAULT_EXEMPT: tuple[str, ...] = (
@@ -50,15 +52,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.exempt_paths = tuple(exempt_paths)
 
         self.algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-        self.secret = os.getenv("JWT_SECRET")
+        self.secret = get_jwt_secret()
         if self.algorithm != "HS256":
             raise ValueError("This middleware currently supports HS256 only.")
         # Auth is optional: if JWT_SECRET is not set, skip auth checks
         self.auth_enabled = bool(self.secret)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
-        # Temporarily disable all auth checks - all endpoints are exempt
-        return await call_next(request)
+
 
         # Prefix-safe path normalization (handles /prod/... base paths)
         raw_path = unquote(request.scope.get("path", "") or request.url.path)
@@ -74,7 +75,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         if _is_exempt(path, self.exempt_paths):
             return await call_next(request)
 
-        auth = request.headers.get("Authorization")
+        auth = request.headers.get("X-Authorization") or request.headers.get("Authorization")
         if not auth or not auth.lower().startswith("bearer "):
             return JSONResponse(
                 {"detail": "Missing or malformed Authorization header"},

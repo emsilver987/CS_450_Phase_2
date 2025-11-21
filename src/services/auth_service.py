@@ -13,11 +13,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from src.utils.jwt_secret import get_jwt_secret
+
 # AWS clients
 dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
 
 # Environment variables
-JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_urlsafe(32))
+JWT_SECRET = get_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "10"))
 JWT_MAX_USES = int(os.getenv("JWT_MAX_USES", "1000"))
@@ -25,17 +27,10 @@ JWT_MAX_USES = int(os.getenv("JWT_MAX_USES", "1000"))
 USERS_TABLE = os.getenv("DDB_TABLE_USERS", "users")
 TOKENS_TABLE = os.getenv("DDB_TABLE_TOKENS", "tokens")
 
+from src.utils.admin_password import get_primary_admin_password
+
 DEFAULT_ADMIN_USERNAME = "ece30861defaultadminuser"
-DEFAULT_ADMIN_PASSWORD_PRIMARY = (
-    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages"
-)
-DEFAULT_ADMIN_PASSWORD_ALTERNATE = (
-    "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-)
-DEFAULT_ADMIN_PASSWORDS = {
-    DEFAULT_ADMIN_PASSWORD_PRIMARY,
-    DEFAULT_ADMIN_PASSWORD_ALTERNATE,
-}
+# Passwords are now retrieved from Secrets Manager via get_primary_admin_password()
 
 security = HTTPBearer()
 
@@ -229,7 +224,7 @@ def ensure_default_admin() -> bool:
                 needs_update = True
                 update_parts.append("#password_hash = :password_hash")
                 expr_attr_vals[":password_hash"] = hash_password(
-                    DEFAULT_ADMIN_PASSWORD_PRIMARY
+                    get_primary_admin_password()
                 )
                 expr_attr_names["#password_hash"] = "password_hash"
 
@@ -253,7 +248,7 @@ def ensure_default_admin() -> bool:
         create_user(
             UserRegistration(
                 username=DEFAULT_ADMIN_USERNAME,
-                password=DEFAULT_ADMIN_PASSWORD_PRIMARY,
+                password=get_primary_admin_password(),
                 roles=["admin"],
             )
         )

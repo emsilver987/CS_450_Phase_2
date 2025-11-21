@@ -12,14 +12,12 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 # Expected credentials and token
 # -----------------------------------------------------------------------------
+from src.utils.admin_password import get_admin_passwords
+
 EXPECTED_USERNAME = "ece30861defaultadminuser"
 
-EXPECTED_PASSWORDS = {
-    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages",
-    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages;",
-    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts",
-    "correcthorsebatterystaple123(!__+@**(A;DROP TABLE artifacts;",
-}
+# Passwords are now retrieved from Secrets Manager
+EXPECTED_PASSWORDS = set(get_admin_passwords())
 
 UNICODE_QUOTE_MAP = str.maketrans(
     {

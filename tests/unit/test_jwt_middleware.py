@@ -99,6 +99,11 @@ def test_middleware_without_secret_disables_auth(monkeypatch) -> None:
     """The middleware should disable auth when no signing secret is configured."""
     monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("ENABLE_AUTH", raising=False)
+    
+    # Mock get_jwt_secret to return None
+    # We import the module first, then patch the function
+    import src.utils.jwt_secret as jwt_secret_util
+    monkeypatch.setattr(jwt_secret_util, "get_jwt_secret", lambda: None)
 
     import src.services.auth_service as auth_service
 
@@ -120,15 +125,35 @@ def test_middleware_without_secret_disables_auth(monkeypatch) -> None:
 def auth_components() -> Type["JWTAuthMiddleware"]:
     """Reload middleware/auth modules with a known JWT secret for tests."""
     sys.modules.setdefault("boto3", MagicMock())
-    os.environ.setdefault("JWT_SECRET", "test-secret")
+    os.environ["JWT_SECRET"] = "test-secret"
+    
+    # Clear the cache in the utility module so it picks up the new env var
+    # We need to import it first to clear it
+    try:
+        import src.utils.jwt_secret as jwt_secret_util
+        importlib.reload(jwt_secret_util)
+        jwt_secret_util.clear_jwt_secret_cache()
+    except ImportError:
+        pass
 
     import src.services.auth_service as auth_service
 
     importlib.reload(auth_service)
-    auth_service.JWT_SECRET = os.environ["JWT_SECRET"]
+    # Ensure service uses the same secret
+    if hasattr(auth_service, "JWT_SECRET"):
+        auth_service.JWT_SECRET = os.environ["JWT_SECRET"]
 
     jwt_auth = importlib.import_module("src.middleware.jwt_auth")
     jwt_auth = importlib.reload(jwt_auth)
+    
+    # Debug: Print secret to ensure it matches
+    print(f"DEBUG: Test Env Secret: {os.environ['JWT_SECRET']}")
+    try:
+        import src.utils.jwt_secret as jwt_secret_util
+        print(f"DEBUG: get_jwt_secret() returns: {jwt_secret_util.get_jwt_secret()}")
+    except Exception as e:
+        print(f"DEBUG: Could not call get_jwt_secret: {e}")
+        
     return jwt_auth.JWTAuthMiddleware
 
 
