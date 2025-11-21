@@ -20,10 +20,14 @@ resource "aws_kms_alias" "main_key_alias" {
 }
 
 # Secrets Manager for JWT secret
+# Using AWS managed KMS key (aws/secretsmanager) by default to avoid permission issues during deployment
+# If secret already exists with custom KMS key, it will be preserved via lifecycle ignore_changes
 resource "aws_secretsmanager_secret" "jwt_secret" {
   name = "acme-jwt-secret"
 
-  kms_key_id = aws_kms_key.main_key.arn
+  # Don't specify kms_key_id - this uses AWS managed key (aws/secretsmanager) by default
+  # This avoids KMS permission issues during deployment
+  # If secret already exists with custom key, lifecycle ignore_changes will preserve it
 
   tags = {
     Name        = "acme-jwt-secret"
@@ -32,7 +36,9 @@ resource "aws_secretsmanager_secret" "jwt_secret" {
   }
 
   lifecycle {
-    ignore_changes = [kms_key_id]
+    # Ignore changes to kms_key_id so existing secrets with custom keys aren't modified
+    # Ignore name and tags to prevent accidental updates during deployment
+    ignore_changes = [kms_key_id, name, tags]
   }
 }
 
@@ -44,6 +50,11 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
     jwt_expiration_hours = 10
     jwt_max_uses         = 1000
   })
+
+  lifecycle {
+    # Only create if secret doesn't exist, don't update if it already has a value
+    ignore_changes = [secret_string]
+  }
 }
 
 # CloudWatch Alarms
