@@ -376,7 +376,10 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
           "s3:GetObject",
           "s3:ListBucket",
           "s3:PutObject",
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts",
+          "s3:CreateMultipartUpload"
         ]
         Resource = [
           "arn:aws:s3:::${var.artifacts_bucket}",
