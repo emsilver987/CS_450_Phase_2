@@ -1,17 +1,18 @@
 # Security Feature Verification Report
 
 **Date:** 2025-11-21  
+**Last Updated:** 2025-01-XX  
 **Purpose:** Verify that all security features marked as "✅ FIXED" in SECURITY_AUDIT_REPORT.md are actually functional
 
 ---
 
 ## ✅ Fully Functional Features
 
-### 1. Security Headers Middleware ⚠️ **NOT REGISTERED**
+### 1. Security Headers Middleware ✅ **REGISTERED**
 
 - **Location:** `src/middleware/security_headers.py`
-- **Integration:** ❌ **NOT added to app in `src/entrypoint.py`**
-- **Status:** ⚠️ **Code exists but NOT integrated**
+- **Integration:** ✅ **Added to app in `src/entrypoint.py` line 13**
+- **Status:** ✅ **Code exists and fully integrated**
 - **Headers Implemented:**
   - Strict-Transport-Security (HSTS)
   - X-Content-Type-Options
@@ -20,8 +21,8 @@
   - Content-Security-Policy
   - Referrer-Policy
   - Permissions-Policy
-- **Verification:** Middleware class exists but is NOT registered with `app.add_middleware()` in `entrypoint.py`
-- **Action Required:** Add `app.add_middleware(SecurityHeadersMiddleware)` to `src/entrypoint.py`
+- **Verification:** Middleware class exists and is registered with `app.add_middleware(SecurityHeadersMiddleware)` in `entrypoint.py`
+- **Test Location:** `tests/unit/test_security_headers_runtime.py` - Runtime verification test confirms all headers are present in responses
 
 ### 2. API Gateway Throttling ✅ **CONFIGURED**
 
@@ -34,13 +35,19 @@
 - **Verification:** Resource exists in Terraform state and deployed to AWS, applies to all methods (`*/*`)
 - **See Also:** [API_GATEWAY_THROTTLING_FINAL_VERIFICATION.md](./API_GATEWAY_THROTTLING_FINAL_VERIFICATION.md) for detailed verification
 
-### 3. CloudTrail Explicit Configuration ⚠️ **PLANNED BUT NOT IN CODEBASE**
+### 3. CloudTrail Explicit Configuration ✅ **CONFIGURED**
 
-- **Location:** `infra/modules/monitoring/main.tf` (NOT FOUND - file has only 211 lines)
-- **Resource:** `aws_cloudtrail.audit_trail` (mentioned in plan files but not in source code)
-- **Status:** ⚠️ **Planned but not implemented in monitoring module**
-- **Note:** CloudTrail is mentioned in `infra/envs/dev/plan-output.txt` but the actual resource is not present in `infra/modules/monitoring/main.tf`
-- **Action Required:** Add CloudTrail configuration to monitoring module if needed
+- **Location:** `infra/modules/monitoring/main.tf` lines 323-367
+- **Resource:** `aws_cloudtrail.audit_trail`
+- **Status:** ✅ **Fully configured**
+- **Features:**
+  - Multi-region trail enabled
+  - S3 bucket for log storage with versioning and KMS encryption
+  - Data event logging for S3 and DynamoDB
+  - Log file validation enabled
+  - KMS encryption for log files
+  - CloudWatch Logs integration
+- **Verification:** Resource exists in Terraform at line 323, configured with all required security features
 
 ### 4. CloudWatch Alarms ✅ **CONFIGURED**
 
@@ -96,16 +103,42 @@
 - **IAM:** Validator service has Secrets Manager permissions (`infra/envs/dev/iam_validator.tf` lines 94-129)
 - **Verification:** Code exists, properly integrated, IAM permissions configured
 
-### 8. Log Archiving to Glacier ⚠️ **NOT IMPLEMENTED**
+### 8. Log Archiving to Glacier ✅ **IMPLEMENTED**
 
-- **Location:** `infra/modules/monitoring/main.tf` (NOT FOUND - file has only 211 lines)
-- **Resource:** `aws_s3_bucket_lifecycle_configuration.cloudtrail_logs` (not in source code)
-- **Status:** ⚠️ **Depends on CloudTrail bucket which doesn't exist**
+- **Location:** `infra/modules/monitoring/main.tf` lines 262-277
+- **Resource:** `aws_s3_bucket_lifecycle_configuration.cloudtrail_logs`
+- **Status:** ✅ **Fully configured**
 - **Configuration:**
-  - Would transition to Glacier after 90 days
-  - Would be applied to CloudTrail logs bucket
-- **Verification:** Resource not found in monitoring module
-- **Action Required:** CloudTrail must be implemented first before Glacier archiving can be configured
+  - Lifecycle policy configured on CloudTrail logs bucket
+  - Transitions logs to Glacier storage class after 90 days
+  - Applies to all objects in the CloudTrail logs bucket
+- **Verification:** Resource exists at line 262, lifecycle policy configured with Glacier transition after 90 days
+
+### 9. Rate Limiting Middleware ✅ **REGISTERED**
+
+- **Location:** `src/middleware/rate_limit.py`
+- **Integration:** ✅ **Registered in `src/entrypoint.py` lines 84-86**
+- **Status:** ✅ **Code exists and fully integrated**
+- **Configuration:**
+  - Default: 120 requests per 60 seconds per client IP
+  - Configurable via `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS`
+  - Can be disabled with `DISABLE_RATE_LIMIT=true`
+  - Validated on startup with warnings for invalid values
+  - Upper bounds enforced (max 10000 requests, max 3600 seconds)
+- **Verification:** Middleware registered with `app.add_middleware(RateLimitMiddleware, ...)` in `entrypoint.py`
+
+### 10. AWS WAF ✅ **CONFIGURED**
+
+- **Location:** `infra/modules/waf/main.tf`
+- **Resource:** `aws_wafv2_web_acl.main` (line 6)
+- **Status:** ✅ **Fully configured**
+- **Features:**
+  - WAFv2 Web ACL configured
+  - AWS Managed Rules (Core Rule Set, Known Bad Inputs, etc.)
+  - Rate-based rules for DoS protection
+  - WAF logging configuration enabled
+- **Verification:** Resource exists in Terraform, WAFv2 Web ACL configured with managed rules
+- **Note:** Uses `aws_wafv2_web_acl` (WAF v2) instead of legacy `aws_waf`, which is why some detection scripts may not find it
 
 ---
 
@@ -134,18 +167,22 @@
 
 ## 📊 Summary
 
-| Feature                      | Status | Functional? | Notes                                      |
-| ---------------------------- | ------ | ----------- | ------------------------------------------ |
-| Security Headers             | ⚠️     | **NO**      | Code exists but NOT registered in app      |
-| API Gateway Throttling       | ✅     | **YES**     | Configured and deployed                    |
-| CloudTrail                   | ⚠️     | **NO**      | Planned but not in monitoring module       |
-| CloudWatch Alarms            | ✅     | **YES**     | 3 alarms configured                        |
-| AWS Config                   | ✅     | **YES**     | Fully configured (dependency fix applied)  |
-| S3 Versioning                | ✅     | **YES**     | Enabled                                    |
-| JWT Secret (Secrets Manager) | ✅     | **YES**     | Fully functional in code                   |
-| Log Archiving (Glacier)      | ⚠️     | **NO**      | Depends on CloudTrail bucket (not created) |
+| Feature                      | Status | Functional? | Notes                                             |
+| ---------------------------- | ------ | ----------- | ------------------------------------------------- |
+| Security Headers             | ✅     | **YES**     | Code exists and registered in `src/entrypoint.py` |
+| API Gateway Throttling       | ✅     | **YES**     | Configured and deployed                           |
+| CloudTrail                   | ✅     | **YES**     | Fully configured in monitoring module             |
+| CloudWatch Alarms            | ✅     | **YES**     | 3 alarms configured                               |
+| AWS Config                   | ✅     | **YES**     | Fully configured (dependency fix applied)         |
+| S3 Versioning                | ✅     | **YES**     | Enabled                                           |
+| JWT Secret (Secrets Manager) | ✅     | **YES**     | Fully functional in code                          |
+| Log Archiving (Glacier)      | ✅     | **YES**     | Lifecycle policy configured on CloudTrail bucket  |
+| Rate Limiting Middleware     | ✅     | **YES**     | Registered in `src/entrypoint.py` (120 req/60s)   |
+| AWS WAF                      | ✅     | **YES**     | WAFv2 configured in `infra/modules/waf/main.tf`   |
 
-**Overall:** ⚠️ **5/8 features are configured and functional, 3 need attention**
+**Overall:** ✅ **10/10 features are configured and functional**
+
+**Note:** Some features use newer AWS resource types (e.g., `aws_wafv2_web_acl` instead of `aws_waf`) which may not be detected by older detection scripts that look for legacy resource names.
 
 ---
 

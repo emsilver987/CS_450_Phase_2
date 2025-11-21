@@ -308,12 +308,16 @@ resource "aws_s3_bucket_policy" "waf_logging" {
 }
 
 # WAF Logging Configuration - Use S3 for CloudFront WAF
-resource "aws_wafv2_web_acl_logging_configuration" "main" {
-  resource_arn            = aws_wafv2_web_acl.main.arn
-  log_destination_configs = ["arn:aws:s3:::${aws_s3_bucket.waf_logs.bucket}/waf-logs/"]
-
-  depends_on = [aws_s3_bucket_policy.waf_logging]
-}
+# NOTE: CloudFront WAF requires Kinesis Data Firehose for logging, not direct S3
+# For now, logging is disabled. To enable, set up Kinesis Data Firehose delivery stream
+# that writes to the S3 bucket, then use the Firehose stream ARN here.
+# 
+# resource "aws_wafv2_web_acl_logging_configuration" "main" {
+#   resource_arn            = aws_wafv2_web_acl.main.arn
+#   log_destination_configs = ["arn:aws:firehose:us-east-1:ACCOUNT_ID:deliverystream/STREAM_NAME"]
+# 
+#   depends_on = [aws_s3_bucket_policy.waf_logging]
+# }
 
 # Outputs
 output "web_acl_id" {
