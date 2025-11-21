@@ -42,3 +42,4 @@ def test_require_auth_revoked_token(mock_consume, mock_verify):
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Token revoked or expired"
     mock_consume.assert_called_with("valid-token-id")
+

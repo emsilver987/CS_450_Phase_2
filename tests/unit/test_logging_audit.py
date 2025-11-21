@@ -64,3 +64,4 @@ async def test_logging_middleware_anonymous():
                 break
         
         assert found_anon_log, "Anonymous log not found"
+

@@ -44,3 +44,4 @@ async def test_logging_middleware_redaction():
                 found_redacted = True
         
         assert found_redacted, "Did not find a log entry with redacted headers"
+

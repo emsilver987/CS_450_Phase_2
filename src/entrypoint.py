@@ -4,9 +4,13 @@ import os
 
 from .index import app as _app
 from .middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
+from .middleware.security_headers import SecurityHeadersMiddleware
 
 # Wrap the original app without modifying existing files
 app = _app
+
+# Add security headers middleware (always enabled)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Only add JWT middleware if auth is explicitly enabled
 # Auth is enabled if ENABLE_AUTH=true OR if JWT_SECRET is set
