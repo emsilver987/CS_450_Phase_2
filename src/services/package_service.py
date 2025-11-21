@@ -259,6 +259,15 @@ async def commit_upload(
             MultipartUpload={"Parts": parts},
         )
 
+        # Download the completed file and compute SHA-256 hash for integrity verification
+        try:
+            file_response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
+            file_content = file_response["Body"].read()
+            sha256_hash = hashlib.sha256(file_content).hexdigest()
+        except Exception as e:
+            logging.warning(f"Failed to compute hash during commit: {e}")
+            sha256_hash = None
+
         # Store package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
         pkg_key = f"{upload_info['pkg_name']}/{upload_info['version']}"
@@ -276,6 +285,10 @@ async def commit_upload(
                 int(part["ETag"].split("-")[1]) for part in parts if "-" in part["ETag"]
             ),
         }
+        
+        # Add SHA-256 hash if computed
+        if sha256_hash:
+            package_item["sha256"] = sha256_hash
 
         packages_table.put_item(Item=package_item)
 
@@ -352,7 +365,7 @@ async def get_download_url(
     ttl_seconds: int = Query(300, ge=60, le=3600),
     user: Dict[str, Any] = Depends(verify_token),
 ):
-    """Get presigned download URL"""
+    """Get presigned download URL with hash verification"""
     try:
         # Get package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
@@ -372,9 +385,34 @@ async def get_download_url(
             if not any(group in user_groups for group in allowed_groups):
                 raise HTTPException(status_code=403, detail="Access denied")
 
-        # Generate presigned URL
+        # verify SHA-256 hash to detect tampering
         s3_key = f"packages/{pkg_name}/{version}/package.zip"
+        expected_hash = package.get("sha256")
+        
+        if expected_hash:
+            try:
+                # Download file from S3 to verify integrity
+                file_response = s3.get_object(Bucket=ARTIFACTS_BUCKET, Key=s3_key)
+                file_content = file_response["Body"].read()
+                computed_hash = hashlib.sha256(file_content).hexdigest()
+                
+                if computed_hash != expected_hash:
+                    logging.error(
+                        f"Hash mismatch for {pkg_name}/{version}: expected {expected_hash}, got {computed_hash}"
+                    )
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Integrity check failed: Package hash mismatch. Package may have been tampered with."
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error(f"Error verifying hash for {pkg_name}/{version}: {e}")
+                # If hash verification fails due to technical issues, log but allow download
+                # (fail-open for availability, but log for investigation)
+                logging.warning(f"Hash verification failed for {pkg_name}/{version}, allowing download: {e}")
 
+        # Generate presigned URL
         url = s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": ARTIFACTS_BUCKET, "Key": s3_key},
