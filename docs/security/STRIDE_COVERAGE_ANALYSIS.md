@@ -34,18 +34,19 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation          | Status                       | Notes                                                                                                               |
-| ------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| JWT Authentication  | ✅ **Implemented**           | Enforced via `verify_auth_token` helper in `src/index.py` across all protected endpoints.                           |
-| JWT Secret via KMS  | ✅ **Implemented**           | `get_jwt_secret()` in `src/utils/jwt_secret.py` retrieves from AWS Secrets Manager (KMS-encrypted). Production mode enforces Secrets Manager only—no fallbacks. |
-| Token Expiration    | ✅ **Implemented**           | Checked in `verify_jwt_token`.                                                                                      |
-| Token Use Tracking  | ✅ **Implemented**           | `consume_token_use()` enforced globally in `JWTAuthMiddleware` for all authenticated requests.                      |
-| Token Revocation    | ✅ **Implemented**           | `is_token_valid` check added to `verify_auth_token` in `src/index.py` (REC-02).                                     |
-| Secure Defaults     | ✅ **Implemented**           | Hardcoded admin password removed; random generation implemented (REC-05).                                           |
-| IAM Group Isolation | ✅ **Implemented**           | IAM policies in `infra/envs/dev/iam_*.tf`.                                                                          |
-| Admin MFA           | ❌ **Not Found**             | No MFA enforcement found in IAM policies.                                                                           |
+| Mitigation          | Status             | Notes                                                                                                                                                           |
+| ------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| JWT Authentication  | ✅ **Implemented** | Enforced via `verify_auth_token` helper in `src/index.py` across all protected endpoints.                                                                       |
+| JWT Secret via KMS  | ✅ **Implemented** | `get_jwt_secret()` in `src/utils/jwt_secret.py` retrieves from AWS Secrets Manager (KMS-encrypted). Production mode enforces Secrets Manager only—no fallbacks. |
+| Token Expiration    | ✅ **Implemented** | Checked in `verify_jwt_token`.                                                                                                                                  |
+| Token Use Tracking  | ✅ **Implemented** | `consume_token_use()` enforced globally in `JWTAuthMiddleware` for all authenticated requests.                                                                  |
+| Token Revocation    | ✅ **Implemented** | `is_token_valid` check added to `verify_auth_token` in `src/index.py` (REC-02).                                                                                 |
+| Secure Defaults     | ✅ **Implemented** | Hardcoded admin password removed; random generation implemented (REC-05).                                                                                       |
+| IAM Group Isolation | ✅ **Implemented** | IAM policies in `infra/envs/dev/iam_*.tf`.                                                                                                                      |
+| Admin MFA           | ❌ **Not Found**   | No MFA enforcement found in IAM policies.                                                                                                                       |
 
 ### Recent Fixes:
+
 1.  **REC-02 (Token State Validation):** `verify_auth_token` now checks `is_token_valid(jti)` against DynamoDB to prevent use of revoked tokens.
 2.  **REC-05 (Secure Default Credentials):** Hardcoded `DEFAULT_ADMIN_PASSWORD_PRIMARY` removed. System now generates a secure random password if `DEFAULT_ADMIN_PASSWORD` env var is not set.
 3.  **Token Use-Count Global Enforcement:** `JWTAuthMiddleware` in `src/middleware/jwt_auth.py` now calls `consume_token_use(jti)` for every authenticated request, ensuring tokens expire after `JWT_MAX_USES` (default: 1000) regardless of time-based expiration.
@@ -67,13 +68,13 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation                  | Status             | Notes                                                                                                                                |
-| --------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| S3 Encryption               | ✅ **SSE-KMS**     | Uses **SSE-KMS** with customer-managed key in `infra/modules/s3/main.tf`.                                                            |
-| S3 Versioning               | ✅ **Enabled**     | `aws_s3_bucket_versioning` resource configured in `infra/modules/s3/main.tf`.                                                        |
-| Presigned URLs              | ✅ **Implemented** | 300s TTL default (enforced via Query parameter).                                                                                     |
-| DynamoDB Conditional Writes | ✅ **Implemented** | `UpdateExpression` used in multiple places.                                                                                          |
-| SHA-256 Hash Verification   | ✅ **Implemented** | SHA-256 computed on upload, stored in metadata, and verified on download (optional).                                                 |
+| Mitigation                  | Status             | Notes                                                                                |
+| --------------------------- | ------------------ | ------------------------------------------------------------------------------------ |
+| S3 Encryption               | ✅ **SSE-KMS**     | Uses **SSE-KMS** with customer-managed key in `infra/modules/s3/main.tf`.            |
+| S3 Versioning               | ✅ **Enabled**     | `aws_s3_bucket_versioning` resource configured in `infra/modules/s3/main.tf`.        |
+| Presigned URLs              | ✅ **Implemented** | 300s TTL default (enforced via Query parameter).                                     |
+| DynamoDB Conditional Writes | ✅ **Implemented** | `UpdateExpression` used in multiple places.                                          |
+| SHA-256 Hash Verification   | ✅ **Implemented** | SHA-256 computed on upload, stored in metadata, and verified on download (optional). |
 
 ---
 
@@ -89,16 +90,17 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation             | Status                | Notes                                                                                                                      |
-| ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| CloudTrail             | ✅ **Implemented**    | `aws_cloudtrail` resource configured in `infra/modules/monitoring/main.tf` with multi-region support, S3/DynamoDB data events, KMS encryption. |
-| CloudWatch Logging     | ✅ **Implemented**    | Extensive logging throughout codebase.                                                                                     |
-| Download Event Logging | ✅ **Implemented**    | `log_download_event()` logs to DynamoDB.                                                                                   |
-| Upload Event Logging   | ✅ **Implemented**    | `log_upload_event()` implemented.                                                                                          |
-| User Attribution       | ✅ **Implemented**    | `LoggingMiddleware` updated to extract and log `user_id` from JWT (REC-06).                                                |
-| S3 Glacier Archiving   | ✅ **Implemented**    | CloudTrail logs stored in dedicated S3 bucket with lifecycle policy (transition to Glacier after 90 days).                 |
+| Mitigation             | Status             | Notes                                                                                                                                          |
+| ---------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| CloudTrail             | ✅ **Implemented** | `aws_cloudtrail` resource configured in `infra/modules/monitoring/main.tf` with multi-region support, S3/DynamoDB data events, KMS encryption. |
+| CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase.                                                                                                         |
+| Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB.                                                                                                       |
+| Upload Event Logging   | ✅ **Implemented** | `log_upload_event()` implemented.                                                                                                              |
+| User Attribution       | ✅ **Implemented** | `LoggingMiddleware` updated to extract and log `user_id` from JWT (REC-06).                                                                    |
+| S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs stored in dedicated S3 bucket with lifecycle policy (transition to Glacier after 90 days).                                     |
 
 ### Recent Fixes:
+
 1.  **REC-06 (User Attribution):** `LoggingMiddleware` in `src/index.py` now extracts `user_id` from the JWT token (if present) and includes it in log messages, improving auditability.
 
 ---
@@ -116,17 +118,18 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation                   | Status             | Notes                                                                              |
-| ---------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
-| Least-Privilege IAM          | ✅ **Implemented** | Scoped policies in `infra/envs/dev/iam_*.tf`.                                      |
-| Presigned URLs               | ✅ **Implemented** | 300s TTL enforced.                                                                 |
-| Secrets Manager              | ✅ **Implemented** | Used for JWT secrets and admin passwords (KMS-encrypted).                          |
-| RBAC Checks                  | ✅ **Implemented** | Group-based access in `package_service.py` and `validator_service.py`.             |
-| Security Headers             | ✅ **Implemented** | SecurityHeadersMiddleware in `src/middleware/security_headers.py`.                 |
-| Log Redaction                | ✅ **Implemented** | Sensitive headers (Authorization, Cookie, X-Authorization) redacted in logs (REC-01).|
-| AWS Config                   | ✅ **Implemented** | AWS Config configured in `infra/modules/config/main.tf`.                           |
+| Mitigation          | Status             | Notes                                                                                 |
+| ------------------- | ------------------ | ------------------------------------------------------------------------------------- |
+| Least-Privilege IAM | ✅ **Implemented** | Scoped policies in `infra/envs/dev/iam_*.tf`.                                         |
+| Presigned URLs      | ✅ **Implemented** | 300s TTL enforced.                                                                    |
+| Secrets Manager     | ✅ **Implemented** | Used for JWT secrets and admin passwords (KMS-encrypted).                             |
+| RBAC Checks         | ✅ **Implemented** | Group-based access in `package_service.py` and `validator_service.py`.                |
+| Security Headers    | ✅ **Implemented** | SecurityHeadersMiddleware in `src/middleware/security_headers.py`.                    |
+| Log Redaction       | ✅ **Implemented** | Sensitive headers (Authorization, Cookie, X-Authorization) redacted in logs (REC-01). |
+| AWS Config          | ✅ **Implemented** | AWS Config configured in `infra/modules/config/main.tf`.                              |
 
 ### Recent Fixes:
+
 1.  **REC-01 (Log Redaction):** `LoggingMiddleware` in `src/index.py` was updated to redact `Authorization`, `X-Authorization`, and `Cookie` headers from logs to prevent token leakage.
 
 ---
@@ -145,19 +148,20 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation             | Status                 | Notes                                                                                      |
-| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| Rate Limiting          | ✅ **Implemented**     | `RateLimitMiddleware` (120 req/60s default).                                               |
-| Validator Timeout      | ✅ **Implemented**     | 5s timeout in `validator_service.py`.                                                      |
-| ECS Resource Limits    | ✅ **Implemented**     | CPU/memory limits in ECS config.                                                           |
-| Streaming Uploads      | ✅ **Implemented**     | `upload_model` and endpoints updated to use `BinaryIO` streams (REC-03).                   |
-| ReDoS Protection       | ❌ **Reverted**        | Timeout mitigation for `/artifact/byRegEx` was implemented but reverted by user request.   |
-| API Gateway Throttling | ❌ **Not Found**       | No `aws_api_gateway_method_settings` resource found.                                       |
-| AWS WAF                | ❌ **Not Found**       | No WAF configuration found.                                                                |
+| Mitigation             | Status             | Notes                                                                                                                                        |
+| ---------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rate Limiting          | ✅ **Implemented** | `RateLimitMiddleware` (120 req/60s default).                                                                                                 |
+| Validator Timeout      | ✅ **Implemented** | 5s timeout in `validator_service.py`.                                                                                                        |
+| ECS Resource Limits    | ✅ **Implemented** | CPU/memory limits in ECS config.                                                                                                             |
+| Streaming Uploads      | ✅ **Implemented** | `upload_model` and endpoints updated to use `BinaryIO` streams (REC-03).                                                                     |
+| ReDoS Protection       | ✅ **Implemented** | Timeout mitigation (5s) using `asyncio.wait_for()` and `asyncio.to_thread()` for `/artifact/byRegEx`. Pattern-based detection also in place. |
+| API Gateway Throttling | ❌ **Not Found**   | No `aws_api_gateway_method_settings` resource found.                                                                                         |
+| AWS WAF                | ❌ **Not Found**   | No WAF configuration found.                                                                                                                  |
 
 ### Recent Fixes:
+
 1.  **REC-03 (Streaming Uploads):** `src/services/s3_service.py` and route handlers (`src/routes/frontend.py`, `src/routes/packages.py`) were refactored to stream file uploads directly to S3, preventing memory exhaustion attacks.
-2.  **REC-04 (ReDoS):** Mitigation was attempted (adding `signal.alarm` timeout) but was reverted.
+2.  **REC-04 (ReDoS):** ✅ **RE-IMPLEMENTED** - Timeout mitigation using `asyncio.wait_for()` and `asyncio.to_thread()` to run blocking regex operations in a thread pool with a 5-second timeout. This provides async-safe protection without blocking the event loop, unlike the previous `signal.alarm` approach which was reverted.
 
 ---
 
@@ -172,13 +176,13 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### Implementation Status:
 
-| Mitigation                 | Status             | Notes                                                    |
-| -------------------------- | ------------------ | -------------------------------------------------------- |
-| Least-Privilege IAM        | ✅ **Implemented** | Scoped policies for API and Validator services.          |
-| Group_106 Restrictions     | ✅ **Implemented** | `group106_project_policy` in `infra/modules/iam/main.tf`.|
-| Admin MFA                  | ❌ **Not Found**   | No MFA enforcement in IAM policies.                      |
-| GitHub OIDC                | ✅ **Implemented** | `setup-oidc.sh` and trust policy exist.                  |
-| Terraform State Protection | ✅ **Implemented** | S3 backend with state locking.                           |
+| Mitigation                 | Status             | Notes                                                     |
+| -------------------------- | ------------------ | --------------------------------------------------------- |
+| Least-Privilege IAM        | ✅ **Implemented** | Scoped policies for API and Validator services.           |
+| Group_106 Restrictions     | ✅ **Implemented** | `group106_project_policy` in `infra/modules/iam/main.tf`. |
+| Admin MFA                  | ❌ **Not Found**   | No MFA enforcement in IAM policies.                       |
+| GitHub OIDC                | ✅ **Implemented** | `setup-oidc.sh` and trust policy exist.                   |
+| Terraform State Protection | ✅ **Implemented** | S3 backend with state locking.                            |
 
 ---
 
@@ -186,7 +190,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 ### High Priority
 
-1.  **Re-implement ReDoS Protection (REC-04):** Find an alternative to `signal.alarm` (e.g., running regex in a separate process with timeout, or using a safe regex library like `google-re2` if possible) to mitigate the ReDoS risk on `/artifact/byRegEx`.
+1.  ~~**Re-implement ReDoS Protection (REC-04):**~~ ✅ **COMPLETED** - Implemented using `asyncio.wait_for()` and `asyncio.to_thread()` to run blocking regex operations in a thread pool with a 5-second timeout. This provides async-safe timeout protection without blocking the event loop.
 2.  **Deploy AWS WAF:** Configure AWS WAF for additional DDoS protection and application-layer security (rate limiting, IP filtering, etc.).
 3.  **Configure API Gateway Throttling:** Add `aws_api_gateway_method_settings` resource to enforce per-client rate limits at the API Gateway level.
 
@@ -198,16 +202,16 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 All critical and high-priority recommendations from the original SECURITY_REPORT.md have been successfully implemented:
 
--   ✅ **REC-01 (Log Redaction):** Sensitive headers redacted in `LoggingMiddleware`
--   ✅ **REC-02 (Token State Validation):** Token revocation check enforced
--   ✅ **REC-03 (Streaming Uploads):** Memory exhaustion DoS vector eliminated
--   ✅ **REC-05 (Secure Default Credentials):** Hardcoded passwords removed
--   ✅ **REC-06 (User Attribution):** Enhanced audit logging with user IDs
--   ✅ **SSE-KMS Encryption:** S3 buckets use customer-managed KMS keys
--   ✅ **S3 Versioning:** Enabled for tamper detection
--   ✅ **CloudTrail Audit Logging:** Multi-region trail with data event logging
--   ✅ **SHA-256 Hash Verification:** Package integrity verification
--   ✅ **JWT Secret via Secrets Manager:** Production-mode enforcement with KMS encryption
+- ✅ **REC-01 (Log Redaction):** Sensitive headers redacted in `LoggingMiddleware`
+- ✅ **REC-02 (Token State Validation):** Token revocation check enforced
+- ✅ **REC-03 (Streaming Uploads):** Memory exhaustion DoS vector eliminated
+- ✅ **REC-05 (Secure Default Credentials):** Hardcoded passwords removed
+- ✅ **REC-06 (User Attribution):** Enhanced audit logging with user IDs
+- ✅ **SSE-KMS Encryption:** S3 buckets use customer-managed KMS keys
+- ✅ **S3 Versioning:** Enabled for tamper detection
+- ✅ **CloudTrail Audit Logging:** Multi-region trail with data event logging
+- ✅ **SHA-256 Hash Verification:** Package integrity verification
+- ✅ **JWT Secret via Secrets Manager:** Production-mode enforcement with KMS encryption
 
 ---
 

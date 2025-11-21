@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import os
 import json
+import asyncio
 from typing import Dict, Any, Optional
 from starlette.datastructures import UploadFile
 import uvicorn
@@ -1348,11 +1349,18 @@ async def search_artifacts_by_regex(request: Request):
         artifacts = []
         seen_artifact_ids = set()
         
+        # Timeout configuration for regex operations (5 seconds to prevent ReDoS)
+        REGEX_OPERATION_TIMEOUT = 5.0
+        
         # Search models from S3 (with reduced limit to prevent ReDoS)
         logger.info(f"DEBUG: Searching models in S3 with regex: '{regex_pattern}'")
         try:
-            # Limit results to prevent excessive processing and ReDoS attacks
-            result = list_models(name_regex=regex_pattern, limit=100)
+            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
+            # This mitigates the risk of catastrophic backtracking that could hang the server
+            result = await asyncio.wait_for(
+                asyncio.to_thread(list_models, name_regex=regex_pattern, limit=100),
+                timeout=REGEX_OPERATION_TIMEOUT
+            )
             models_found = result.get("models", [])
             logger.info(f"DEBUG: Found {len(models_found)} models in S3 matching regex")
             for model in models_found:
@@ -1383,6 +1391,12 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added model artifact: name='{model_name}', id='{artifact_id}'")
+        except asyncio.TimeoutError:
+            logger.warning(f"Regex search timeout for pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
+            raise HTTPException(
+                status_code=408,
+                detail=f"Regex search operation timed out. The pattern may be too complex or cause performance issues. Please use a simpler pattern."
+            )
         except Exception as e:
             logger.error(f"DEBUG: Error searching models with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
@@ -1392,8 +1406,11 @@ async def search_artifacts_by_regex(request: Request):
         # Search datasets from S3
         logger.info(f"DEBUG: Searching datasets in S3 with regex: '{regex_pattern}'")
         try:
-            # Limit results to prevent ReDoS attacks
-            result = list_artifacts_from_s3(artifact_type="dataset", name_regex=regex_pattern, limit=100)
+            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
+            result = await asyncio.wait_for(
+                asyncio.to_thread(list_artifacts_from_s3, artifact_type="dataset", name_regex=regex_pattern, limit=100),
+                timeout=REGEX_OPERATION_TIMEOUT
+            )
             datasets_found = result.get("artifacts", [])
             logger.info(f"DEBUG: Found {len(datasets_found)} datasets in S3 matching regex")
             for dataset in datasets_found:
@@ -1449,6 +1466,10 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added dataset artifact: name='{dataset_name}', id='{artifact_id}'")
+        except asyncio.TimeoutError:
+            logger.warning(f"Regex search timeout for datasets with pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
+            # Continue processing other artifact types even if one times out
+            datasets_found = []
         except Exception as e:
             logger.error(f"DEBUG: Error searching datasets with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
@@ -1458,8 +1479,11 @@ async def search_artifacts_by_regex(request: Request):
         # Search code artifacts from S3
         logger.info(f"DEBUG: Searching code artifacts in S3 with regex: '{regex_pattern}'")
         try:
-            # Limit results to prevent ReDoS attacks
-            result = list_artifacts_from_s3(artifact_type="code", name_regex=regex_pattern, limit=100)
+            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
+            result = await asyncio.wait_for(
+                asyncio.to_thread(list_artifacts_from_s3, artifact_type="code", name_regex=regex_pattern, limit=100),
+                timeout=REGEX_OPERATION_TIMEOUT
+            )
             code_artifacts_found = result.get("artifacts", [])
             logger.info(f"DEBUG: Found {len(code_artifacts_found)} code artifacts in S3 matching regex")
             for code_artifact in code_artifacts_found:
@@ -1511,6 +1535,10 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added code artifact: name='{code_name}', id='{artifact_id}'")
+        except asyncio.TimeoutError:
+            logger.warning(f"Regex search timeout for code artifacts with pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
+            # Continue processing - return what we found so far
+            code_artifacts_found = []
         except Exception as e:
             logger.error(f"DEBUG: Error searching code artifacts with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
