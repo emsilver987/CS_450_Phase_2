@@ -51,11 +51,11 @@ This document provides a comprehensive risk assessment matrix for all identified
 | **R-006** | Token Use-Count Not Enforced            | Spoofing Identity                         | 2          | 5      | **10**     | 🟡 Medium   | ⚠️ Partial       | `consume_token_use()` exists but only called in `/auth/me`  |
 | **R-007** | Security Headers Missing                | Information Disclosure                    | 3          | 3      | **9**      | 🟡 Medium   | ✅ **Mitigated** | Security headers middleware implemented                     |
 | **R-008** | S3 Versioning Missing                   | Tampering                                 | 2          | 4      | **8**      | 🟡 Medium   | ❌ Not Mitigated | Enable S3 versioning in Terraform                           |
-| **R-009** | CloudTrail Not Explicitly Configured    | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ❌ Not Mitigated | Add explicit CloudTrail trail in Terraform                  |
+| **R-009** | CloudTrail Not Explicitly Configured    | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ✅ **Mitigated** | CloudTrail trail configured in monitoring module            |
 | **R-010** | CloudWatch Alarms Missing               | Denial of Service                         | 2          | 3      | **6**      | 🟡 Medium   | ✅ **Mitigated** | CloudWatch alarms configured in monitoring module           |
 | **R-011** | Upload Event Logging Missing            | Repudiation                               | 2          | 3      | **6**      | 🟡 Medium   | ⚠️ Partial       | Upload event logging function exists but needs verification |
 | **R-012** | AWS Config Not Configured               | Information Disclosure                    | 2          | 2      | **4**      | 🟢 Low      | ✅ **Mitigated** | AWS Config configured in config module                      |
-| **R-013** | Log Archiving Missing                   | Repudiation                               | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add S3 lifecycle policy for Glacier archiving               |
+| **R-013** | Log Archiving Missing                   | Repudiation                               | 1          | 2      | **2**      | 🟢 Low      | ✅ **Mitigated** | S3 Glacier lifecycle policy configured for CloudTrail logs  |
 | **R-014** | Validator Script Integrity Verification | Tampering                                 | 1          | 2      | **2**      | 🟢 Low      | ❌ Not Mitigated | Add checksums for validator scripts                         |
 
 ---
@@ -216,13 +216,15 @@ d
 - **Description:** Relies on AWS account-level CloudTrail defaults, may not capture all events or be configured optimally
 - **Attack Vector:** Audit trail gaps, incomplete forensics
 - **Business Impact:** Compliance issues, incomplete audit trail
-- **Current State:** No CloudTrail resource found in `infra/modules/monitoring/main.tf`. Plan output shows it's planned but not in actual code.
-- **Mitigation Plan:**
-  1. Create explicit CloudTrail trail in Terraform (`infra/modules/monitoring/main.tf`)
-  2. Configure S3 bucket for log storage
-  3. Enable log file validation
-  4. Configure log retention and Glacier archiving
-- **Note:** Terraform plan output shows CloudTrail is planned but resource doesn't exist in actual code
+- **Status:** ✅ **Mitigated**
+- **Mitigation Implemented:**
+  1. ✅ CloudTrail trail configured as `aws_cloudtrail.audit_trail` in `infra/modules/monitoring/main.tf`
+  2. ✅ Multi-region trail enabled for global coverage
+  3. ✅ S3 and DynamoDB data event logging configured
+  4. ✅ KMS encryption enabled for log files
+  5. ✅ Log file validation enabled
+  6. ✅ Dedicated S3 bucket with lifecycle management
+- **Implementation:** CloudTrail trail (`aws_cloudtrail.audit_trail`) configured in `infra/modules/monitoring/main.tf` with multi-region support, data event logging, and KMS encryption
 - **Testability:** Yes (configuration review, CloudTrail log verification)
 - **Priority:** P2 - Medium
 
@@ -284,12 +286,13 @@ d
 - **Description:** Logs may be deleted before compliance retention period
 - **Attack Vector:** Log retention policy violations
 - **Business Impact:** Compliance requirement gaps
-- **Current State:** No S3 lifecycle policy for Glacier archiving
-- **Mitigation Plan:**
-  1. Create S3 lifecycle policy
-  2. Configure Glacier transition (e.g., after 90 days)
-  3. Document retention policy
-  4. Test archiving process
+- **Status:** ✅ **Mitigated**
+- **Mitigation Implemented:**
+  1. ✅ S3 lifecycle policy configured on CloudTrail logs bucket
+  2. ✅ Logs transition to Glacier storage class after 90 days
+  3. ✅ Noncurrent versions also transitioned to Glacier after 90 days
+  4. ✅ Cost-optimized long-term retention
+- **Implementation:** S3 lifecycle configuration (`aws_s3_bucket_lifecycle_configuration.cloudtrail_logs`) in `infra/modules/monitoring/main.tf` transitions CloudTrail logs to Glacier after 90 days
 - **Testability:** Yes (configuration review, archiving test)
 - **Priority:** P3 - Low
 
@@ -316,9 +319,10 @@ d
 | ----------- | ------ | ---------- | ----------------------------------- |
 | 🔴 Critical | 1      | 7.1%       | ❌ 0% mitigated                     |
 | 🟠 High     | 4      | 28.6%      | ⚠️ 25% partially mitigated          |
-| 🟡 Medium   | 6      | 42.9%      | ✅ 33% mitigated, ⚠️ 17% partial    |
-| 🟢 Low      | 3      | 21.4%      | ✅ 33% mitigated                    |
-| **Total**   | **14** | **100%**   | **✅ 21% mitigated, ⚠️ 7% partial** |
+| 🟡 Medium   | 6      | 42.9%      | ✅ 50% mitigated, ⚠️ 33% partial    |
+| 🟢 Low      | 3      | 21.4%      | ✅ 67% mitigated                    |
+| **Total**   | **14** | **100%**   | **✅ 36% mitigated, ⚠️ 21% partial** |
+
 
 ---
 
@@ -337,14 +341,14 @@ d
 - [ ] R-006: Implement token use-count OR update documentation
 - [x] R-007: Add security headers middleware ✅ **COMPLETED**
 - [ ] R-008: Enable S3 versioning
-- [ ] R-009: Configure explicit CloudTrail trail
+- [x] R-009: Configure explicit CloudTrail trail ✅ **COMPLETED**
 - [x] R-010: Add CloudWatch alarms ✅ **COMPLETED**
 - [ ] R-011: Verify upload event logging implementation
 
 ### Phase 3: Low Risks (Week 5+)
 
 - [x] R-012: Configure AWS Config ✅ **COMPLETED**
-- [ ] R-013: Add log archiving to Glacier
+- [x] R-013: Add log archiving to Glacier ✅ **COMPLETED**
 - [ ] R-014: Add validator script integrity verification
 
 ---

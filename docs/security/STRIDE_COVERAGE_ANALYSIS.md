@@ -92,16 +92,20 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 | Mitigation             | Status             | Notes                                                                                                                                          |
 | ---------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| CloudTrail             | ✅ **Implemented** | `aws_cloudtrail` resource configured in `infra/modules/monitoring/main.tf` with multi-region support, S3/DynamoDB data events, KMS encryption. |
+| CloudTrail             | ✅ **Implemented** | `aws_cloudtrail.audit_trail` configured in `infra/modules/monitoring/main.tf` with multi-region support, S3/DynamoDB data events, KMS encryption. |
 | CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase.                                                                                                         |
 | Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB.                                                                                                       |
+
 | Upload Event Logging   | ✅ **Implemented** | `log_upload_event()` implemented.                                                                                                              |
 | User Attribution       | ✅ **Implemented** | `LoggingMiddleware` updated to extract and log `user_id` from JWT (REC-06).                                                                    |
-| S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs stored in dedicated S3 bucket with lifecycle policy (transition to Glacier after 90 days).                                     |
+| S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs stored in dedicated S3 bucket (`aws_s3_bucket.cloudtrail_logs`) with lifecycle policy transitioning to Glacier after 90 days (configured in `infra/modules/monitoring/main.tf`). |
 
 ### Recent Fixes:
 
 1.  **REC-06 (User Attribution):** `LoggingMiddleware` in `src/index.py` now extracts `user_id` from the JWT token (if present) and includes it in log messages, improving auditability.
+2.  **CloudTrail Audit Logging:** Explicitly configured AWS CloudTrail trail (`aws_cloudtrail.audit_trail`) with multi-region support, S3 and DynamoDB data event logging, KMS encryption, log file validation, and dedicated S3 bucket with lifecycle management in `infra/modules/monitoring/main.tf`.
+3.  **S3 Glacier Archiving:** Lifecycle policy configured on CloudTrail logs bucket to transition logs to Glacier storage class after 90 days for cost optimization while maintaining compliance retention requirements.
+
 
 ---
 
@@ -209,7 +213,8 @@ All critical and high-priority recommendations from the original SECURITY_REPORT
 - ✅ **REC-06 (User Attribution):** Enhanced audit logging with user IDs
 - ✅ **SSE-KMS Encryption:** S3 buckets use customer-managed KMS keys
 - ✅ **S3 Versioning:** Enabled for tamper detection
-- ✅ **CloudTrail Audit Logging:** Multi-region trail with data event logging
+- ✅ **CloudTrail Audit Logging:** Multi-region trail with data event logging, KMS encryption, log file validation
+- ✅ **S3 Glacier Archiving:** Lifecycle policy for CloudTrail logs (Glacier transition after 90 days)
 - ✅ **SHA-256 Hash Verification:** Package integrity verification
 - ✅ **JWT Secret via Secrets Manager:** Production-mode enforcement with KMS encryption
 

@@ -207,4 +207,175 @@ output "dashboard_url" {
   value = "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main_dashboard.dashboard_name}"
 }
 
+# ============================================================================
+# CloudTrail Audit Logging Configuration
+# ============================================================================
+
+# Get current AWS account ID and caller identity
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# S3 Bucket for CloudTrail logs
+resource "aws_s3_bucket" "cloudtrail_logs" {
+  bucket = "${var.artifacts_bucket}-cloudtrail-logs-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name        = "cloudtrail-logs"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+    Purpose     = "CloudTrail audit log storage"
+  }
+}
+
+# Enable versioning on CloudTrail logs bucket
+resource "aws_s3_bucket_versioning" "cloudtrail_logs" {
+  bucket = aws_s3_bucket.cloudtrail_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Block public access for CloudTrail logs bucket
+resource "aws_s3_bucket_public_access_block" "cloudtrail_logs" {
+  bucket = aws_s3_bucket.cloudtrail_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Enable SSE-KMS encryption for CloudTrail logs bucket
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail_logs" {
+  bucket = aws_s3_bucket.cloudtrail_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.main_key.arn
+    }
+    bucket_key_enabled = true
+  }
+}
+
+# Lifecycle policy for CloudTrail logs - transition to Glacier after 90 days
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_logs" {
+  bucket = aws_s3_bucket.cloudtrail_logs.id
+
+  rule {
+    id     = "archive-cloudtrail-logs"
+    status = "Enabled"
+
+    transition {
+      days          = 90
+      storage_class = "GLACIER"
+    }
+
+    noncurrent_version_transition {
+      noncurrent_days = 90
+      storage_class   = "GLACIER"
+    }
+  }
+}
+
+# S3 bucket policy for CloudTrail
+resource "aws_s3_bucket_policy" "cloudtrail_logs" {
+  bucket = aws_s3_bucket.cloudtrail_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AWSCloudTrailAclCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.cloudtrail_logs.arn
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = "arn:aws:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/acme-audit-trail"
+          }
+        }
+      },
+      {
+        Sid    = "AWSCloudTrailWrite"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.cloudtrail_logs.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl"  = "bucket-owner-full-control"
+            "AWS:SourceArn" = "arn:aws:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/acme-audit-trail"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# CloudTrail Trail
+resource "aws_cloudtrail" "audit_trail" {
+  name                          = "acme-audit-trail"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail_logs.id
+  include_global_service_events = true
+  is_multi_region_trail         = true
+  enable_logging                = true
+  enable_log_file_validation    = true
+  kms_key_id                    = aws_kms_key.main_key.arn
+
+  # S3 data events for artifacts bucket
+  event_selector {
+    read_write_type           = "All"
+    include_management_events = true
+
+    data_resource {
+      type   = "AWS::S3::Object"
+      values = ["arn:aws:s3:::${var.artifacts_bucket}/*"]
+    }
+  }
+
+  # DynamoDB data events for all tables
+  event_selector {
+    read_write_type           = "All"
+    include_management_events = true
+
+    data_resource {
+      type   = "AWS::DynamoDB::Table"
+      values = values(var.ddb_tables_arnmap)
+    }
+  }
+
+  tags = {
+    Name        = "acme-audit-trail"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+    Purpose     = "Multi-region audit trail with data event logging"
+  }
+
+  depends_on = [
+    aws_s3_bucket_policy.cloudtrail_logs
+  ]
+}
+
+output "cloudtrail_trail_arn" {
+  description = "ARN of the CloudTrail audit trail"
+  value       = aws_cloudtrail.audit_trail.arn
+}
+
+output "cloudtrail_logs_bucket" {
+  description = "Name of the S3 bucket storing CloudTrail logs"
+  value       = aws_s3_bucket.cloudtrail_logs.id
+}
+
+output "cloudtrail_logs_bucket_arn" {
+  description = "ARN of the S3 bucket storing CloudTrail logs"
+  value       = aws_s3_bucket.cloudtrail_logs.arn
+}
+
 
