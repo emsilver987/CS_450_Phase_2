@@ -2,32 +2,25 @@
 
 ## Issues and Solutions
 
-### 1. KMS Key Deletion - AccessDeniedException
+### 1. KMS Key Policy Update - AccessDeniedException
 
-**Issue**: `deleting KMS Key: AccessDeniedException`
+**Issue**: `updating KMS Key policy: AccessDeniedException`
 
-**Solution**: Attach the KMS admin policy to your IAM user/role:
-
-```bash
-# Get your current IAM user
-aws sts get-caller-identity
-
-# Attach the policy (replace USER_NAME with your IAM user)
-aws iam attach-user-policy \
-  --user-name USER_NAME \
-  --policy-arn $(terraform output -raw kms_admin_policy_arn)
-```
+**Solution**: Removed inline policy from KMS key resource and added `lifecycle { ignore_changes = [policy] }` to prevent Terraform from updating the policy. KMS key policy should be managed manually or through IAM, not Terraform.
 
 ### 2. S3 Access Point - 409 Conflict
 
 **Issue**: `Error creating S3 Access Point: StatusCode: 409`
 
-**Solution**: Already fixed with `ignore_changes = [name]` in `modules/s3/main.tf`
-
-If still failing, import the existing access point:
+**Solution**: Import the existing access point:
 
 ```bash
 cd infra/envs/dev
+./import-s3-access-point.sh
+```
+
+Or manually:
+```bash
 terraform import module.s3.aws_s3_access_point.main pkg-artifacts:cs450-s3
 ```
 
