@@ -9,6 +9,12 @@ variable "aws_region" {
   description = "AWS region"
 }
 
+variable "web_acl_id" {
+  type        = string
+  description = "WAF Web ACL ID to associate with CloudFront (optional)"
+  default     = ""
+}
+
 # CloudFront Distribution
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
@@ -243,6 +249,9 @@ resource "aws_cloudfront_distribution" "main" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
+
+  # Associate WAF Web ACL if provided
+  web_acl_id = var.web_acl_id != "" ? var.web_acl_id : null
 
   tags = {
     Name        = "acme-registry-cloudfront"

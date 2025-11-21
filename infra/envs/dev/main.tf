@@ -20,6 +20,12 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Provider for us-east-1 (required for WAF with CloudFront)
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 locals {
   artifacts_bucket = "pkg-artifacts"
 }
@@ -59,11 +65,23 @@ module "monitoring" {
   validator_service_url = module.ecs.validator_service_url
 }
 
+# WAF Module - Must be created in us-east-1 for CloudFront
+module "waf" {
+  source      = "../../modules/waf"
+  environment = "dev"
+  rate_limit  = 2000
+
+  providers = {
+    aws = aws.us_east_1
+  }
+}
+
 # Extract ALB DNS name from the validator service URL (e.g., "http://validator-lb-xxx.elb.amazonaws.com" -> "validator-lb-xxx.elb.amazonaws.com")
 module "cloudfront" {
   source       = "../../modules/cloudfront"
   alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
   aws_region   = var.aws_region
+  web_acl_id   = module.waf.web_acl_arn  # CloudFront requires ARN, not ID
 }
 
 # API Gateway module - provides REST API endpoints and throttling
