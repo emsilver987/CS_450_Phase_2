@@ -155,7 +155,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 | ECS Resource Limits    | ✅ **Implemented** | CPU/memory limits in ECS config.                                                                                                             |
 | Streaming Uploads      | ✅ **Implemented** | `upload_model` and endpoints updated to use `BinaryIO` streams (REC-03).                                                                     |
 | ReDoS Protection       | ✅ **Implemented** | Timeout mitigation (5s) using `asyncio.wait_for()` and `asyncio.to_thread()` for `/artifact/byRegEx`. Pattern-based detection also in place. |
-| API Gateway Throttling | ❌ **Not Found**   | No `aws_api_gateway_method_settings` resource found.                                                                                         |
+| API Gateway Throttling | ✅ **Implemented** | `aws_api_gateway_method_settings` configured with 100 req/s rate limit and 200 burst limit per client.                                       |
 | AWS WAF                | ❌ **Not Found**   | No WAF configuration found.                                                                                                                  |
 
 ### Recent Fixes:
@@ -192,7 +192,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 
 1.  ~~**Re-implement ReDoS Protection (REC-04):**~~ ✅ **COMPLETED** - Implemented using `asyncio.wait_for()` and `asyncio.to_thread()` to run blocking regex operations in a thread pool with a 5-second timeout. This provides async-safe timeout protection without blocking the event loop.
 2.  **Deploy AWS WAF:** Configure AWS WAF for additional DDoS protection and application-layer security (rate limiting, IP filtering, etc.).
-3.  **Configure API Gateway Throttling:** Add `aws_api_gateway_method_settings` resource to enforce per-client rate limits at the API Gateway level.
+3.  ~~**Configure API Gateway Throttling:**~~ ✅ **COMPLETED** - Added `aws_api_gateway_method_settings` resource with 100 req/s rate limit and 200 burst limit per client to enforce per-client rate limits at the API Gateway level.
 
 ### Medium Priority
 
