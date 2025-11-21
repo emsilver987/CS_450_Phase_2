@@ -66,6 +66,7 @@ from .services.license_compatibility import (
     extract_github_license,
     check_license_compatibility,
 )
+from .services.validator_service import log_upload_event
 
 # bearer = HTTPBearer(auto_error=True)  # Unused - removed to prevent any accidental security enforcement
 logging.basicConfig(level=logging.INFO)
@@ -355,6 +356,46 @@ def verify_auth_token(request: Request) -> bool:
     except Exception as e:
         logger.warning(f"DEBUG: Exception during JWT verification: {str(e)}")
         return False
+
+
+def get_user_id_from_request(request: Request) -> str:
+    """
+    Extract user_id from JWT token in request headers for audit logging.
+    Returns 'unknown' if token cannot be decoded.
+    """
+    raw = (
+        request.headers.get("x-authorization")
+        or request.headers.get("authorization")
+        or ""
+    )
+    raw = raw.strip()
+
+    if not raw:
+        return "unknown"
+
+    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+
+    if not token:
+        return "unknown"
+
+    # Check if this is the static token
+    from .services.auth_public import STATIC_TOKEN
+    if token == STATIC_TOKEN:
+        return "autograder"
+
+    # Try to decode JWT to extract user_id
+    try:
+        decoded_token = verify_jwt_token(token)
+        if decoded_token:
+            return decoded_token.get('user_id', decoded_token.get('username', 'unknown'))
+    except Exception:
+        pass
+    
+    return "unknown"
 
 
 @app.get("/health")
@@ -2168,6 +2209,20 @@ async def post_artifact_ingest(request: Request):
                     logger.info(f"DEBUG: Verified artifact exists in database: id='{artifact_id}'")
                 else:
                     logger.warning(f"DEBUG: ⚠️ Could not verify artifact in database after save")
+                
+                # Log upload event for non-repudiation
+                user_id = get_user_id_from_request(request)
+                log_upload_event(
+                    artifact_name=name,
+                    artifact_type=artifact_type,
+                    artifact_id=artifact_id,
+                    user_id=user_id,
+                    version=version,
+                    status="success",
+                    url=url,
+                    reason="Ingest successful",
+                )
+                
                 return result
             except HTTPException:
                 raise
@@ -2202,6 +2257,19 @@ async def post_artifact_ingest(request: Request):
                 logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                 # Don't fail ingestion if S3 metadata storage fails
             
+            # Log upload event for non-repudiation
+            user_id = get_user_id_from_request(request)
+            log_upload_event(
+                artifact_name=name,
+                artifact_type=artifact_type,
+                artifact_id=artifact_id,
+                user_id=user_id,
+                version=version,
+                status="success",
+                url=url,
+                reason="Ingest successful",
+            )
+
             return {
                 "message": "Ingest successful",
                 "details": {
@@ -2240,6 +2308,7 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
             status_code=400,
             detail=f"Invalid artifact_type: {artifact_type}. Must be one of: model, dataset, code",
         )
+
     
     try:
         # Parse JSON body (required by spec - ArtifactData)
@@ -2424,6 +2493,21 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                     logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                     # Don't fail ingestion if S3 metadata storage fails
                 
+                # Log upload event for non-repudiation
+                user_id = get_user_id_from_request(request)
+                log_upload_event(
+                    artifact_name=artifact_name,
+                    artifact_type=artifact_type,
+                    artifact_id=artifact_id,
+                    user_id=user_id,
+                    version=version,
+                    status="success",
+                    url=url,
+                    reason="Model uploaded and ingested successfully"
+                )
+                
+
+                
                 # Per spec: Return 202 when rating is deferred (async)
                 # "Artifact ingest accepted but the rating pipeline deferred the evaluation"
                 return Response(
@@ -2470,6 +2554,19 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                 except Exception as s3_error:
                     logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                     # Don't fail ingestion if S3 metadata storage fails
+                
+                # Log upload event for non-repudiation
+                user_id = get_user_id_from_request(request)
+                log_upload_event(
+                    artifact_name=model_id,
+                    artifact_type=artifact_type,
+                    artifact_id=artifact_id,
+                    user_id=user_id,
+                    version=version,
+                    status="success",
+                    url=url,
+                    reason="Model registered successfully"
+                )
                 
                 return Response(
                     content=json.dumps(
@@ -2551,6 +2648,19 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                 logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                 # Don't fail ingestion if S3 metadata storage fails
             
+            # Log upload event for non-repudiation
+            user_id = get_user_id_from_request(request)
+            log_upload_event(
+                artifact_name=artifact_name,
+                artifact_type=artifact_type,
+                artifact_id=artifact_id,
+                user_id=user_id,
+                version=version,
+                status="success",
+                url=url,
+                reason=f"{artifact_type.capitalize()} registered successfully"
+            )
+
             return Response(
                 content=json.dumps(
                     {

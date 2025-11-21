@@ -192,6 +192,43 @@ def log_download_event(
         logging.error(f"Error logging download event: {e}")
 
 
+def log_upload_event(
+    artifact_name: str,
+    artifact_type: str,
+    artifact_id: str,
+    user_id: str,
+    version: str,
+    status: str,
+    url: str = None,
+    reason: str = None,
+):
+    """Log upload event to DynamoDB for non-repudiation"""
+    try:
+        table = dynamodb.Table(DOWNLOADS_TABLE)  # Reuse downloads table for all events
+        event_id = (
+            f"{user_id}_{artifact_type}_{artifact_name}_{datetime.now(timezone.utc).isoformat()}"
+        )
+
+        item = {
+            "event_id": event_id,
+            "event_type": "upload",
+            "artifact_name": artifact_name,
+            "artifact_type": artifact_type,
+            "artifact_id": artifact_id,
+            "version": version,
+            "user_id": user_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": status,
+            "url": url or "",
+            "reason": reason or "",
+        }
+
+        table.put_item(Item=item)
+        logging.info(f"Logged upload event: {artifact_type}/{artifact_name} by {user_id} - {status}")
+    except Exception as e:
+        logging.error(f"Error logging upload event: {e}")
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""

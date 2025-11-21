@@ -96,7 +96,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 | CloudWatch Logging     | ✅ **Implemented** | Extensive logging throughout codebase.                                                                                                         |
 | Download Event Logging | ✅ **Implemented** | `log_download_event()` logs to DynamoDB.                                                                                                       |
 
-| Upload Event Logging   | ✅ **Implemented** | `log_upload_event()` implemented.                                                                                                              |
+| Upload Event Logging   | ✅ **Implemented** | `log_upload_event()` calls added to upload endpoints.                                                                                          |
 | User Attribution       | ✅ **Implemented** | `LoggingMiddleware` updated to extract and log `user_id` from JWT (REC-06).                                                                    |
 | S3 Glacier Archiving   | ✅ **Implemented** | CloudTrail logs stored in dedicated S3 bucket (`aws_s3_bucket.cloudtrail_logs`) with lifecycle policy transitioning to Glacier after 90 days (configured in `infra/modules/monitoring/main.tf`). |
 
@@ -105,6 +105,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 1.  **REC-06 (User Attribution):** `LoggingMiddleware` in `src/index.py` now extracts `user_id` from the JWT token (if present) and includes it in log messages, improving auditability.
 2.  **CloudTrail Audit Logging:** Explicitly configured AWS CloudTrail trail (`aws_cloudtrail.audit_trail`) with multi-region support, S3 and DynamoDB data event logging, KMS encryption, log file validation, and dedicated S3 bucket with lifecycle management in `infra/modules/monitoring/main.tf`.
 3.  **S3 Glacier Archiving:** Lifecycle policy configured on CloudTrail logs bucket to transition logs to Glacier storage class after 90 days for cost optimization while maintaining compliance retention requirements.
+4.  **Upload Event Logging:** Implemented `log_upload_event()` calls in `/artifact/ingest` and `/artifact/{artifact_type}` endpoints to ensure all artifact uploads are logged to DynamoDB for non-repudiation.
 
 
 ---
