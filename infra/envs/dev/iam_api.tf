@@ -54,6 +54,33 @@ data "aws_iam_policy_document" "api_s3_packages_rw" {
       values   = ["aws:kms"]
     }
   }
+
+  # S3 Access Point permissions (required for cs450-s3 access point)
+  statement {
+    sid    = "AccessPointPermissions"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucket"
+    ]
+    resources = [
+      "arn:aws:s3:us-east-1:838693051036:accesspoint/cs450-s3",
+      "arn:aws:s3:us-east-1:838693051036:accesspoint/cs450-s3/*"
+    ]
+  }
+
+  statement {
+    sid    = "GetAccessPoint"
+    effect = "Allow"
+    actions = [
+      "s3:GetAccessPoint"
+    ]
+    resources = [
+      "arn:aws:s3:us-east-1:838693051036:accesspoint/cs450-s3"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "api_s3_packages_rw_managed" {
