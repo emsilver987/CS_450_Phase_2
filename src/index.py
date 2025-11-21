@@ -3,12 +3,12 @@ from pathlib import Path
 import re
 import os
 import json
-import asyncio
 from typing import Dict, Any, Optional
 from starlette.datastructures import UploadFile
 import uvicorn
 import random
 import logging
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -67,7 +67,6 @@ from .services.license_compatibility import (
     extract_github_license,
     check_license_compatibility,
 )
-from .services.validator_service import log_upload_event
 
 # bearer = HTTPBearer(auto_error=True)  # Unused - removed to prevent any accidental security enforcement
 
@@ -94,9 +93,17 @@ def setup_cloudwatch_logging():
         )
         cloudwatch_handler.setLevel(logging.INFO)
         root_logger.addHandler(cloudwatch_handler)
-        logging.info(f"CloudWatch logging configured: log_group={log_group}, region={aws_region}")
+        # Force a test log to verify it works
+        test_logger = logging.getLogger("cloudwatch_test")
+        test_logger.info(f"CloudWatch logging configured: log_group={log_group}, region={aws_region}")
+        print(f"SUCCESS: CloudWatch handler added. Log group: {log_group}, Stream: api", file=sys.stderr)
     except Exception as e:
         # AWS not available - fallback to standard logging
+        # Log to stderr so it appears in ECS container logs
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR: CloudWatch logging failed: {e}", file=sys.stderr)
+        print(f"Traceback: {error_details}", file=sys.stderr)
         logging.warning(f"CloudWatch logging not available: {e}. Using standard logging.")
 
 # Setup logging
@@ -296,6 +303,40 @@ def sanitize_model_id_for_s3(model_id: str) -> str:
     )
 
 
+def generate_download_url(artifact_name: str, artifact_type: str, version: str = "main") -> str:
+    """
+    Generate a download URL for an artifact.
+    For models stored in S3, construct a path-based URL.
+    For other artifacts, use a similar pattern.
+    """
+    # Sanitize name for URL path
+    sanitized_name = sanitize_model_id_for_s3(artifact_name)
+    # Construct download URL (this would typically be a presigned S3 URL or API endpoint)
+    # For now, use a path-based URL that matches the S3 structure
+    if artifact_type == "model":
+        return f"https://s3.amazonaws.com/{ap_arn}/{artifact_type}s/{sanitized_name}/{version}/model.zip"
+    else:
+        return f"https://s3.amazonaws.com/{ap_arn}/{artifact_type}s/{sanitized_name}/{version}/metadata.json"
+
+
+def build_artifact_response(artifact_name: str, artifact_id: str, artifact_type: str, url: str, version: str = "main") -> Dict[str, Any]:
+    """
+    Build a standardized artifact response with metadata, data.url, and data.download_url.
+    """
+    download_url = generate_download_url(artifact_name, artifact_type, version)
+    return {
+        "metadata": {
+            "name": artifact_name,
+            "id": artifact_id,
+            "type": artifact_type,
+        },
+        "data": {
+            "url": url,
+            "download_url": download_url
+        },
+    }
+
+
 def _run_async_rating(artifact_id: str, model_name: str, version: str):
     """
     Run rating asynchronously in background thread.
@@ -433,46 +474,6 @@ def verify_auth_token(request: Request) -> bool:
     except Exception as e:
         logger.warning(f"DEBUG: Exception during JWT verification: {str(e)}")
         return False
-
-
-def get_user_id_from_request(request: Request) -> str:
-    """
-    Extract user_id from JWT token in request headers for audit logging.
-    Returns 'unknown' if token cannot be decoded.
-    """
-    raw = (
-        request.headers.get("x-authorization")
-        or request.headers.get("authorization")
-        or ""
-    )
-    raw = raw.strip()
-
-    if not raw:
-        return "unknown"
-
-    # Normalize: allow "Bearer <token>" or legacy "bearer <token>"
-    if raw.lower().startswith("bearer "):
-        token = raw.split(" ", 1)[1].strip()
-    else:
-        token = raw.strip()
-
-    if not token:
-        return "unknown"
-
-    # Check if this is the static token
-    from .services.auth_public import STATIC_TOKEN
-    if token == STATIC_TOKEN:
-        return "autograder"
-
-    # Try to decode JWT to extract user_id
-    try:
-        decoded_token = verify_jwt_token(token)
-        if decoded_token:
-            return decoded_token.get('user_id', decoded_token.get('username', 'unknown'))
-    except Exception:
-        pass
-    
-    return "unknown"
 
 
 @app.get("/health")
@@ -1467,18 +1468,11 @@ async def search_artifacts_by_regex(request: Request):
         artifacts = []
         seen_artifact_ids = set()
         
-        # Timeout configuration for regex operations (5 seconds to prevent ReDoS)
-        REGEX_OPERATION_TIMEOUT = 5.0
-        
         # Search models from S3 (with reduced limit to prevent ReDoS)
         logger.info(f"DEBUG: Searching models in S3 with regex: '{regex_pattern}'")
         try:
-            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
-            # This mitigates the risk of catastrophic backtracking that could hang the server
-            result = await asyncio.wait_for(
-                asyncio.to_thread(list_models, name_regex=regex_pattern, limit=100),
-                timeout=REGEX_OPERATION_TIMEOUT
-            )
+            # Limit results to prevent excessive processing and ReDoS attacks
+            result = list_models(name_regex=regex_pattern, limit=100)
             models_found = result.get("models", [])
             logger.info(f"DEBUG: Found {len(models_found)} models in S3 matching regex")
             for model in models_found:
@@ -1509,12 +1503,6 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added model artifact: name='{model_name}', id='{artifact_id}'")
-        except asyncio.TimeoutError:
-            logger.warning(f"Regex search timeout for pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
-            raise HTTPException(
-                status_code=408,
-                detail=f"Regex search operation timed out. The pattern may be too complex or cause performance issues. Please use a simpler pattern."
-            )
         except Exception as e:
             logger.error(f"DEBUG: Error searching models with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
@@ -1524,11 +1512,8 @@ async def search_artifacts_by_regex(request: Request):
         # Search datasets from S3
         logger.info(f"DEBUG: Searching datasets in S3 with regex: '{regex_pattern}'")
         try:
-            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
-            result = await asyncio.wait_for(
-                asyncio.to_thread(list_artifacts_from_s3, artifact_type="dataset", name_regex=regex_pattern, limit=100),
-                timeout=REGEX_OPERATION_TIMEOUT
-            )
+            # Limit results to prevent ReDoS attacks
+            result = list_artifacts_from_s3(artifact_type="dataset", name_regex=regex_pattern, limit=100)
             datasets_found = result.get("artifacts", [])
             logger.info(f"DEBUG: Found {len(datasets_found)} datasets in S3 matching regex")
             for dataset in datasets_found:
@@ -1584,10 +1569,6 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added dataset artifact: name='{dataset_name}', id='{artifact_id}'")
-        except asyncio.TimeoutError:
-            logger.warning(f"Regex search timeout for datasets with pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
-            # Continue processing other artifact types even if one times out
-            datasets_found = []
         except Exception as e:
             logger.error(f"DEBUG: Error searching datasets with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
@@ -1597,11 +1578,8 @@ async def search_artifacts_by_regex(request: Request):
         # Search code artifacts from S3
         logger.info(f"DEBUG: Searching code artifacts in S3 with regex: '{regex_pattern}'")
         try:
-            # Run blocking regex operation in thread pool with timeout to prevent ReDoS
-            result = await asyncio.wait_for(
-                asyncio.to_thread(list_artifacts_from_s3, artifact_type="code", name_regex=regex_pattern, limit=100),
-                timeout=REGEX_OPERATION_TIMEOUT
-            )
+            # Limit results to prevent ReDoS attacks
+            result = list_artifacts_from_s3(artifact_type="code", name_regex=regex_pattern, limit=100)
             code_artifacts_found = result.get("artifacts", [])
             logger.info(f"DEBUG: Found {len(code_artifacts_found)} code artifacts in S3 matching regex")
             for code_artifact in code_artifacts_found:
@@ -1653,10 +1631,6 @@ async def search_artifacts_by_regex(request: Request):
                         }
                     )
                     logger.info(f"DEBUG: Added code artifact: name='{code_name}', id='{artifact_id}'")
-        except asyncio.TimeoutError:
-            logger.warning(f"Regex search timeout for code artifacts with pattern '{regex_pattern[:50]}...' after {REGEX_OPERATION_TIMEOUT}s")
-            # Continue processing - return what we found so far
-            code_artifacts_found = []
         except Exception as e:
             logger.error(f"DEBUG: Error searching code artifacts with regex {regex_pattern}: {str(e)}", exc_info=True)
             logger.warning(
@@ -1810,18 +1784,10 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                             raise HTTPException(status_code=404, detail="Artifact does not exist.")
                     
                     logger.info(f"DEBUG: ✅ Artifact type matches 'model', returning immediately")
-                    result = {
-                    "metadata": {
-                        "name": artifact.get("name", id),
-                        "id": id,
-                        "type": artifact_type,
-                    },
-                    "data": {
-                        "url": artifact.get(
-                            "url", f"https://huggingface.co/{artifact.get('name', id)}"
-                        )
-                    },
-                }
+                    artifact_name = artifact.get("name", id)
+                    artifact_url = artifact.get("url", f"https://huggingface.co/{artifact_name}")
+                    artifact_version = artifact.get("version", "main")
+                    result = build_artifact_response(artifact_name, id, artifact_type, artifact_url, artifact_version)
                     logger.info(f"DEBUG: Returning result: {result}")
                     return result
                 else:
@@ -1853,16 +1819,8 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                         "url": s3_metadata.get("url", f"https://huggingface.co/{model_name}")
                     })
                     logger.info(f"DEBUG: ✅ Restored artifact to database: id='{id}'")
-                    result = {
-                        "metadata": {
-                            "name": model_name,
-                            "id": id,
-                            "type": artifact_type,
-                        },
-                        "data": {
-                            "url": s3_metadata.get("url", f"https://huggingface.co/{model_name}")
-                        },
-                    }
+                    model_url = s3_metadata.get("url", f"https://huggingface.co/{model_name}")
+                    result = build_artifact_response(model_name, id, artifact_type, model_url, stored_version)
                     logger.info(f"DEBUG: Returning result from S3: {result}")
                     return result
                 else:
@@ -1952,10 +1910,7 @@ def get_artifact(artifact_type: str, id: str, request: Request):
             # Return model - use actual model name if found, otherwise use ID
             logger.info(f"DEBUG: ✅✅✅ RETURNING MODEL (fallback to name lookup) ✅✅✅")
             logger.info(f"DEBUG: Using model name: '{actual_model_name}', id='{id}', version='{version}'")
-            result = {
-                "metadata": {"name": actual_model_name, "id": id, "type": artifact_type},
-                "data": {"url": f"https://huggingface.co/{actual_model_name}"},
-            }
+            result = build_artifact_response(actual_model_name, id, artifact_type, f"https://huggingface.co/{actual_model_name}", version or "main")
             logger.info(f"DEBUG: Final result: {result}")
             return result
         else:
@@ -1972,16 +1927,8 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                     # S3 verification is optional, not required
                     artifact_name = artifact.get("name", id)
                     artifact_url = artifact.get("url", f"https://example.com/{artifact_type}/{artifact_name}")
-                    result = {
-                    "metadata": {
-                            "name": artifact_name,
-                        "id": id,
-                        "type": artifact_type,
-                    },
-                    "data": {
-                            "url": artifact_url
-                        },
-                    }
+                    artifact_version = artifact.get("version", "main")
+                    result = build_artifact_response(artifact_name, id, artifact_type, artifact_url, artifact_version)
                     logger.info(f"DEBUG: Returning {artifact_type} artifact from database: {result}")
                     return result
                 else:
@@ -2004,16 +1951,8 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                         "url": artifact_url
                     })
                     logger.info(f"DEBUG: Restored {artifact_type} artifact from S3 to database: id='{id}'")
-                    result = {
-                        "metadata": {
-                            "name": artifact_name,
-                            "id": id,
-                            "type": artifact_type,
-                        },
-                        "data": {
-                            "url": artifact_url
-                        },
-                    }
+                    artifact_version = s3_metadata.get("version", "main")
+                    result = build_artifact_response(artifact_name, id, artifact_type, artifact_url, artifact_version)
                     logger.info(f"DEBUG: Returning {artifact_type} artifact from S3: {result}")
                     return result
                 
@@ -2034,24 +1973,16 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                                 # Use the artifact_id from S3 if available, otherwise use the provided id
                                 final_id = s3_artifact_id if s3_artifact_id else id
                                 artifact_url = f"https://example.com/{artifact_type}/{s3_artifact_name}"
+                                artifact_version = s3_artifact.get("version", "main")
                                 # Restore to database for future lookups
                                 save_artifact(final_id, {
                                     "name": s3_artifact_name,
                                     "type": artifact_type,
-                                    "version": s3_artifact.get("version", "main"),
+                                    "version": artifact_version,
                                     "id": final_id,
                                     "url": artifact_url
                                 })
-                                result = {
-                                    "metadata": {
-                                        "name": s3_artifact_name,
-                                        "id": final_id,
-                                        "type": artifact_type,
-                                    },
-                                    "data": {
-                                        "url": artifact_url
-                                    },
-                                }
+                                result = build_artifact_response(s3_artifact_name, final_id, artifact_type, artifact_url, artifact_version)
                                 logger.info(f"DEBUG: Returning {artifact_type} artifact from S3 name lookup: {result}")
                                 return result
                 except Exception as e:
@@ -2069,16 +2000,9 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                     # Also support partial matches for names with special characters
                     if artifact_name == id or artifact_id == id:
                         logger.info(f"DEBUG: Found {artifact_type} by name/ID match: name='{artifact_name}', id='{artifact_id}'")
-                        result = {
-                            "metadata": {
-                                "name": artifact_name,
-                                "id": artifact_id,
-                                "type": artifact_type,
-                            },
-                            "data": {
-                                "url": artifact.get("url", f"https://example.com/{artifact_type}/{artifact_name}")
-                            },
-                        }
+                        artifact_url = artifact.get("url", f"https://example.com/{artifact_type}/{artifact_name}")
+                        artifact_version = artifact.get("version", "main")
+                        result = build_artifact_response(artifact_name, artifact_id, artifact_type, artifact_url, artifact_version)
                         logger.info(f"DEBUG: Returning {artifact_type} artifact from name lookup: {result}")
                         return result
                     # Also try sanitized name matching (for IDs with slashes that match sanitized names)
@@ -2086,16 +2010,9 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                     sanitized_id = sanitize_model_id_for_s3(id)
                     if sanitized_artifact_name == sanitized_id:
                         logger.info(f"DEBUG: Found {artifact_type} by sanitized name match: name='{artifact_name}', id='{artifact_id}'")
-                        result = {
-                            "metadata": {
-                                "name": artifact_name,
-                                "id": artifact_id,
-                                "type": artifact_type,
-                            },
-                            "data": {
-                                "url": artifact.get("url", f"https://example.com/{artifact_type}/{artifact_name}")
-                            },
-                        }
+                        artifact_url = artifact.get("url", f"https://example.com/{artifact_type}/{artifact_name}")
+                        artifact_version = artifact.get("version", "main")
+                        result = build_artifact_response(artifact_name, artifact_id, artifact_type, artifact_url, artifact_version)
                         logger.info(f"DEBUG: Returning {artifact_type} artifact from sanitized name lookup: {result}")
                         return result
             
@@ -2286,20 +2203,6 @@ async def post_artifact_ingest(request: Request):
                     logger.info(f"DEBUG: Verified artifact exists in database: id='{artifact_id}'")
                 else:
                     logger.warning(f"DEBUG: ⚠️ Could not verify artifact in database after save")
-                
-                # Log upload event for non-repudiation
-                user_id = get_user_id_from_request(request)
-                log_upload_event(
-                    artifact_name=name,
-                    artifact_type=artifact_type,
-                    artifact_id=artifact_id,
-                    user_id=user_id,
-                    version=version,
-                    status="success",
-                    url=url,
-                    reason="Ingest successful",
-                )
-                
                 return result
             except HTTPException:
                 raise
@@ -2334,19 +2237,6 @@ async def post_artifact_ingest(request: Request):
                 logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                 # Don't fail ingestion if S3 metadata storage fails
             
-            # Log upload event for non-repudiation
-            user_id = get_user_id_from_request(request)
-            log_upload_event(
-                artifact_name=name,
-                artifact_type=artifact_type,
-                artifact_id=artifact_id,
-                user_id=user_id,
-                version=version,
-                status="success",
-                url=url,
-                reason="Ingest successful",
-            )
-
             return {
                 "message": "Ingest successful",
                 "details": {
@@ -2385,7 +2275,6 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
             status_code=400,
             detail=f"Invalid artifact_type: {artifact_type}. Must be one of: model, dataset, code",
         )
-
     
     try:
         # Parse JSON body (required by spec - ArtifactData)
@@ -2570,20 +2459,8 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                     logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                     # Don't fail ingestion if S3 metadata storage fails
                 
-                # Log upload event for non-repudiation
-                user_id = get_user_id_from_request(request)
-                log_upload_event(
-                    artifact_name=artifact_name,
-                    artifact_type=artifact_type,
-                    artifact_id=artifact_id,
-                    user_id=user_id,
-                    version=version,
-                    status="success",
-                    url=url,
-                    reason="Model uploaded and ingested successfully"
-                )
-                
-
+                # Generate download_url for response
+                download_url = generate_download_url(artifact_name, artifact_type, version)
                 
                 # Per spec: Return 202 when rating is deferred (async)
                 # "Artifact ingest accepted but the rating pipeline deferred the evaluation"
@@ -2595,7 +2472,10 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                                 "id": artifact_id,
                                 "type": artifact_type,
                             },
-                            "data": {"url": url},
+                            "data": {
+                                "url": url,
+                                "download_url": download_url
+                            },
                         }
                     ),
                     media_type="application/json",
@@ -2632,18 +2512,8 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                     logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                     # Don't fail ingestion if S3 metadata storage fails
                 
-                # Log upload event for non-repudiation
-                user_id = get_user_id_from_request(request)
-                log_upload_event(
-                    artifact_name=model_id,
-                    artifact_type=artifact_type,
-                    artifact_id=artifact_id,
-                    user_id=user_id,
-                    version=version,
-                    status="success",
-                    url=url,
-                    reason="Model registered successfully"
-                )
+                # Generate download_url for response
+                download_url = generate_download_url(model_id, artifact_type, version)
                 
                 return Response(
                     content=json.dumps(
@@ -2653,7 +2523,10 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                                 "id": artifact_id,
                                 "type": artifact_type,
                             },
-                            "data": {"url": url},
+                            "data": {
+                                "url": url,
+                                "download_url": download_url
+                            },
                         }
                     ),
                     media_type="application/json",
@@ -2725,19 +2598,9 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                 logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
                 # Don't fail ingestion if S3 metadata storage fails
             
-            # Log upload event for non-repudiation
-            user_id = get_user_id_from_request(request)
-            log_upload_event(
-                artifact_name=artifact_name,
-                artifact_type=artifact_type,
-                artifact_id=artifact_id,
-                user_id=user_id,
-                version=version,
-                status="success",
-                url=url,
-                reason=f"{artifact_type.capitalize()} registered successfully"
-            )
-
+            # Generate download_url for response
+            download_url = generate_download_url(artifact_name, artifact_type, version)
+            
             return Response(
                 content=json.dumps(
                     {
@@ -2746,7 +2609,10 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                             "id": artifact_id,
                             "type": artifact_type,
                         },
-                        "data": {"url": url},
+                        "data": {
+                            "url": url,
+                            "download_url": download_url
+                        },
                     }
                 ),
                 media_type="application/json",
