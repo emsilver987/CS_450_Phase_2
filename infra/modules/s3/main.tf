@@ -1,26 +1,12 @@
-# KMS key ARN is provided as a variable from the monitoring module
-# This ensures proper dependency ordering and avoids circular dependencies
-
 resource "aws_s3_bucket" "artifacts" {
   bucket        = var.artifacts_name
-  force_destroy = false
-}
-
-# Enable S3 versioning to protect against accidental overwrites and enable version recovery
-resource "aws_s3_bucket_versioning" "this" {
-  bucket = aws_s3_bucket.artifacts.id
-  versioning_configuration {
-    status = "Enabled"
-  }
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.artifacts.id
   rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = var.kms_key_arn
-    }
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
   }
 }
 
@@ -33,20 +19,18 @@ resource "aws_s3_access_point" "main" {
     block_public_acls       = true
     block_public_policy     = true
     ignore_public_acls      = true
-    restrict_public_buckets = true
+    restrict_public_buckets  = true
   }
 
   lifecycle {
     # Prevent destruction of access point if bucket is being destroyed
     prevent_destroy = false
-    # Ignore changes to name if the access point already exists
-    ignore_changes = [name]
   }
 }
 
 output "artifacts_bucket" { value = aws_s3_bucket.artifacts.id }
-output "access_point_arn" {
-  value = aws_s3_access_point.main.arn
+output "access_point_arn" { 
+  value = aws_s3_access_point.main.arn 
 }
 
 
