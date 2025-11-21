@@ -75,3 +75,4 @@ output "ecr_repository_url" { value = module.ecs.ecr_repository_url }
 output "cloudfront_url" { value = module.cloudfront.cloudfront_url }
 output "cloudfront_domain_name" { value = module.cloudfront.cloudfront_domain_name }
 output "cloudfront_distribution_id" { value = module.cloudfront.cloudfront_distribution_id }
+output "kms_admin_policy_arn" { value = aws_iam_policy.kms_admin.arn }

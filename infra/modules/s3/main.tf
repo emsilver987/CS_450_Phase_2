@@ -46,6 +46,8 @@ resource "aws_s3_access_point" "main" {
   lifecycle {
     # Prevent destruction of access point if bucket is being destroyed
     prevent_destroy = false
+    # Ignore changes to name if the access point already exists
+    ignore_changes = [name]
   }
 }
 

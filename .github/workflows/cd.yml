@@ -229,6 +229,8 @@ jobs:
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_aws_account_id: 838693051036
+          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: |
           # Import the S3 bucket if it exists and is not in state
           BUCKET_NAME="pkg-artifacts"
@@ -243,6 +245,32 @@ jobs:
             echo "Bucket ${BUCKET_NAME} does not exist, will be created by Terraform"
           fi
 
+      - name: Import existing S3 Access Point
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_aws_account_id: 838693051036
+          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+        run: |
+          # Import the S3 access point if it exists and is not in state
+          ACCESS_POINT_NAME="cs450-s3"
+          ACCESS_POINT_ARN="arn:aws:s3:${AWS_REGION}:838693051036:accesspoint/${ACCESS_POINT_NAME}"
+
+          if terraform state show "module.s3.aws_s3_access_point.main" > /dev/null 2>&1; then
+            echo "S3 access point already in state, skipping import"
+          else
+            # Check if access point exists
+            if aws s3control get-access-point --account-id 838693051036 --name "${ACCESS_POINT_NAME}" > /dev/null 2>&1; then
+              echo "Importing existing S3 access point into state"
+              terraform import -var="aws_region=${{ env.AWS_REGION }}" -var="aws_account_id=${TF_VAR_aws_account_id}" "module.s3.aws_s3_access_point.main" "${ACCESS_POINT_ARN}" || echo "Import failed (access point may not exist or already imported)"
+            else
+              echo "Access point ${ACCESS_POINT_NAME} does not exist, will be created by Terraform"
+            fi
+          fi
+
       - name: Import existing DynamoDB tables
         shell: bash
         working-directory: ${{ env.TF_DIR }}
@@ -250,6 +278,8 @@ jobs:
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_aws_account_id: 838693051036
+          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: |
           # Verify module.ddb exists in configuration
           echo "Verifying module.ddb exists in configuration..."
@@ -318,6 +348,13 @@ jobs:
           remove_from_state "module.monitoring.aws_cloudtrail.audit_trail"
           remove_from_state "module.monitoring.aws_s3_bucket.cloudtrail_logs"
           remove_from_state "module.monitoring.aws_s3_bucket_policy.cloudtrail_logs"
+
+          # Remove old S3 KMS key from state (but don't delete the actual key)
+          # The old key is no longer in the configuration, but we don't want to delete it
+          # Removing from state allows Terraform to stop trying to manage it
+          echo "Removing old S3 KMS key from state (key will remain in AWS)..."
+          remove_from_state "module.s3.aws_kms_key.s3_encryption"
+          remove_from_state "module.s3.aws_kms_alias.s3_encryption"
 
           # Note: S3 bucket is managed as a resource and should stay in state
           # It's imported if it exists, so no need to remove it

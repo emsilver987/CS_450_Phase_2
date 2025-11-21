@@ -7,6 +7,25 @@ resource "aws_kms_key" "main_key" {
   description             = "KMS key for ACME project encryption"
   deletion_window_in_days = 7
 
+  # Root account allows IAM policies to grant permissions
+  # Note: We do NOT grant deletion permissions to GitHub Actions
+  # KMS keys should never be deleted through CI/CD pipelines
+  # If a key needs to be deleted, it should be done manually with proper approval
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::838693051036:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      }
+    ]
+  })
+
   tags = {
     Name        = "acme-main-key"
     Environment = "dev"
