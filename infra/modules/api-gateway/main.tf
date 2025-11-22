@@ -3400,25 +3400,9 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
 }
 
 # CloudWatch Log Group for API Gateway Execution Logs
-# API Gateway automatically creates this with format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
-# We manage it explicitly to ensure it has proper settings (retention, tags)
-# Using hardcoded stage name "prod" to avoid circular dependencies
-resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
-  name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
-  retention_in_days = 7
-
-  tags = {
-    Name        = "acme-api-gateway-execution-logs"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-
-  # Lifecycle: API Gateway auto-creates this log group when execution logging is enabled
-  # If it already exists, we just manage its settings (retention, tags) rather than recreating
-  lifecycle {
-    create_before_destroy = false
-  }
-}
+# API Gateway automatically creates execution log groups with format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
+# when execution logging is enabled via method_settings. We don't need to create it explicitly.
+# The log group will be created automatically when aws_api_gateway_method_settings enables logging.
 
 # API Gateway Stage
 resource "aws_api_gateway_stage" "main_stage" {
@@ -3501,11 +3485,11 @@ resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
     data_trace_enabled = true
   }
 
-  # Ensure execution log group exists and account settings are applied before enabling logging
+  # Ensure account settings are applied before enabling logging
+  # The execution log group will be auto-created by API Gateway when logging is enabled
   depends_on = [
     aws_api_gateway_stage.main_stage,
-    aws_api_gateway_account.api_gateway_account,
-    aws_cloudwatch_log_group.api_gateway_execution_logs
+    aws_api_gateway_account.api_gateway_account
   ]
 }
 
