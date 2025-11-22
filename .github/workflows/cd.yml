@@ -289,19 +289,54 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform apply -auto-approve -lock-timeout=5m tfplan
 
-      - name: Verify CloudWatch log group exists
+      - name: Verify API Gateway CloudWatch log groups exist
         shell: bash
+        working-directory: ${{ env.TF_DIR }}
         run: |
-          echo "Verifying CloudWatch log group /acme-api/application-logs exists..."
+          echo "Getting API Gateway ID from Terraform output..."
+          API_GATEWAY_ID=$(terraform output -raw api_gateway_id 2>/dev/null || echo "")
+          
+          if [ -z "$API_GATEWAY_ID" ]; then
+            echo "WARNING: Could not get API Gateway ID from Terraform output"
+            echo "Attempting to find API Gateway by name..."
+            API_GATEWAY_ID=$(aws apigateway get-rest-apis \
+              --region ${{ env.AWS_REGION }} \
+              --query 'items[?name==`acme-api`].id | [0]' \
+              --output text 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$API_GATEWAY_ID" ] || [ "$API_GATEWAY_ID" == "None" ]; then
+            echo "ERROR: Could not determine API Gateway ID"
+            exit 1
+          fi
+          
+          echo "API Gateway ID: $API_GATEWAY_ID"
+          
+          # Verify access log group
+          echo "Verifying API Gateway access log group /aws/apigateway/acme-api..."
           aws logs describe-log-groups \
-            --log-group-name-prefix "/acme-api/application-logs" \
+            --log-group-name-prefix "/aws/apigateway/acme-api" \
             --region ${{ env.AWS_REGION }} \
-            --query 'logGroups[?logGroupName==`/acme-api/application-logs`]' \
+            --query 'logGroups[?logGroupName==`/aws/apigateway/acme-api`]' \
             --output json | jq -e 'length > 0' || {
-              echo "ERROR: Log group /acme-api/application-logs not found"
+              echo "ERROR: Access log group /aws/apigateway/acme-api not found"
               exit 1
             }
-          echo "✓ CloudWatch log group verified"
+          echo "✓ Access log group verified"
+          
+          # Verify execution log group
+          EXECUTION_LOG_GROUP="API-Gateway-Execution-Logs_${API_GATEWAY_ID}/prod"
+          echo "Verifying API Gateway execution log group ${EXECUTION_LOG_GROUP}..."
+          aws logs describe-log-groups \
+            --log-group-name-prefix "API-Gateway-Execution-Logs_${API_GATEWAY_ID}" \
+            --region ${{ env.AWS_REGION }} \
+            --query "logGroups[?logGroupName==\`${EXECUTION_LOG_GROUP}\`]" \
+            --output json | jq -e 'length > 0' || {
+              echo "ERROR: Execution log group ${EXECUTION_LOG_GROUP} not found"
+              exit 1
+            }
+          echo "✓ Execution log group verified"
+          echo "✓ All API Gateway log groups verified"
 
       - name: Force ECS service update
         shell: bash

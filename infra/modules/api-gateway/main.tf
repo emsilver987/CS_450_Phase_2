@@ -3400,9 +3400,18 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
 }
 
 # CloudWatch Log Group for API Gateway Execution Logs
-# API Gateway automatically creates execution log groups with format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
-# when execution logging is enabled via method_settings. We don't need to create it explicitly.
-# The log group will be created automatically when aws_api_gateway_method_settings enables logging.
+# Execution log groups use format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
+# We create this explicitly to control retention settings and ensure it exists before logging is enabled
+resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
+  name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "acme-api-gateway-execution-logs"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+  }
+}
 
 # API Gateway Stage
 resource "aws_api_gateway_stage" "main_stage" {
@@ -3412,53 +3421,42 @@ resource "aws_api_gateway_stage" "main_stage" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
-    format = jsonencode({
-      # Request identification
-      requestId                = "$context.requestId"
-      requestTime              = "$context.requestTime"
-      requestTimeEpoch         = "$context.requestTimeEpoch"
-      extendedRequestId        = "$context.extendedRequestId"
-      
-      # Client information
-      ip                       = "$context.identity.sourceIp"
-      caller                   = "$context.identity.caller"
-      user                     = "$context.identity.user"
-      userAgent                = "$context.identity.userAgent"
-      userArn                  = "$context.identity.userArn"
-      cognitoIdentityId        = "$context.identity.cognitoIdentityId"
-      
-      # Request details
-      httpMethod               = "$context.httpMethod"
-      resourcePath             = "$context.resourcePath"
-      resourceId               = "$context.resourceId"
-      path                     = "$context.path"
-      protocol                 = "$context.protocol"
-      
-      # Response details
-      status                   = "$context.status"
-      responseLength           = "$context.responseLength"
-      responseLatency          = "$context.responseLatency"
-      integrationLatency       = "$context.integrationLatency"
-      
-      # Integration details
-      integrationRequestId     = "$context.integration.requestId"
-      integrationStatus        = "$context.integration.status"
-      integrationErrorMessage  = "$context.integration.error"
-      integrationErrorMessageString = "$context.integration.error.messageString"
-      integrationErrorStatus   = "$context.integration.status"
-      
-      # Error details
-      errorMessage             = "$context.error.message"
-      errorMessageString       = "$context.error.messageString"
-      errorValidationErrorString = "$context.error.validationErrorString"
-      errorType                = "$context.error.responseType"
-      
-      # Authorizer details
-      authorizerError          = "$context.authorizer.error"
-      authorizerLatency        = "$context.authorizer.latency"
-      authorizerRequestId      = "$context.authorizer.requestId"
-      authorizerStatus         = "$context.authorizer.status"
-    })
+    format = <<EOF
+{
+  "requestId": "$context.requestId",
+  "requestTime": "$context.requestTime",
+  "requestTimeEpoch": $context.requestTimeEpoch,
+  "extendedRequestId": "$context.extendedRequestId",
+  "ip": "$context.identity.sourceIp",
+  "caller": "$context.identity.caller",
+  "user": "$context.identity.user",
+  "userAgent": "$context.identity.userAgent",
+  "userArn": "$context.identity.userArn",
+  "cognitoIdentityId": "$context.identity.cognitoIdentityId",
+  "httpMethod": "$context.httpMethod",
+  "resourcePath": "$context.resourcePath",
+  "resourceId": "$context.resourceId",
+  "path": "$context.path",
+  "protocol": "$context.protocol",
+  "status": $context.status,
+  "responseLength": $context.responseLength,
+  "responseLatency": $context.responseLatency,
+  "integrationLatency": $context.integrationLatency,
+  "integrationRequestId": "$context.integration.requestId",
+  "integrationStatus": "$context.integration.status",
+  "integrationErrorMessage": "$context.integration.error",
+  "integrationErrorMessageString": "$context.integration.error.messageString",
+  "integrationErrorStatus": "$context.integration.status",
+  "errorMessage": "$context.error.message",
+  "errorMessageString": "$context.error.messageString",
+  "errorValidationErrorString": "$context.error.validationErrorString",
+  "errorType": "$context.error.responseType",
+  "authorizerError": "$context.authorizer.error",
+  "authorizerLatency": $context.authorizer.latency,
+  "authorizerRequestId": "$context.authorizer.requestId",
+  "authorizerStatus": "$context.authorizer.status"
+}
+EOF
   }
 
   xray_tracing_enabled = true
@@ -3485,11 +3483,11 @@ resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
     data_trace_enabled = true
   }
 
-  # Ensure account settings are applied before enabling logging
-  # The execution log group will be auto-created by API Gateway when logging is enabled
+  # Ensure account settings and log group exist before enabling logging
   depends_on = [
     aws_api_gateway_stage.main_stage,
-    aws_api_gateway_account.api_gateway_account
+    aws_api_gateway_account.api_gateway_account,
+    aws_cloudwatch_log_group.api_gateway_execution_logs
   ]
 }
 
