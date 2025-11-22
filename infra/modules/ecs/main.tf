@@ -41,6 +41,9 @@ resource "aws_ecs_task_definition" "validator_task" {
   execution_role_arn       = aws_iam_role.ecs_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
+  # Ensure CloudWatch log group exists before creating task definition
+  depends_on = [aws_cloudwatch_log_group.application_api_logs]
+
   container_definitions = jsonencode([{
     name  = "validator-service"
     image = "838693051036.dkr.ecr.us-east-1.amazonaws.com/validator-service:${var.image_tag}"
@@ -102,6 +105,10 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name  = "PYTHON_ENV"
         value = "production"
+      },
+      {
+        name  = "CLOUDWATCH_LOG_GROUP"
+        value = "/acme-api/application-logs"
       }
     ]
 

@@ -289,6 +289,20 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform apply -auto-approve -lock-timeout=5m tfplan
 
+      - name: Verify CloudWatch log group exists
+        shell: bash
+        run: |
+          echo "Verifying CloudWatch log group /acme-api/application-logs exists..."
+          aws logs describe-log-groups \
+            --log-group-name-prefix "/acme-api/application-logs" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'logGroups[?logGroupName==`/acme-api/application-logs`]' \
+            --output json | jq -e 'length > 0' || {
+              echo "ERROR: Log group /acme-api/application-logs not found"
+              exit 1
+            }
+          echo "✓ CloudWatch log group verified"
+
       - name: Force ECS service update
         shell: bash
         run: |
