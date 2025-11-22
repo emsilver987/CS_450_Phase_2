@@ -3402,6 +3402,7 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
 # CloudWatch Log Group for API Gateway Execution Logs
 # Execution log groups use format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
 # We create this explicitly to control retention settings and ensure it exists before logging is enabled
+# Note: If the log group already exists (auto-created by API Gateway), it should be imported into Terraform state
 resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
   name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
   retention_in_days = 7
@@ -3421,42 +3422,7 @@ resource "aws_api_gateway_stage" "main_stage" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
-    format = <<EOF
-{
-  "requestId": "$context.requestId",
-  "requestTime": "$context.requestTime",
-  "requestTimeEpoch": $context.requestTimeEpoch,
-  "extendedRequestId": "$context.extendedRequestId",
-  "ip": "$context.identity.sourceIp",
-  "caller": "$context.identity.caller",
-  "user": "$context.identity.user",
-  "userAgent": "$context.identity.userAgent",
-  "userArn": "$context.identity.userArn",
-  "cognitoIdentityId": "$context.identity.cognitoIdentityId",
-  "httpMethod": "$context.httpMethod",
-  "resourcePath": "$context.resourcePath",
-  "resourceId": "$context.resourceId",
-  "path": "$context.path",
-  "protocol": "$context.protocol",
-  "status": $context.status,
-  "responseLength": $context.responseLength,
-  "responseLatency": $context.responseLatency,
-  "integrationLatency": $context.integrationLatency,
-  "integrationRequestId": "$context.integration.requestId",
-  "integrationStatus": "$context.integration.status",
-  "integrationErrorMessage": "$context.integration.error",
-  "integrationErrorMessageString": "$context.integration.error.messageString",
-  "integrationErrorStatus": "$context.integration.status",
-  "errorMessage": "$context.error.message",
-  "errorMessageString": "$context.error.messageString",
-  "errorValidationErrorString": "$context.error.validationErrorString",
-  "errorType": "$context.error.responseType",
-  "authorizerError": "$context.authorizer.error",
-  "authorizerLatency": $context.authorizer.latency,
-  "authorizerRequestId": "$context.authorizer.requestId",
-  "authorizerStatus": "$context.authorizer.status"
-}
-EOF
+    format         = "{\"requestId\":\"$context.requestId\",\"ip\":\"$context.identity.sourceIp\",\"caller\":\"$context.identity.caller\",\"user\":\"$context.identity.user\",\"userAgent\":\"$context.identity.userAgent\",\"userArn\":\"$context.identity.userArn\",\"requestTime\":\"$context.requestTime\",\"requestTimeEpoch\":$context.requestTimeEpoch,\"extendedRequestId\":\"$context.extendedRequestId\",\"httpMethod\":\"$context.httpMethod\",\"resourcePath\":\"$context.resourcePath\",\"resourceId\":\"$context.resourceId\",\"path\":\"$context.path\",\"protocol\":\"$context.protocol\",\"status\":$context.status,\"responseLength\":$context.responseLength,\"responseLatency\":$context.responseLatency,\"integrationLatency\":$context.integrationLatency,\"integrationRequestId\":\"$context.integration.requestId\",\"integrationStatus\":\"$context.integration.status\",\"integrationErrorMessage\":\"$context.integration.error\",\"integrationErrorMessageString\":\"$context.integration.error.messageString\",\"errorMessage\":\"$context.error.message\",\"errorMessageString\":\"$context.error.messageString\",\"errorValidationErrorString\":\"$context.error.validationErrorString\",\"errorType\":\"$context.error.responseType\",\"authorizerError\":\"$context.authorizer.error\",\"authorizerLatency\":$context.authorizer.latency,\"authorizerRequestId\":\"$context.authorizer.requestId\",\"authorizerStatus\":\"$context.authorizer.status\"}"
   }
 
   xray_tracing_enabled = true

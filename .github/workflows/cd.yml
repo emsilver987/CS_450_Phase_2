@@ -279,6 +279,43 @@ jobs:
           
           echo "Cleanup complete"
 
+      - name: Import existing API Gateway execution log group if it exists
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        run: |
+          echo "Checking if API Gateway execution log group exists..."
+          # Get API Gateway ID
+          API_GATEWAY_ID=$(aws apigateway get-rest-apis \
+            --region ${{ env.AWS_REGION }} \
+            --query 'items[?name==`acme-api`].id | [0]' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$API_GATEWAY_ID" ] || [ "$API_GATEWAY_ID" == "None" ]; then
+            echo "API Gateway not found, skipping import"
+            exit 0
+          fi
+          
+          EXECUTION_LOG_GROUP="API-Gateway-Execution-Logs_${API_GATEWAY_ID}/prod"
+          echo "Checking for execution log group: ${EXECUTION_LOG_GROUP}"
+          
+          # Check if log group exists
+          if aws logs describe-log-groups \
+            --log-group-name-prefix "${EXECUTION_LOG_GROUP}" \
+            --region ${{ env.AWS_REGION }} \
+            --query "logGroups[?logGroupName==\`${EXECUTION_LOG_GROUP}\`]" \
+            --output json | jq -e 'length > 0' >/dev/null 2>&1; then
+            echo "Execution log group exists, importing into Terraform state..."
+            terraform import \
+              -var="aws_region=us-east-1" \
+              -var="artifacts_bucket=pkg-artifacts" \
+              -var="image_tag=${{ steps.build-image.outputs.image_tag }}" \
+              "module.api_gateway.aws_cloudwatch_log_group.api_gateway_execution_logs" \
+              "${EXECUTION_LOG_GROUP}" || echo "Import failed (may already be in state)"
+          else
+            echo "Execution log group does not exist, will be created by Terraform"
+          fi
+
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}
