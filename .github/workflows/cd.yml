@@ -40,12 +40,12 @@ jobs:
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
 
       - name: Ensure Terraform plugin cache dir exists
-        run: mkdir -p $HOME/.terraform.d/plugin-cache
+        run: mkdir -p ~/.terraform.d/plugin-cache
 
       - name: Cache Terraform plugins
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          path: $HOME/.terraform.d/plugin-cache
+          path: ~/.terraform.d/plugin-cache
           key: ${{ runner.os }}-tf-${{ hashFiles('**/*.tf') }}
           restore-keys: |
             ${{ runner.os }}-tf-
@@ -100,101 +100,14 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Ensure Terraform backend bucket exists
-        shell: bash
-        continue-on-error: true
-        run: |
-          BACKEND_BUCKET="pkg-artifacts"
-          if ! aws s3api head-bucket --bucket "${BACKEND_BUCKET}" 2>/dev/null; then
-            echo "Backend bucket ${BACKEND_BUCKET} does not exist. Creating it..."
-            # us-east-1 doesn't use LocationConstraint
-            if [ "${{ env.AWS_REGION }}" = "us-east-1" ]; then
-              aws s3api create-bucket \
-                --bucket "${BACKEND_BUCKET}" \
-                --region "${{ env.AWS_REGION }}" || echo "Bucket may already exist or creation failed"
-            else
-              aws s3api create-bucket \
-                --bucket "${BACKEND_BUCKET}" \
-                --region "${{ env.AWS_REGION }}" \
-                --create-bucket-configuration LocationConstraint="${{ env.AWS_REGION }}" || echo "Bucket may already exist or creation failed"
-            fi
-            
-            # Enable versioning for the backend bucket
-            aws s3api put-bucket-versioning \
-              --bucket "${BACKEND_BUCKET}" \
-              --versioning-configuration Status=Enabled || echo "Failed to enable versioning"
-            
-            # Enable encryption
-            aws s3api put-bucket-encryption \
-              --bucket "${BACKEND_BUCKET}" \
-              --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' || echo "Failed to enable encryption"
-          else
-            echo "Backend bucket ${BACKEND_BUCKET} already exists"
-          fi
-
-      - name: Ensure S3 access point exists
-        shell: bash
-        continue-on-error: true
-        run: |
-          ACCESS_POINT_NAME="cs450-s3"
-          BUCKET_NAME="pkg-artifacts"
-          ACCOUNT_ID="838693051036"
-          
-          # Check if access point exists
-          if ! aws s3control get-access-point \
-            --account-id "${ACCOUNT_ID}" \
-            --name "${ACCESS_POINT_NAME}" \
-            --region "${{ env.AWS_REGION }}" >/dev/null 2>&1; then
-            echo "S3 access point ${ACCESS_POINT_NAME} does not exist. Creating it..."
-            
-            # Create access point
-            aws s3control create-access-point \
-              --account-id "${ACCOUNT_ID}" \
-              --name "${ACCESS_POINT_NAME}" \
-              --bucket "${BUCKET_NAME}" \
-              --region "${{ env.AWS_REGION }}" \
-              --public-access-block-configuration \
-              "BlockPublicAcls=true,BlockPublicPolicy=true,IgnorePublicAcls=true,RestrictPublicBuckets=true" || \
-            echo "Failed to create access point (may already exist or bucket doesn't exist)"
-          else
-            echo "S3 access point ${ACCESS_POINT_NAME} already exists"
-          fi
-
       - name: Terraform init
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         env:
-          TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
         run: |
-          mkdir -p $HOME/.terraform.d/plugin-cache
-          
-          # Try normal init first
-          if terraform init -input=false -lock-timeout=5m 2>&1 | tee /tmp/init-output.log; then
-            echo "Terraform init succeeded"
-          else
-            # Check if it's a checksum mismatch error
-            if grep -q "checksum" /tmp/init-output.log; then
-              echo "Checksum mismatch detected. Attempting to fix..."
-              
-              # Wait for S3 eventual consistency
-              echo "Waiting 20 seconds for S3 eventual consistency..."
-              sleep 20
-              
-              # Try with -reconfigure to force re-initialization
-              echo "Retrying with -reconfigure flag..."
-              terraform init -reconfigure -input=false -lock-timeout=5m || {
-                echo "Init still failed. You may need to manually fix the state checksum."
-                echo "To fix manually, run:"
-                echo "  aws dynamodb scan --table-name terraform-state-lock --region us-east-1"
-                echo "  # Then delete any stale lock entries"
-                exit 1
-              }
-            else
-              echo "Terraform init failed with a different error"
-              cat /tmp/init-output.log
-              exit 1
-            fi
-          fi
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false -lock-timeout=5m
 
       - name: Select or create workspace
         shell: bash
@@ -211,111 +124,6 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
-      - name: Import existing DynamoDB tables
-        shell: bash
-        working-directory: ${{ env.TF_DIR }}
-        continue-on-error: true
-        env:
-          TF_VAR_aws_region: us-east-1
-          TF_VAR_artifacts_bucket: pkg-artifacts
-        run: |
-          # Import existing tables only if not already in state
-          # Check if resource exists in state before importing
-          import_table() {
-            local resource_address=$1
-            local table_name=$2
-            if terraform state show "${resource_address}" >/dev/null 2>&1; then
-              echo "Table ${table_name} already in state, skipping import"
-            else
-              echo "Importing ${table_name}..."
-              terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" "${resource_address}" "${table_name}" || echo "Failed to import ${table_name} (may not exist or already imported)"
-            fi
-          }
-          
-          import_table 'module.ddb.aws_dynamodb_table.this["artifacts"]' artifacts
-          import_table 'module.ddb.aws_dynamodb_table.this["users"]' users
-          import_table 'module.ddb.aws_dynamodb_table.this["uploads"]' uploads
-          import_table 'module.ddb.aws_dynamodb_table.this["tokens"]' tokens
-          import_table 'module.ddb.aws_dynamodb_table.this["packages"]' packages
-          import_table 'module.ddb.aws_dynamodb_table.this["downloads"]' downloads
-
-      - name: Cleanup orphaned Terraform state resources
-        shell: bash
-        working-directory: ${{ env.TF_DIR }}
-        continue-on-error: true
-        run: |
-          echo "Cleaning up orphaned resources from Terraform state..."
-          
-          # Function to safely remove from state
-          remove_from_state() {
-            local resource=$1
-            if terraform state list | grep -q "^${resource}$"; then
-              echo "Removing ${resource} from state..."
-              terraform state rm "${resource}" || echo "Failed to remove ${resource} (may not exist)"
-            else
-              echo "${resource} not in state, skipping"
-            fi
-          }
-          
-          # Remove Config resources
-          echo "Removing Config resources..."
-          remove_from_state "module.config.aws_config_configuration_recorder.config_recorder"
-          remove_from_state "module.config.aws_config_configuration_recorder_status.config_recorder"
-          remove_from_state "module.config.aws_config_delivery_channel.config_delivery"
-          remove_from_state "module.config.aws_iam_role.config_role"
-          remove_from_state "module.config.aws_s3_bucket.config_snapshots"
-          
-          # Remove CloudTrail resources
-          echo "Removing CloudTrail resources..."
-          remove_from_state "module.monitoring.aws_cloudtrail.audit_trail"
-          remove_from_state "module.monitoring.aws_s3_bucket.cloudtrail_logs"
-          remove_from_state "module.monitoring.aws_s3_bucket_policy.cloudtrail_logs"
-          
-          # Remove S3 bucket from state (it's used as Terraform backend, so shouldn't be managed by Terraform)
-          echo "Removing S3 backend bucket from state (bucket is used as Terraform backend)..."
-          remove_from_state "module.s3.aws_s3_bucket.artifacts"
-          remove_from_state "module.s3.aws_s3_bucket_server_side_encryption_configuration.this"
-          remove_from_state "module.s3.aws_s3_bucket_versioning.this"
-          
-          echo "Cleanup complete"
-
-      - name: Import existing API Gateway execution log group if it exists
-        shell: bash
-        working-directory: ${{ env.TF_DIR }}
-        continue-on-error: true
-        run: |
-          echo "Checking if API Gateway execution log group exists..."
-          # Get API Gateway ID
-          API_GATEWAY_ID=$(aws apigateway get-rest-apis \
-            --region ${{ env.AWS_REGION }} \
-            --query 'items[?name==`acme-api`].id | [0]' \
-            --output text 2>/dev/null || echo "")
-          
-          if [ -z "$API_GATEWAY_ID" ] || [ "$API_GATEWAY_ID" == "None" ]; then
-            echo "API Gateway not found, skipping import"
-            exit 0
-          fi
-          
-          EXECUTION_LOG_GROUP="API-Gateway-Execution-Logs_${API_GATEWAY_ID}/prod"
-          echo "Checking for execution log group: ${EXECUTION_LOG_GROUP}"
-          
-          # Check if log group exists
-          if aws logs describe-log-groups \
-            --log-group-name-prefix "${EXECUTION_LOG_GROUP}" \
-            --region ${{ env.AWS_REGION }} \
-            --query "logGroups[?logGroupName==\`${EXECUTION_LOG_GROUP}\`]" \
-            --output json | jq -e 'length > 0' >/dev/null 2>&1; then
-            echo "Execution log group exists, importing into Terraform state..."
-            terraform import \
-              -var="aws_region=us-east-1" \
-              -var="artifacts_bucket=pkg-artifacts" \
-              -var="image_tag=${{ steps.build-image.outputs.image_tag }}" \
-              "module.api_gateway.aws_cloudwatch_log_group.api_gateway_execution_logs" \
-              "${EXECUTION_LOG_GROUP}" || echo "Import failed (may already be in state)"
-          else
-            echo "Execution log group does not exist, will be created by Terraform"
-          fi
-
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}
@@ -325,55 +133,6 @@ jobs:
         shell: bash
         working-directory: ${{ env.TF_DIR }}
         run: terraform apply -auto-approve -lock-timeout=5m tfplan
-
-      - name: Verify API Gateway CloudWatch log groups exist
-        shell: bash
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          echo "Getting API Gateway ID from Terraform output..."
-          API_GATEWAY_ID=$(terraform output -raw api_gateway_id 2>/dev/null || echo "")
-          
-          if [ -z "$API_GATEWAY_ID" ]; then
-            echo "WARNING: Could not get API Gateway ID from Terraform output"
-            echo "Attempting to find API Gateway by name..."
-            API_GATEWAY_ID=$(aws apigateway get-rest-apis \
-              --region ${{ env.AWS_REGION }} \
-              --query 'items[?name==`acme-api`].id | [0]' \
-              --output text 2>/dev/null || echo "")
-          fi
-          
-          if [ -z "$API_GATEWAY_ID" ] || [ "$API_GATEWAY_ID" == "None" ]; then
-            echo "ERROR: Could not determine API Gateway ID"
-            exit 1
-          fi
-          
-          echo "API Gateway ID: $API_GATEWAY_ID"
-          
-          # Verify access log group
-          echo "Verifying API Gateway access log group /aws/apigateway/acme-api..."
-          aws logs describe-log-groups \
-            --log-group-name-prefix "/aws/apigateway/acme-api" \
-            --region ${{ env.AWS_REGION }} \
-            --query 'logGroups[?logGroupName==`/aws/apigateway/acme-api`]' \
-            --output json | jq -e 'length > 0' || {
-              echo "ERROR: Access log group /aws/apigateway/acme-api not found"
-              exit 1
-            }
-          echo "✓ Access log group verified"
-          
-          # Verify execution log group
-          EXECUTION_LOG_GROUP="API-Gateway-Execution-Logs_${API_GATEWAY_ID}/prod"
-          echo "Verifying API Gateway execution log group ${EXECUTION_LOG_GROUP}..."
-          aws logs describe-log-groups \
-            --log-group-name-prefix "API-Gateway-Execution-Logs_${API_GATEWAY_ID}" \
-            --region ${{ env.AWS_REGION }} \
-            --query "logGroups[?logGroupName==\`${EXECUTION_LOG_GROUP}\`]" \
-            --output json | jq -e 'length > 0' || {
-              echo "ERROR: Execution log group ${EXECUTION_LOG_GROUP} not found"
-              exit 1
-            }
-          echo "✓ Execution log group verified"
-          echo "✓ All API Gateway log groups verified"
 
       - name: Force ECS service update
         shell: bash
@@ -398,9 +157,6 @@ jobs:
           MAX_ATTEMPTS=60
           ATTEMPT=0
           SLEEP_INTERVAL=15
-          
-          FAILED_ATTEMPTS=0
-          MAX_FAILED_ATTEMPTS=5  # Fail after 5 consecutive failures (75 seconds)
           
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -447,59 +203,6 @@ jobs:
                 fi
               else
                 echo "No running tasks found yet"
-              fi
-            fi
-            
-            # Check for stopped/failed tasks if no progress after a few attempts
-            if [ "$RUNNING_COUNT" -eq 0 ] && [ "$DESIRED_COUNT" -gt 0 ] && [ $ATTEMPT -ge 3 ]; then
-              STOPPED_TASK=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --desired-status STOPPED --query 'taskArns[0]' --output text)
-              if [ "$STOPPED_TASK" != "None" ] && [ ! -z "$STOPPED_TASK" ]; then
-                STOPPED_REASON=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $STOPPED_TASK --query 'tasks[0].stoppedReason' --output text)
-                EXIT_CODE=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $STOPPED_TASK --query 'tasks[0].containers[0].exitCode' --output text)
-                echo "WARNING: Found stopped task. Reason: $STOPPED_REASON, Exit Code: $EXIT_CODE"
-                
-                if [ "$EXIT_CODE" != "None" ] && [ "$EXIT_CODE" != "0" ]; then
-                  FAILED_ATTEMPTS=$((FAILED_ATTEMPTS + 1))
-                  echo "Task failed (exit code: $EXIT_CODE). Failed attempts: $FAILED_ATTEMPTS/$MAX_FAILED_ATTEMPTS"
-                  
-                  if [ $FAILED_ATTEMPTS -ge $MAX_FAILED_ATTEMPTS ]; then
-                    echo "ERROR: Tasks are consistently failing to start. Checking logs..."
-                    # Get log stream name
-                    LOG_GROUP="/ecs/validator-service"
-                    LOG_STREAM=$(aws logs describe-log-streams \
-                      --log-group-name "$LOG_GROUP" \
-                      --order-by LastEventTime \
-                      --descending \
-                      --max-items 1 \
-                      --query 'logStreams[0].logStreamName' \
-                      --output text 2>/dev/null || echo "N/A")
-                    
-                    if [ "$LOG_STREAM" != "None" ] && [ "$LOG_STREAM" != "N/A" ]; then
-                      echo "Recent logs from $LOG_STREAM:"
-                      aws logs get-log-events \
-                        --log-group-name "$LOG_GROUP" \
-                        --log-stream-name "$LOG_STREAM" \
-                        --limit 50 \
-                        --query 'events[*].message' \
-                        --output text 2>/dev/null || echo "Could not retrieve logs"
-                    fi
-                    
-                    echo "Task details:"
-                    aws ecs describe-tasks \
-                      --cluster $ECS_CLUSTER \
-                      --tasks $STOPPED_TASK \
-                      --query 'tasks[0].{lastStatus:lastStatus,stoppedReason:stoppedReason,containers:containers[*].{name:name,lastStatus:lastStatus,reason:reason,exitCode:exitCode}}' \
-                      --output table
-                    
-                    echo "Service deployment failed: Tasks are failing to start"
-                    exit 1
-                  fi
-                fi
-              fi
-            else
-              # Reset failed attempts if we see progress
-              if [ "$RUNNING_COUNT" -gt 0 ]; then
-                FAILED_ATTEMPTS=0
               fi
             fi
             

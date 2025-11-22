@@ -1,11 +1,11 @@
 variable "artifacts_bucket" { type = string }
 variable "ddb_tables_arnmap" { type = map(string) }
 variable "validator_service_url" { type = string }
-variable "aws_region" {
-  type    = string
+variable "aws_region" { 
+  type    = string 
   default = "us-east-1"
 }
-variable "kms_key_arn" {
+variable "kms_key_arn" { 
   type        = string
   description = "KMS key ARN for S3 encryption"
 }
@@ -74,43 +74,30 @@ resource "aws_api_gateway_integration_response" "root_get_200" {
       message = "ACME Registry API"
       version = "1.0.0"
       endpoints = {
-        health                  = "/health"
-        health_components       = "/health/components"
-        authenticate            = "/authenticate"
-        artifacts               = "/artifacts"
-        reset                   = "/reset"
+        health = "/health"
+        health_components = "/health/components"
+        authenticate = "/authenticate"
+        artifacts = "/artifacts"
+        reset = "/reset"
         artifact_by_type_and_id = "/artifact/{artifact_type}/{id}"
-        artifact_by_type        = "/artifact/{artifact_type}"
-        artifact_by_name        = "/artifact/byName/{name}"
-        artifact_by_regex       = "/artifact/byRegEx"
-        artifact_cost           = "/artifact/{artifact_type}/{id}/cost"
-        artifact_audit          = "/artifact/{artifact_type}/{id}/audit"
-        model_rate              = "/artifact/model/{id}/rate"
-        model_lineage           = "/artifact/model/{id}/lineage"
-        model_license_check     = "/artifact/model/{id}/license-check"
-        model_download          = "/artifact/model/{id}/download"
-        artifact_ingest         = "/artifact/ingest"
-        artifact_directory      = "/artifact/directory"
-        upload                  = "/upload"
-        admin                   = "/admin"
-        directory               = "/directory"
+        artifact_by_type = "/artifact/{artifact_type}"
+        artifact_by_name = "/artifact/byName/{name}"
+        artifact_by_regex = "/artifact/byRegEx"
+        artifact_cost = "/artifact/{artifact_type}/{id}/cost"
+        artifact_audit = "/artifact/{artifact_type}/{id}/audit"
+        model_rate = "/artifact/model/{id}/rate"
+        model_lineage = "/artifact/model/{id}/lineage"
+        model_license_check = "/artifact/model/{id}/license-check"
+        model_download = "/artifact/model/{id}/download"
+        artifact_ingest = "/artifact/ingest"
+        artifact_directory = "/artifact/directory"
+        upload = "/upload"
+        admin = "/admin"
+        directory = "/directory"
       }
     })
   }
 }
-
-# NOTE: The /{proxy+} resource exists in AWS but should be removed
-# as it intercepts requests before specific routes can match.
-# To remove it:
-# 1. Delete it manually from AWS Console, OR
-# 2. Import it: terraform import 'module.api_gateway.aws_api_gateway_resource.proxy[0]' <rest_api_id>/<resource_id>
-# 3. Then Terraform will delete it on next apply
-# resource "aws_api_gateway_resource" "proxy" {
-#   count       = 0  # Set to 0 to remove, or 1 to import then remove
-#   rest_api_id = aws_api_gateway_rest_api.main_api.id
-#   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
-#   path_part   = "{proxy+}"
-# }
 
 resource "aws_api_gateway_resource" "health" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
@@ -128,20 +115,6 @@ resource "aws_api_gateway_resource" "artifacts" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
   path_part   = "artifacts"
-}
-
-# /artifacts/{artifact_type} (plural - matches OpenAPI spec)
-resource "aws_api_gateway_resource" "artifacts_type" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  parent_id   = aws_api_gateway_resource.artifacts.id
-  path_part   = "{artifact_type}"
-}
-
-# /artifacts/{artifact_type}/{id} (plural - matches OpenAPI spec)
-resource "aws_api_gateway_resource" "artifacts_type_id" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  parent_id   = aws_api_gateway_resource.artifacts_type.id
-  path_part   = "{id}"
 }
 
 resource "aws_api_gateway_resource" "reset" {
@@ -166,12 +139,6 @@ resource "aws_api_gateway_resource" "package_id" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_resource.package.id
   path_part   = "{id}"
-}
-
-resource "aws_api_gateway_resource" "package_id_rate" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  parent_id   = aws_api_gateway_resource.package_id.id
-  path_part   = "rate"
 }
 
 resource "aws_api_gateway_resource" "tracks" {
@@ -305,7 +272,7 @@ resource "aws_api_gateway_resource" "artifact_byname" {
 resource "aws_api_gateway_resource" "artifact_byname_name" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_resource.artifact_byname.id
-  path_part   = "{proxy+}"
+  path_part   = "{name+}"
 }
 
 # /artifact/byRegEx
@@ -353,32 +320,6 @@ resource "aws_api_gateway_integration" "health_get" {
   uri                     = "${var.validator_service_url}/health"
 }
 
-# Method responses for GET /health
-resource "aws_api_gateway_method_response" "health_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health.id
-  http_method = aws_api_gateway_method.health_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /health
-resource "aws_api_gateway_integration_response" "health_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.health.id
-  http_method       = aws_api_gateway_method.health_get.http_method
-  status_code       = aws_api_gateway_method_response.health_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.health_get,
-    aws_api_gateway_method_response.health_get_200,
-  ]
-}
-
 # GET /health/components
 resource "aws_api_gateway_method" "health_components_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -387,8 +328,8 @@ resource "aws_api_gateway_method" "health_components_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.querystring.windowMinutes"   = false
-    "method.request.querystring.includeTimeline" = false
+    "method.request.querystring.windowMinutes"    = false
+    "method.request.querystring.includeTimeline"  = false
   }
 }
 
@@ -405,32 +346,6 @@ resource "aws_api_gateway_integration" "health_components_get" {
     "integration.request.querystring.windowMinutes"   = "method.request.querystring.windowMinutes"
     "integration.request.querystring.includeTimeline" = "method.request.querystring.includeTimeline"
   }
-}
-
-# Method responses for GET /health/components
-resource "aws_api_gateway_method_response" "health_components_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health_components.id
-  http_method = aws_api_gateway_method.health_components_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /health/components
-resource "aws_api_gateway_integration_response" "health_components_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.health_components.id
-  http_method       = aws_api_gateway_method.health_components_get.http_method
-  status_code       = aws_api_gateway_method_response.health_components_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.health_components_get,
-    aws_api_gateway_method_response.health_components_get_200,
-  ]
 }
 
 # POST /artifacts
@@ -459,112 +374,6 @@ resource "aws_api_gateway_integration" "artifacts_post" {
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
     "integration.request.querystring.offset"     = "method.request.querystring.offset"
   }
-}
-
-# Method responses for POST /artifacts
-resource "aws_api_gateway_method_response" "artifacts_post_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts.id
-  http_method = aws_api_gateway_method.artifacts_post.http_method
-  status_code = "200"
-
-  response_parameters = {
-    "method.response.header.offset" = true
-  }
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_post_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts.id
-  http_method = aws_api_gateway_method.artifacts_post.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_post_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts.id
-  http_method = aws_api_gateway_method.artifacts_post.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_post_413" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts.id
-  http_method = aws_api_gateway_method.artifacts_post.http_method
-  status_code = "413"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for POST /artifacts
-resource "aws_api_gateway_integration_response" "artifacts_post_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts.id
-  http_method       = aws_api_gateway_method.artifacts_post.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_post_200.status_code
-  selection_pattern = "200"
-
-  response_parameters = {
-    "method.response.header.offset" = "integration.response.header.offset"
-  }
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_post,
-    aws_api_gateway_method_response.artifacts_post_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_post_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts.id
-  http_method       = aws_api_gateway_method.artifacts_post.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_post_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_post,
-    aws_api_gateway_method_response.artifacts_post_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_post_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts.id
-  http_method       = aws_api_gateway_method.artifacts_post.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_post_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_post,
-    aws_api_gateway_method_response.artifacts_post_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_post_413" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts.id
-  http_method       = aws_api_gateway_method.artifacts_post.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_post_413.status_code
-  selection_pattern = "413"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_post,
-    aws_api_gateway_method_response.artifacts_post_413,
-  ]
 }
 
 # DELETE /reset (matches spec)
@@ -605,56 +414,6 @@ resource "aws_api_gateway_integration_response" "reset_delete_200" {
   depends_on = [aws_api_gateway_integration.reset_delete]
 }
 
-# Method responses for DELETE /reset
-resource "aws_api_gateway_method_response" "reset_delete_401" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.reset.id
-  http_method = aws_api_gateway_method.reset_delete.http_method
-  status_code = "401"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "reset_delete_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.reset.id
-  http_method = aws_api_gateway_method.reset_delete.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for DELETE /reset
-resource "aws_api_gateway_integration_response" "reset_delete_401" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.reset.id
-  http_method       = aws_api_gateway_method.reset_delete.http_method
-  status_code       = aws_api_gateway_method_response.reset_delete_401.status_code
-  selection_pattern = "401"
-
-  depends_on = [
-    aws_api_gateway_integration.reset_delete,
-    aws_api_gateway_method_response.reset_delete_401,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "reset_delete_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.reset.id
-  http_method       = aws_api_gateway_method.reset_delete.http_method
-  status_code       = aws_api_gateway_method_response.reset_delete_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.reset_delete,
-    aws_api_gateway_method_response.reset_delete_403,
-  ]
-}
-
 # PUT /authenticate
 resource "aws_api_gateway_method" "authenticate_put" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -673,56 +432,6 @@ resource "aws_api_gateway_integration" "authenticate_put" {
   uri                     = "${var.validator_service_url}/authenticate"
 }
 
-# Method responses for PUT /authenticate
-resource "aws_api_gateway_method_response" "authenticate_put_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.authenticate.id
-  http_method = aws_api_gateway_method.authenticate_put.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "authenticate_put_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.authenticate.id
-  http_method = aws_api_gateway_method.authenticate_put.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for PUT /authenticate
-resource "aws_api_gateway_integration_response" "authenticate_put_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.authenticate.id
-  http_method       = aws_api_gateway_method.authenticate_put.http_method
-  status_code       = aws_api_gateway_method_response.authenticate_put_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.authenticate_put,
-    aws_api_gateway_method_response.authenticate_put_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "authenticate_put_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.authenticate.id
-  http_method       = aws_api_gateway_method.authenticate_put.http_method
-  status_code       = aws_api_gateway_method_response.authenticate_put_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.authenticate_put,
-    aws_api_gateway_method_response.authenticate_put_400,
-  ]
-}
-
 # GET /package/{id}
 resource "aws_api_gateway_method" "package_id_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -731,8 +440,7 @@ resource "aws_api_gateway_method" "package_id_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
+    "method.request.path.id" = true
   }
 }
 
@@ -746,8 +454,7 @@ resource "aws_api_gateway_integration" "package_id_get" {
   uri                     = "${var.validator_service_url}/package/{id}"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.path.id" = "method.request.path.id"
   }
 
   passthrough_behavior = "WHEN_NO_MATCH"
@@ -758,28 +465,6 @@ resource "aws_api_gateway_method_response" "package_id_get_200" {
   resource_id = aws_api_gateway_resource.package_id.id
   http_method = aws_api_gateway_method.package_id_get.http_method
   status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id.id
-  http_method = aws_api_gateway_method.package_id_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id.id
-  http_method = aws_api_gateway_method.package_id_get.http_method
-  status_code = "403"
 
   response_models = {
     "application/json" = "Empty"
@@ -797,23 +482,11 @@ resource "aws_api_gateway_method_response" "package_id_get_404" {
   }
 }
 
-resource "aws_api_gateway_method_response" "package_id_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id.id
-  http_method = aws_api_gateway_method.package_id_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
 resource "aws_api_gateway_integration_response" "package_id_get_200" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.package_id.id
   http_method = aws_api_gateway_method.package_id_get.http_method
   status_code = aws_api_gateway_method_response.package_id_get_200.status_code
-  selection_pattern = "200"
 
   depends_on = [
     aws_api_gateway_integration.package_id_get,
@@ -821,55 +494,16 @@ resource "aws_api_gateway_integration_response" "package_id_get_200" {
   ]
 }
 
-resource "aws_api_gateway_integration_response" "package_id_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_get,
-    aws_api_gateway_method_response.package_id_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_get,
-    aws_api_gateway_method_response.package_id_get_403,
-  ]
-}
-
 resource "aws_api_gateway_integration_response" "package_id_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_404.status_code
-  selection_pattern = "404"
+  rest_api_id        = aws_api_gateway_rest_api.main_api.id
+  resource_id        = aws_api_gateway_resource.package_id.id
+  http_method        = aws_api_gateway_method.package_id_get.http_method
+  status_code        = aws_api_gateway_method_response.package_id_get_404.status_code
+  selection_pattern  = "404"
 
   depends_on = [
     aws_api_gateway_integration.package_id_get,
     aws_api_gateway_method_response.package_id_get_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_get,
-    aws_api_gateway_method_response.package_id_get_500,
   ]
 }
 
@@ -889,56 +523,6 @@ resource "aws_api_gateway_integration" "tracks_get" {
   integration_http_method = "GET"
   type                    = "HTTP_PROXY"
   uri                     = "${var.validator_service_url}/tracks"
-}
-
-# Method responses for GET /tracks
-resource "aws_api_gateway_method_response" "tracks_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.tracks.id
-  http_method = aws_api_gateway_method.tracks_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "tracks_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.tracks.id
-  http_method = aws_api_gateway_method.tracks_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /tracks
-resource "aws_api_gateway_integration_response" "tracks_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.tracks.id
-  http_method       = aws_api_gateway_method.tracks_get.http_method
-  status_code       = aws_api_gateway_method_response.tracks_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.tracks_get,
-    aws_api_gateway_method_response.tracks_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "tracks_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.tracks.id
-  http_method       = aws_api_gateway_method.tracks_get.http_method
-  status_code       = aws_api_gateway_method_response.tracks_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.tracks_get,
-    aws_api_gateway_method_response.tracks_get_500,
-  ]
 }
 
 # GET /admin
@@ -1012,9 +596,9 @@ resource "aws_api_gateway_integration" "upload_post" {
   integration_http_method = "POST"
   type                    = "HTTP_PROXY"
   uri                     = "${var.validator_service_url}/upload"
-
-  content_handling     = "CONVERT_TO_BINARY"
-  passthrough_behavior = "WHEN_NO_MATCH"
+  
+  content_handling       = "CONVERT_TO_BINARY"
+  passthrough_behavior   = "WHEN_NO_MATCH"
 }
 
 # OPTIONS /admin
@@ -1215,537 +799,7 @@ resource "aws_api_gateway_integration" "artifact_type_post" {
   }
 }
 
-# Method responses for POST /artifact/{artifact_type}
-resource "aws_api_gateway_method_response" "artifact_type_post_201" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "201"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_post_202" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "202"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_post_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_post_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_post_409" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "409"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_post_424" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type.id
-  http_method = aws_api_gateway_method.artifact_type_post.http_method
-  status_code = "424"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for POST /artifact/{artifact_type}
-resource "aws_api_gateway_integration_response" "artifact_type_post_201" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_201.status_code
-  selection_pattern = "201"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_201,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_post_202" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_202.status_code
-  selection_pattern = "202"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_202,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_post_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_post_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_post_409" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_409.status_code
-  selection_pattern = "409"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_409,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_post_424" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type.id
-  http_method       = aws_api_gateway_method.artifact_type_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_post_424.status_code
-  selection_pattern = "424"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_method_response.artifact_type_post_424,
-  ]
-}
-
-# GET /artifacts/{artifact_type}/{id} (plural - matches OpenAPI spec)
-resource "aws_api_gateway_method" "artifacts_type_id_get" {
-  rest_api_id   = aws_api_gateway_rest_api.main_api.id
-  resource_id   = aws_api_gateway_resource.artifacts_type_id.id
-  http_method   = "GET"
-  authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.artifact_type"     = true
-    "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
-  }
-}
-
-resource "aws_api_gateway_integration" "artifacts_type_id_get" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_get.http_method
-
-  integration_http_method = "GET"
-  type                    = "HTTP_PROXY"
-  uri                     = "${var.validator_service_url}/artifacts/{artifact_type}/{id}"
-
-  request_parameters = {
-    "integration.request.path.artifact_type"     = "method.request.path.artifact_type"
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
-  }
-}
-
-# PUT /artifacts/{artifact_type}/{id} (plural - matches OpenAPI spec)
-resource "aws_api_gateway_method" "artifacts_type_id_put" {
-  rest_api_id   = aws_api_gateway_rest_api.main_api.id
-  resource_id   = aws_api_gateway_resource.artifacts_type_id.id
-  http_method   = "PUT"
-  authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.artifact_type"     = true
-    "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
-  }
-}
-
-resource "aws_api_gateway_integration" "artifacts_type_id_put" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_put.http_method
-
-  integration_http_method = "PUT"
-  type                    = "HTTP_PROXY"
-  uri                     = "${var.validator_service_url}/artifacts/{artifact_type}/{id}"
-
-  request_parameters = {
-    "integration.request.path.artifact_type"     = "method.request.path.artifact_type"
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
-  }
-}
-
-# Method responses for PUT /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_method_response" "artifacts_type_id_put_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_put_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_put_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_put_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for PUT /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_integration_response" "artifacts_type_id_put_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_put_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_put,
-    aws_api_gateway_method_response.artifacts_type_id_put_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_put_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_put_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_put,
-    aws_api_gateway_method_response.artifacts_type_id_put_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_put_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_put_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_put,
-    aws_api_gateway_method_response.artifacts_type_id_put_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_put_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_put.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_put_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_put,
-    aws_api_gateway_method_response.artifacts_type_id_put_404,
-  ]
-}
-
-# DELETE /artifacts/{artifact_type}/{id} (plural - matches OpenAPI spec)
-resource "aws_api_gateway_method" "artifacts_type_id_delete" {
-  rest_api_id   = aws_api_gateway_rest_api.main_api.id
-  resource_id   = aws_api_gateway_resource.artifacts_type_id.id
-  http_method   = "DELETE"
-  authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.artifact_type"     = true
-    "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
-  }
-}
-
-resource "aws_api_gateway_integration" "artifacts_type_id_delete" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_delete.http_method
-
-  integration_http_method = "DELETE"
-  type                    = "HTTP_PROXY"
-  uri                     = "${var.validator_service_url}/artifacts/{artifact_type}/{id}"
-
-  request_parameters = {
-    "integration.request.path.artifact_type"     = "method.request.path.artifact_type"
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
-  }
-}
-
-# Method responses for DELETE /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_method_response" "artifacts_type_id_delete_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_delete_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_delete_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_delete_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for DELETE /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_integration_response" "artifacts_type_id_delete_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_delete_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_delete,
-    aws_api_gateway_method_response.artifacts_type_id_delete_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_delete_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_delete_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_delete,
-    aws_api_gateway_method_response.artifacts_type_id_delete_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_delete_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_delete_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_delete,
-    aws_api_gateway_method_response.artifacts_type_id_delete_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_delete_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_delete.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_delete_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_delete,
-    aws_api_gateway_method_response.artifacts_type_id_delete_404,
-  ]
-}
-
-# Method responses for GET /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_method_response" "artifacts_type_id_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifacts_type_id_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifacts_type_id.id
-  http_method = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /artifacts/{artifact_type}/{id}
-resource "aws_api_gateway_integration_response" "artifacts_type_id_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_get,
-    aws_api_gateway_method_response.artifacts_type_id_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_get,
-    aws_api_gateway_method_response.artifacts_type_id_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_get,
-    aws_api_gateway_method_response.artifacts_type_id_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifacts_type_id_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifacts_type_id.id
-  http_method       = aws_api_gateway_method.artifacts_type_id_get.http_method
-  status_code       = aws_api_gateway_method_response.artifacts_type_id_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifacts_type_id_get,
-    aws_api_gateway_method_response.artifacts_type_id_get_404,
-  ]
-}
-
-# GET /artifact/{artifact_type}/{id} (singular - also supported by backend)
+# GET /artifacts/{artifact_type}/{id}
 resource "aws_api_gateway_method" "artifact_type_id_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
   resource_id   = aws_api_gateway_resource.artifact_type_id.id
@@ -1765,6 +819,66 @@ resource "aws_api_gateway_integration" "artifact_type_id_get" {
   http_method = aws_api_gateway_method.artifact_type_id_get.http_method
 
   integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/{artifact_type}/{id}"
+
+  request_parameters = {
+    "integration.request.path.artifact_type"     = "method.request.path.artifact_type"
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# PUT /artifacts/{artifact_type}/{id}
+resource "aws_api_gateway_method" "artifact_type_id_put" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_type_id.id
+  http_method   = "PUT"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.artifact_type"     = true
+    "method.request.path.id"                = true
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_type_id_put" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_type_id.id
+  http_method = aws_api_gateway_method.artifact_type_id_put.http_method
+
+  integration_http_method = "PUT"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/{artifact_type}/{id}"
+
+  request_parameters = {
+    "integration.request.path.artifact_type"     = "method.request.path.artifact_type"
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# DELETE /artifacts/{artifact_type}/{id} (matches spec)
+resource "aws_api_gateway_method" "artifact_type_id_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_type_id.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.artifact_type"     = true
+    "method.request.path.id"                = true
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_type_id_delete" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_type_id.id
+  http_method = aws_api_gateway_method.artifact_type_id_delete.http_method
+
+  integration_http_method = "DELETE"
   type                    = "HTTP_PROXY"
   uri                     = "${var.validator_service_url}/artifact/{artifact_type}/{id}"
 
@@ -1807,128 +921,6 @@ resource "aws_api_gateway_integration" "artifact_type_id_cost_get" {
   }
 }
 
-# Method responses for GET /artifact/{artifact_type}/{id}/cost
-resource "aws_api_gateway_method_response" "artifact_type_id_cost_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_cost_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_cost_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_cost_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_cost_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /artifact/{artifact_type}/{id}/cost
-resource "aws_api_gateway_integration_response" "artifact_type_id_cost_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method       = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_cost_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_cost_get,
-    aws_api_gateway_method_response.artifact_type_id_cost_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_cost_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method       = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_cost_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_cost_get,
-    aws_api_gateway_method_response.artifact_type_id_cost_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_cost_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method       = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_cost_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_cost_get,
-    aws_api_gateway_method_response.artifact_type_id_cost_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_cost_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method       = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_cost_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_cost_get,
-    aws_api_gateway_method_response.artifact_type_id_cost_get_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_cost_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_cost.id
-  http_method       = aws_api_gateway_method.artifact_type_id_cost_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_cost_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_cost_get,
-    aws_api_gateway_method_response.artifact_type_id_cost_get_500,
-  ]
-}
-
 # GET /artifact/{artifact_type}/{id}/audit
 resource "aws_api_gateway_method" "artifact_type_id_audit_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -1959,104 +951,6 @@ resource "aws_api_gateway_integration" "artifact_type_id_audit_get" {
   }
 }
 
-# Method responses for GET /artifact/{artifact_type}/{id}/audit
-resource "aws_api_gateway_method_response" "artifact_type_id_audit_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_audit_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_audit_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_type_id_audit_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /artifact/{artifact_type}/{id}/audit
-resource "aws_api_gateway_integration_response" "artifact_type_id_audit_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method       = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_audit_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_audit_get,
-    aws_api_gateway_method_response.artifact_type_id_audit_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_audit_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method       = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_audit_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_audit_get,
-    aws_api_gateway_method_response.artifact_type_id_audit_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_audit_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method       = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_audit_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_audit_get,
-    aws_api_gateway_method_response.artifact_type_id_audit_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_type_id_audit_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_type_id_audit.id
-  http_method       = aws_api_gateway_method.artifact_type_id_audit_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_type_id_audit_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_type_id_audit_get,
-    aws_api_gateway_method_response.artifact_type_id_audit_get_404,
-  ]
-}
-
 # GET /artifact/model/{id}/rate
 resource "aws_api_gateway_method" "artifact_model_id_rate_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -2076,287 +970,13 @@ resource "aws_api_gateway_integration" "artifact_model_id_rate_get" {
   http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
 
   integration_http_method = "GET"
-  type                    = "HTTP"
+  type                    = "HTTP_PROXY"
   uri                     = "${var.validator_service_url}/artifact/model/{id}/rate"
 
   request_parameters = {
     "integration.request.path.id"                = "method.request.path.id"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
-
-  passthrough_behavior = "WHEN_NO_MATCH"
-}
-
-# Method responses for /artifact/model/{id}/rate
-resource "aws_api_gateway_method_response" "artifact_model_id_rate_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_rate_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_rate_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_rate_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_rate_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for /artifact/model/{id}/rate
-resource "aws_api_gateway_integration_response" "artifact_model_id_rate_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code = aws_api_gateway_method_response.artifact_model_id_rate_get_200.status_code
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_method_response.artifact_model_id_rate_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_rate_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method       = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_rate_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_method_response.artifact_model_id_rate_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_rate_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method       = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_rate_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_method_response.artifact_model_id_rate_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_rate_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method       = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_rate_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_method_response.artifact_model_id_rate_get_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_rate_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_rate.id
-  http_method       = aws_api_gateway_method.artifact_model_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_rate_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_method_response.artifact_model_id_rate_get_500,
-  ]
-}
-
-# GET /package/{id}/rate
-resource "aws_api_gateway_method" "package_id_rate_get" {
-  rest_api_id   = aws_api_gateway_rest_api.main_api.id
-  resource_id   = aws_api_gateway_resource.package_id_rate.id
-  http_method   = "GET"
-  authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
-  }
-}
-
-resource "aws_api_gateway_integration" "package_id_rate_get" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-
-  integration_http_method = "GET"
-  type                    = "HTTP"
-  uri                     = "${var.validator_service_url}/package/{id}/rate"
-
-  request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
-  }
-
-  passthrough_behavior = "WHEN_NO_MATCH"
-}
-
-# Method responses for /package/{id}/rate
-resource "aws_api_gateway_method_response" "package_id_rate_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_rate_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_rate_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_rate_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "package_id_rate_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for /package/{id}/rate
-resource "aws_api_gateway_integration_response" "package_id_rate_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.package_id_rate.id
-  http_method = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code = aws_api_gateway_method_response.package_id_rate_get_200.status_code
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_rate_get,
-    aws_api_gateway_method_response.package_id_rate_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_rate_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id_rate.id
-  http_method       = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_rate_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_rate_get,
-    aws_api_gateway_method_response.package_id_rate_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_rate_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id_rate.id
-  http_method       = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_rate_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_rate_get,
-    aws_api_gateway_method_response.package_id_rate_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_rate_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id_rate.id
-  http_method       = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_rate_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_rate_get,
-    aws_api_gateway_method_response.package_id_rate_get_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "package_id_rate_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id_rate.id
-  http_method       = aws_api_gateway_method.package_id_rate_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_rate_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.package_id_rate_get,
-    aws_api_gateway_method_response.package_id_rate_get_500,
-  ]
 }
 
 # GET /artifact/model/{id}/lineage
@@ -2387,104 +1007,6 @@ resource "aws_api_gateway_integration" "artifact_model_id_lineage_get" {
   }
 }
 
-# Method responses for GET /artifact/model/{id}/lineage
-resource "aws_api_gateway_method_response" "artifact_model_id_lineage_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_lineage_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_lineage_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_lineage_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /artifact/model/{id}/lineage
-resource "aws_api_gateway_integration_response" "artifact_model_id_lineage_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method       = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_lineage_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_lineage_get,
-    aws_api_gateway_method_response.artifact_model_id_lineage_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_lineage_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method       = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_lineage_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_lineage_get,
-    aws_api_gateway_method_response.artifact_model_id_lineage_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_lineage_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method       = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_lineage_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_lineage_get,
-    aws_api_gateway_method_response.artifact_model_id_lineage_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_lineage_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_lineage.id
-  http_method       = aws_api_gateway_method.artifact_model_id_lineage_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_lineage_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_lineage_get,
-    aws_api_gateway_method_response.artifact_model_id_lineage_get_404,
-  ]
-}
-
 # POST /artifact/model/{id}/license-check
 resource "aws_api_gateway_method" "artifact_model_id_license_check_post" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -2511,128 +1033,6 @@ resource "aws_api_gateway_integration" "artifact_model_id_license_check_post" {
     "integration.request.path.id"                = "method.request.path.id"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
-}
-
-# Method responses for POST /artifact/model/{id}/license-check
-resource "aws_api_gateway_method_response" "artifact_model_id_license_check_post_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_license_check_post_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_license_check_post_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_license_check_post_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_model_id_license_check_post_502" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code = "502"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for POST /artifact/model/{id}/license-check
-resource "aws_api_gateway_integration_response" "artifact_model_id_license_check_post_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method       = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_license_check_post_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_license_check_post,
-    aws_api_gateway_method_response.artifact_model_id_license_check_post_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_license_check_post_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method       = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_license_check_post_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_license_check_post,
-    aws_api_gateway_method_response.artifact_model_id_license_check_post_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_license_check_post_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method       = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_license_check_post_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_license_check_post,
-    aws_api_gateway_method_response.artifact_model_id_license_check_post_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_license_check_post_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method       = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_license_check_post_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_license_check_post,
-    aws_api_gateway_method_response.artifact_model_id_license_check_post_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_model_id_license_check_post_502" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_model_id_license_check.id
-  http_method       = aws_api_gateway_method.artifact_model_id_license_check_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_model_id_license_check_post_502.status_code
-  selection_pattern = "502"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_model_id_license_check_post,
-    aws_api_gateway_method_response.artifact_model_id_license_check_post_502,
-  ]
 }
 
 # POST /artifact/model/{id}/upload
@@ -2753,7 +1153,7 @@ resource "aws_api_gateway_method" "artifact_byname_name_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.proxy"              = true
+    "method.request.path.name"              = true
     "method.request.header.X-Authorization" = true
   }
 }
@@ -2768,107 +1168,9 @@ resource "aws_api_gateway_integration" "artifact_byname_name_get" {
   uri                     = "${var.validator_service_url}/artifact/byName/{name}"
 
   request_parameters = {
-    "integration.request.path.name"              = "method.request.path.proxy"
+    "integration.request.path.name"              = "method.request.path.name"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
-}
-
-# Method responses for /artifact/byName/{name}
-resource "aws_api_gateway_method_response" "artifact_byname_name_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byname_name.id
-  http_method = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byname_name_get_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byname_name.id
-  http_method = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byname_name_get_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byname_name.id
-  http_method = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byname_name_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byname_name.id
-  http_method = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for /artifact/byName/{name}
-resource "aws_api_gateway_integration_response" "artifact_byname_name_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byname_name.id
-  http_method       = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byname_name_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byname_name_get,
-    aws_api_gateway_method_response.artifact_byname_name_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byname_name_get_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byname_name.id
-  http_method       = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byname_name_get_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byname_name_get,
-    aws_api_gateway_method_response.artifact_byname_name_get_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byname_name_get_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byname_name.id
-  http_method       = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byname_name_get_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byname_name_get,
-    aws_api_gateway_method_response.artifact_byname_name_get_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byname_name_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byname_name.id
-  http_method       = aws_api_gateway_method.artifact_byname_name_get.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byname_name_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byname_name_get,
-    aws_api_gateway_method_response.artifact_byname_name_get_404,
-  ]
 }
 
 # POST /artifact/byRegEx
@@ -2895,104 +1197,6 @@ resource "aws_api_gateway_integration" "artifact_byregex_post" {
   request_parameters = {
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
-}
-
-# Method responses for POST /artifact/byRegEx
-resource "aws_api_gateway_method_response" "artifact_byregex_post_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byregex.id
-  http_method = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byregex_post_400" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byregex.id
-  http_method = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code = "400"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byregex_post_403" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byregex.id
-  http_method = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code = "403"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "artifact_byregex_post_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.artifact_byregex.id
-  http_method = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for POST /artifact/byRegEx
-resource "aws_api_gateway_integration_response" "artifact_byregex_post_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byregex.id
-  http_method       = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byregex_post_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byregex_post,
-    aws_api_gateway_method_response.artifact_byregex_post_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byregex_post_400" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byregex.id
-  http_method       = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byregex_post_400.status_code
-  selection_pattern = "400"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byregex_post,
-    aws_api_gateway_method_response.artifact_byregex_post_400,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byregex_post_403" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byregex.id
-  http_method       = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byregex_post_403.status_code
-  selection_pattern = "403"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byregex_post,
-    aws_api_gateway_method_response.artifact_byregex_post_403,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "artifact_byregex_post_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.artifact_byregex.id
-  http_method       = aws_api_gateway_method.artifact_byregex_post.http_method
-  status_code       = aws_api_gateway_method_response.artifact_byregex_post_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.artifact_byregex_post,
-    aws_api_gateway_method_response.artifact_byregex_post_404,
-  ]
 }
 
 # ===== CORS CONFIGURATION =====
@@ -3227,14 +1431,12 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.directory_options,
     aws_api_gateway_integration.upload_options,
     aws_api_gateway_integration.artifact_type_post,
-    aws_api_gateway_integration.artifacts_type_id_get,
-    aws_api_gateway_integration.artifacts_type_id_put,
-    aws_api_gateway_integration.artifacts_type_id_delete,
     aws_api_gateway_integration.artifact_type_id_get,
+    aws_api_gateway_integration.artifact_type_id_put,
+    aws_api_gateway_integration.artifact_type_id_delete,
     aws_api_gateway_integration.artifact_type_id_cost_get,
     aws_api_gateway_integration.artifact_type_id_audit_get,
     aws_api_gateway_integration.artifact_model_id_rate_get,
-    aws_api_gateway_integration.package_id_rate_get,
     aws_api_gateway_integration.artifact_model_id_lineage_get,
     aws_api_gateway_integration.artifact_model_id_license_check_post,
     aws_api_gateway_integration.artifact_model_id_upload_post,
@@ -3243,26 +1445,9 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_ingest_post,
     aws_api_gateway_integration.artifact_directory_get,
     aws_api_gateway_integration.artifact_byname_name_get,
-    aws_api_gateway_integration_response.artifact_byname_name_get_200,
-    aws_api_gateway_integration_response.artifact_byname_name_get_400,
-    aws_api_gateway_integration_response.artifact_byname_name_get_403,
-    aws_api_gateway_integration_response.artifact_byname_name_get_404,
     aws_api_gateway_integration.artifact_byregex_post,
     aws_api_gateway_integration_response.package_id_get_200,
-    aws_api_gateway_integration_response.package_id_get_400,
-    aws_api_gateway_integration_response.package_id_get_403,
     aws_api_gateway_integration_response.package_id_get_404,
-    aws_api_gateway_integration_response.package_id_get_500,
-    aws_api_gateway_integration_response.artifact_model_id_rate_get_200,
-    aws_api_gateway_integration_response.artifact_model_id_rate_get_400,
-    aws_api_gateway_integration_response.artifact_model_id_rate_get_403,
-    aws_api_gateway_integration_response.artifact_model_id_rate_get_404,
-    aws_api_gateway_integration_response.artifact_model_id_rate_get_500,
-    aws_api_gateway_integration_response.package_id_rate_get_200,
-    aws_api_gateway_integration_response.package_id_rate_get_400,
-    aws_api_gateway_integration_response.package_id_rate_get_403,
-    aws_api_gateway_integration_response.package_id_rate_get_404,
-    aws_api_gateway_integration_response.package_id_rate_get_500,
     aws_api_gateway_integration_response.artifacts_options_200,
     aws_api_gateway_integration_response.artifact_type_options_200,
     aws_api_gateway_integration_response.authenticate_options_200,
@@ -3271,18 +1456,15 @@ resource "aws_api_gateway_deployment" "main_deployment" {
 
   triggers = {
     redeployment = sha1(jsonencode([
-      timestamp(), # Force redeployment when any change is made
+      timestamp(),  # Force redeployment when any change is made
       # Resources
       aws_api_gateway_resource.health.id,
       aws_api_gateway_resource.health_components.id,
       aws_api_gateway_resource.artifacts.id,
-      aws_api_gateway_resource.artifacts_type.id,
-      aws_api_gateway_resource.artifacts_type_id.id,
       aws_api_gateway_resource.reset.id,
       aws_api_gateway_resource.authenticate.id,
       aws_api_gateway_resource.package.id,
       aws_api_gateway_resource.package_id.id,
-      aws_api_gateway_resource.package_id_rate.id,
       aws_api_gateway_resource.tracks.id,
       aws_api_gateway_resource.admin.id,
       aws_api_gateway_resource.directory.id,
@@ -3322,14 +1504,12 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_type_post.id,
       aws_api_gateway_method.artifact_get.id,
       aws_api_gateway_method.artifact_type_get.id,
-      aws_api_gateway_method.artifacts_type_id_get.id,
-      aws_api_gateway_method.artifacts_type_id_put.id,
-      aws_api_gateway_method.artifacts_type_id_delete.id,
       aws_api_gateway_method.artifact_type_id_get.id,
+      aws_api_gateway_method.artifact_type_id_put.id,
+      aws_api_gateway_method.artifact_type_id_delete.id,
       aws_api_gateway_method.artifact_type_id_cost_get.id,
       aws_api_gateway_method.artifact_type_id_audit_get.id,
       aws_api_gateway_method.artifact_model_id_rate_get.id,
-      aws_api_gateway_method.package_id_rate_get.id,
       aws_api_gateway_method.artifact_model_id_lineage_get.id,
       aws_api_gateway_method.artifact_model_id_license_check_post.id,
       aws_api_gateway_method.artifact_model_id_upload_post.id,
@@ -3338,18 +1518,9 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_ingest_post.id,
       aws_api_gateway_method.artifact_directory_get.id,
       aws_api_gateway_method.artifact_byname_name_get.id,
-      aws_api_gateway_method_response.artifact_byname_name_get_200.id,
-      aws_api_gateway_method_response.artifact_byname_name_get_400.id,
-      aws_api_gateway_method_response.artifact_byname_name_get_403.id,
-      aws_api_gateway_method_response.artifact_byname_name_get_404.id,
       aws_api_gateway_method.artifact_byregex_post.id,
-      aws_api_gateway_method.package_id_get.id,
-      aws_api_gateway_method_response.package_id_get_200.id,
-      aws_api_gateway_method_response.package_id_get_400.id,
-      aws_api_gateway_method_response.package_id_get_403.id,
-      aws_api_gateway_method_response.package_id_get_404.id,
-      aws_api_gateway_method_response.package_id_get_500.id,
       aws_api_gateway_method.root_get.id,
+      aws_api_gateway_method.package_id_get.id,
       # Integrations
       aws_api_gateway_integration.root_get.id,
       aws_api_gateway_integration.health_get.id,
@@ -3363,13 +1534,11 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_type_get.id,
       aws_api_gateway_integration.artifact_type_post.id,
       aws_api_gateway_integration.artifact_type_id_get.id,
-      aws_api_gateway_integration.artifacts_type_id_get.id,
-      aws_api_gateway_integration.artifacts_type_id_put.id,
-      aws_api_gateway_integration.artifacts_type_id_delete.id,
+      aws_api_gateway_integration.artifact_type_id_put.id,
+      aws_api_gateway_integration.artifact_type_id_delete.id,
       aws_api_gateway_integration.artifact_type_id_cost_get.id,
       aws_api_gateway_integration.artifact_type_id_audit_get.id,
       aws_api_gateway_integration.artifact_model_id_rate_get.id,
-      aws_api_gateway_integration.package_id_rate_get.id,
       aws_api_gateway_integration.artifact_model_id_lineage_get.id,
       aws_api_gateway_integration.artifact_model_id_license_check_post.id,
       aws_api_gateway_integration.artifact_model_id_upload_post.id,
@@ -3387,74 +1556,17 @@ resource "aws_api_gateway_deployment" "main_deployment" {
   }
 }
 
-# CloudWatch Log Group for API Gateway Access Logs
-resource "aws_cloudwatch_log_group" "api_gateway_logs" {
-  name              = "/aws/apigateway/acme-api"
-  retention_in_days = 7
-
-  tags = {
-    Name        = "acme-api-gateway-logs"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-}
-
-# CloudWatch Log Group for API Gateway Execution Logs
-# Execution log groups use format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
-# We create this explicitly to control retention settings and ensure it exists before logging is enabled
-# Note: If the log group already exists (auto-created by API Gateway), it should be imported into Terraform state
-resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
-  name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
-  retention_in_days = 7
-
-  tags = {
-    Name        = "acme-api-gateway-execution-logs"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-}
-
 # API Gateway Stage
 resource "aws_api_gateway_stage" "main_stage" {
   deployment_id = aws_api_gateway_deployment.main_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
   stage_name    = "prod"
 
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
-    format         = "{\"requestId\":\"$context.requestId\",\"ip\":\"$context.identity.sourceIp\",\"caller\":\"$context.identity.caller\",\"user\":\"$context.identity.user\",\"userAgent\":\"$context.identity.userAgent\",\"userArn\":\"$context.identity.userArn\",\"requestTime\":\"$context.requestTime\",\"requestTimeEpoch\":$context.requestTimeEpoch,\"extendedRequestId\":\"$context.extendedRequestId\",\"httpMethod\":\"$context.httpMethod\",\"resourcePath\":\"$context.resourcePath\",\"resourceId\":\"$context.resourceId\",\"path\":\"$context.path\",\"protocol\":\"$context.protocol\",\"status\":$context.status,\"responseLength\":$context.responseLength,\"responseLatency\":$context.responseLatency,\"integrationLatency\":$context.integrationLatency,\"integrationRequestId\":\"$context.integration.requestId\",\"integrationStatus\":\"$context.integration.status\",\"integrationErrorMessage\":\"$context.integration.error\",\"integrationErrorMessageString\":\"$context.integration.error.messageString\",\"errorMessage\":\"$context.error.message\",\"errorMessageString\":\"$context.error.messageString\",\"errorValidationErrorString\":\"$context.error.validationErrorString\",\"errorType\":\"$context.error.responseType\",\"authorizerError\":\"$context.authorizer.error\",\"authorizerLatency\":$context.authorizer.latency,\"authorizerRequestId\":\"$context.authorizer.requestId\",\"authorizerStatus\":\"$context.authorizer.status\"}"
-  }
-
-  xray_tracing_enabled = true
-
-  # Ensure account-level CloudWatch settings are applied before creating stage
-  depends_on = [aws_api_gateway_account.api_gateway_account]
-
   tags = {
     Name        = "acme-api-prod"
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
-}
-
-# Enable execution logging for all methods
-resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  stage_name  = aws_api_gateway_stage.main_stage.stage_name
-  method_path = "*/*"
-
-  settings {
-    metrics_enabled    = true
-    logging_level      = "INFO"
-    data_trace_enabled = true
-  }
-
-  # Ensure account settings and log group exist before enabling logging
-  depends_on = [
-    aws_api_gateway_stage.main_stage,
-    aws_api_gateway_account.api_gateway_account,
-    aws_cloudwatch_log_group.api_gateway_execution_logs
-  ]
 }
 
 # ===== LAMBDA IAM ROLE AND POLICIES =====
@@ -3493,9 +1605,9 @@ resource "aws_iam_policy" "lambda_s3_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "ListPackagesPrefix"
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket"]
+        Sid    = "ListPackagesPrefix"
+        Effect = "Allow"
+        Action = ["s3:ListBucket"]
         Resource = ["arn:aws:s3:::${var.artifacts_bucket}"]
         Condition = {
           StringLike = {
@@ -3624,40 +1736,6 @@ resource "aws_iam_role_policy_attachment" "lambda_kms_attachment" {
   policy_arn = aws_iam_policy.lambda_kms_policy.arn
 }
 
-# ===== API GATEWAY CLOUDWATCH LOGGING =====
-
-# IAM Role for API Gateway CloudWatch Logs
-resource "aws_iam_role" "api_gateway_cloudwatch_role" {
-  name = "api-gateway-cloudwatch-logs-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "apigateway.amazonaws.com"
-      }
-    }]
-  })
-
-  tags = {
-    Name        = "api-gateway-cloudwatch-logs-role"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-}
-
-resource "aws_iam_role_policy_attachment" "api_gateway_cloudwatch_logs" {
-  role       = aws_iam_role.api_gateway_cloudwatch_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
-}
-
-# Grant API Gateway permission to write logs
-resource "aws_api_gateway_account" "api_gateway_account" {
-  cloudwatch_role_arn = aws_iam_role.api_gateway_cloudwatch_role.arn
-}
-
 # ===== OUTPUTS =====
 
 output "api_gateway_url" {
@@ -3677,24 +1755,24 @@ output "api_gateway_invoke_url" {
 
 output "api_endpoints" {
   value = {
-    health             = "${aws_api_gateway_stage.main_stage.invoke_url}/health"
-    health_components  = "${aws_api_gateway_stage.main_stage.invoke_url}/health/components"
-    artifacts          = "${aws_api_gateway_stage.main_stage.invoke_url}/artifacts"
-    reset              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset"
-    authenticate       = "${aws_api_gateway_stage.main_stage.invoke_url}/authenticate"
-    tracks             = "${aws_api_gateway_stage.main_stage.invoke_url}/tracks"
-    artifact_ingest    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/ingest"
-    artifact_directory = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/directory"
-    artifact_create    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}"
-    artifact_rate      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/rate"
-    artifact_cost      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
-    artifact_lineage   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
-    artifact_license   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
-    artifact_upload    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
-    artifact_download  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
-    artifact_audit     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
-    artifact_by_name   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
-    artifact_by_regex  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
+    health                = "${aws_api_gateway_stage.main_stage.invoke_url}/health"
+    health_components     = "${aws_api_gateway_stage.main_stage.invoke_url}/health/components"
+    artifacts             = "${aws_api_gateway_stage.main_stage.invoke_url}/artifacts"
+    reset                 = "${aws_api_gateway_stage.main_stage.invoke_url}/reset"
+    authenticate          = "${aws_api_gateway_stage.main_stage.invoke_url}/authenticate"
+    tracks                = "${aws_api_gateway_stage.main_stage.invoke_url}/tracks"
+    artifact_ingest       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/ingest"
+    artifact_directory    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/directory"
+    artifact_create       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}"
+    artifact_rate         = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/rate"
+    artifact_cost         = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
+    artifact_lineage      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
+    artifact_license      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
+    artifact_upload       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
+    artifact_download     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_audit        = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
+    artifact_by_name      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
+    artifact_by_regex     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
   }
   description = "Map of all API endpoints"
 }

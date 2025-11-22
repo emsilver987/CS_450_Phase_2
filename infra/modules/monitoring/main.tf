@@ -30,10 +30,6 @@ resource "aws_secretsmanager_secret" "jwt_secret" {
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
-
-  lifecycle {
-    ignore_changes = [kms_key_id]
-  }
 }
 
 resource "aws_secretsmanager_secret_version" "jwt_secret" {
@@ -202,5 +198,4 @@ output "jwt_secret_arn" {
 output "dashboard_url" {
   value = "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main_dashboard.dashboard_name}"
 }
-
 
