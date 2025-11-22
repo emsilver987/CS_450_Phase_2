@@ -122,9 +122,7 @@ resource "aws_kms_key" "main" {
   lifecycle {
     # Prevent accidental deletion - keys are critical infrastructure
     prevent_destroy = true
-    # Ignore enable_key_rotation changes if the key already exists
-    # This prevents errors if rotation was manually enabled/disabled
-    ignore_changes = [enable_key_rotation]
+    ignore_changes  = [policy]
   }
 }
 
