@@ -124,6 +124,58 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform validate
 
+      - name: Migrate KMS key resource name (main_key -> main)
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        run: |
+          echo "Checking if KMS key resource needs to be migrated..."
+          
+          # Check if old resource exists in state
+          if terraform state show "module.monitoring.aws_kms_key.main_key" >/dev/null 2>&1; then
+            echo "Old KMS key resource (main_key) found in state"
+            
+            # Check if new resource is already in state
+            if terraform state show "module.monitoring.aws_kms_key.main" >/dev/null 2>&1; then
+              echo "New KMS key resource (main) already in state, removing old resource from state..."
+              terraform state rm "module.monitoring.aws_kms_key.main_key" || echo "Failed to remove old key from state"
+              terraform state rm "module.monitoring.aws_kms_alias.main_key_alias" || echo "Failed to remove old alias from state"
+            else
+              echo "Importing existing key into new resource name..."
+              
+              # Get the key ID from the old resource
+              OLD_KEY_ID=$(terraform state show "module.monitoring.aws_kms_key.main_key" | grep -E "^id\s+=" | awk '{print $3}' | tr -d '"' || echo "")
+              
+              if [ -n "$OLD_KEY_ID" ] && [ "$OLD_KEY_ID" != "null" ]; then
+                echo "Importing key $OLD_KEY_ID into new resource name (main)..."
+                terraform import \
+                  -var="aws_region=us-east-1" \
+                  -var="artifacts_bucket=pkg-artifacts" \
+                  -var="image_tag=${{ steps.build-image.outputs.image_tag }}" \
+                  "module.monitoring.aws_kms_key.main" \
+                  "$OLD_KEY_ID" || echo "Key import failed (may already exist)"
+                
+                # Import the alias
+                echo "Importing KMS alias..."
+                terraform import \
+                  -var="aws_region=us-east-1" \
+                  -var="artifacts_bucket=pkg-artifacts" \
+                  -var="image_tag=${{ steps.build-image.outputs.image_tag }}" \
+                  "module.monitoring.aws_kms_alias.main" \
+                  "alias/acme-main-key" || echo "Alias import failed (may already exist)"
+                
+                # Remove old resources from state after successful import
+                echo "Removing old resource names from state..."
+                terraform state rm "module.monitoring.aws_kms_key.main_key" || echo "Failed to remove old key"
+                terraform state rm "module.monitoring.aws_kms_alias.main_key_alias" || echo "Failed to remove old alias"
+              else
+                echo "Could not determine key ID from old resource"
+              fi
+            fi
+          else
+            echo "Old KMS key resource not in state, no migration needed"
+          fi
+
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}

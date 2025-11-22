@@ -101,7 +101,12 @@ resource "aws_kms_key" "main" {
           "kms:PutKeyPolicy",
           "kms:UpdateAlias",
           "kms:CreateAlias",
-          "kms:DeleteAlias"
+          "kms:DeleteAlias",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion"
         ]
         Resource = "*"
       }
@@ -112,6 +117,14 @@ resource "aws_kms_key" "main" {
     Name        = "acme-main-key"
     Environment = "dev"
     Project     = "CS_450_Phase_2"
+  }
+
+  lifecycle {
+    # Prevent accidental deletion - keys are critical infrastructure
+    prevent_destroy = true
+    # Ignore enable_key_rotation changes if the key already exists
+    # This prevents errors if rotation was manually enabled/disabled
+    ignore_changes = [enable_key_rotation]
   }
 }
 
