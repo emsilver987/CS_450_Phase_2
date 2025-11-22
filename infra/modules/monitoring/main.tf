@@ -55,6 +55,15 @@ resource "aws_kms_key" "main_key" {
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
+
+  lifecycle {
+    # Ignore policy changes to prevent Terraform from trying to update the key policy
+    # The GitHub Actions OIDC role needs IAM permission (kms:PutKeyPolicy) to update
+    # the key policy, which must be granted outside of Terraform.
+    # Once the IAM permission is added, you can remove this lifecycle block to allow
+    # Terraform to manage the key policy.
+    ignore_changes = [policy]
+  }
 }
 
 resource "aws_kms_alias" "main_key_alias" {
