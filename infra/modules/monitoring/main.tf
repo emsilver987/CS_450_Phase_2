@@ -33,7 +33,7 @@ resource "aws_kms_key" "main_key" {
         Resource = "*"
       },
       {
-        Sid    = "Allow GitHub Actions OIDC role to use the key"
+        Sid    = "Allow GitHub Actions OIDC role to use and manage the key"
         Effect = "Allow"
         Principal = {
           AWS = "arn:aws:iam::838693051036:role/github-actions-oidc-role"
@@ -42,7 +42,8 @@ resource "aws_kms_key" "main_key" {
           "kms:Decrypt",
           "kms:Encrypt",
           "kms:GenerateDataKey",
-          "kms:DescribeKey"
+          "kms:DescribeKey",
+          "kms:PutKeyPolicy"
         ]
         Resource = "*"
       }
