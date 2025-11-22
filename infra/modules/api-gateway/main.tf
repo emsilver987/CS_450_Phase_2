@@ -3387,13 +3387,28 @@ resource "aws_api_gateway_deployment" "main_deployment" {
   }
 }
 
-# CloudWatch Log Group for API Gateway
+# CloudWatch Log Group for API Gateway Access Logs
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/acme-api"
   retention_in_days = 7
 
   tags = {
     Name        = "acme-api-gateway-logs"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+  }
+}
+
+# CloudWatch Log Group for API Gateway Execution Logs
+# API Gateway automatically creates this with format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
+# We create it explicitly to ensure it exists and has proper settings
+# Using hardcoded stage name "prod" to avoid circular dependencies
+resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
+  name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "acme-api-gateway-execution-logs"
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
@@ -3408,16 +3423,51 @@ resource "aws_api_gateway_stage" "main_stage" {
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
     format = jsonencode({
-      requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      caller         = "$context.identity.caller"
-      user           = "$context.identity.user"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
+      # Request identification
+      requestId                = "$context.requestId"
+      requestTime              = "$context.requestTime"
+      requestTimeEpoch         = "$context.requestTimeEpoch"
+      extendedRequestId        = "$context.extendedRequestId"
+      
+      # Client information
+      ip                       = "$context.identity.sourceIp"
+      caller                   = "$context.identity.caller"
+      user                     = "$context.identity.user"
+      userAgent                = "$context.identity.userAgent"
+      userArn                  = "$context.identity.userArn"
+      cognitoIdentityId        = "$context.identity.cognitoIdentityId"
+      
+      # Request details
+      httpMethod               = "$context.httpMethod"
+      resourcePath             = "$context.resourcePath"
+      resourceId               = "$context.resourceId"
+      path                     = "$context.path"
+      protocol                 = "$context.protocol"
+      
+      # Response details
+      status                   = "$context.status"
+      responseLength           = "$context.responseLength"
+      responseLatency          = "$context.responseLatency"
+      integrationLatency       = "$context.integrationLatency"
+      
+      # Integration details
+      integrationRequestId     = "$context.integration.requestId"
+      integrationStatus        = "$context.integration.status"
+      integrationErrorMessage  = "$context.integration.error"
+      integrationErrorMessageString = "$context.integration.error.messageString"
+      integrationErrorStatus   = "$context.integration.status"
+      
+      # Error details
+      errorMessage             = "$context.error.message"
+      errorMessageString       = "$context.error.messageString"
+      errorValidationErrorString = "$context.error.validationErrorString"
+      errorType                = "$context.error.responseType"
+      
+      # Authorizer details
+      authorizerError          = "$context.authorizer.error"
+      authorizerLatency        = "$context.authorizer.latency"
+      authorizerRequestId      = "$context.authorizer.requestId"
+      authorizerStatus         = "$context.authorizer.status"
     })
   }
 
@@ -3445,7 +3495,12 @@ resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
     data_trace_enabled = true
   }
 
-  depends_on = [aws_api_gateway_stage.main_stage]
+  # Ensure execution log group exists and account settings are applied before enabling logging
+  depends_on = [
+    aws_api_gateway_stage.main_stage,
+    aws_api_gateway_account.api_gateway_account,
+    aws_cloudwatch_log_group.api_gateway_execution_logs
+  ]
 }
 
 # ===== LAMBDA IAM ROLE AND POLICIES =====
