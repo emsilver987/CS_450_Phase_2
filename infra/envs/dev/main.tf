@@ -46,6 +46,7 @@ module "monitoring" {
   artifacts_bucket      = local.artifacts_bucket
   validator_service_url = "http://placeholder"
   ddb_tables_arnmap     = local.ddb_tables_arnmap
+  aws_region            = var.aws_region
 }
 
 module "iam" {

@@ -1,49 +1,107 @@
 variable "artifacts_bucket" { type = string }
 variable "ddb_tables_arnmap" { type = map(string) }
 variable "validator_service_url" { type = string }
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+# Data sources
+data "aws_caller_identity" "current" {}
+data "aws_iam_role" "ecs_execution_role" {
+  name = "ecs-execution-role"
+}
 
-# KMS Key for encryption
-resource "aws_kms_key" "main_key" {
-  description             = "KMS key for ACME project encryption"
+# Main KMS Key for ACME project encryption
+# This is the SINGLE managed key for all encryption needs
+resource "aws_kms_key" "main" {
+  description             = "Main KMS key for ACME project encryption"
+  enable_key_rotation     = true
   deletion_window_in_days = 7
 
-  # Key policy to allow necessary principals to use the key
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "Enable IAM User Permissions"
+        Sid    = "EnableRoot"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::838693051036:root"
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
         Resource = "*"
       },
       {
-        Sid    = "Allow Secrets Manager to use the key"
+        Sid    = "AllowCloudWatchLogs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudTrail"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey",
+          "kms:Decrypt"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowSecretsManager"
         Effect = "Allow"
         Principal = {
           Service = "secretsmanager.amazonaws.com"
         }
         Action = [
           "kms:Decrypt",
-          "kms:GenerateDataKey"
+          "kms:DescribeKey",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:CreateGrant",
+          "kms:ReEncrypt*"
         ]
         Resource = "*"
       },
       {
-        Sid    = "Allow GitHub Actions OIDC role to use and manage the key"
+        Sid    = "AllowECSExecutionRole"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::838693051036:role/github-actions-oidc-role"
+          AWS = data.aws_iam_role.ecs_execution_role.arn
         }
         Action = [
           "kms:Decrypt",
-          "kms:Encrypt",
           "kms:GenerateDataKey",
           "kms:DescribeKey",
-          "kms:PutKeyPolicy"
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowGitHubActions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-oidc-role"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey",
+          "kms:Encrypt",
+          "kms:CreateGrant",
+          "kms:PutKeyPolicy",
+          "kms:UpdateAlias",
+          "kms:CreateAlias",
+          "kms:DeleteAlias"
         ]
         Resource = "*"
       }
@@ -55,27 +113,18 @@ resource "aws_kms_key" "main_key" {
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
-
-  lifecycle {
-    # Ignore policy changes to prevent Terraform from trying to update the key policy
-    # The GitHub Actions OIDC role needs IAM permission (kms:PutKeyPolicy) to update
-    # the key policy, which must be granted outside of Terraform.
-    # Once the IAM permission is added, you can remove this lifecycle block to allow
-    # Terraform to manage the key policy.
-    ignore_changes = [policy]
-  }
 }
 
-resource "aws_kms_alias" "main_key_alias" {
+resource "aws_kms_alias" "main" {
   name          = "alias/acme-main-key"
-  target_key_id = aws_kms_key.main_key.key_id
+  target_key_id = aws_kms_key.main.key_id
 }
 
 # Secrets Manager for JWT secret
 resource "aws_secretsmanager_secret" "jwt_secret" {
   name = "acme-jwt-secret"
 
-  kms_key_id = aws_kms_key.main_key.arn
+  kms_key_id = aws_kms_key.main.arn
 
   tags = {
     Name        = "acme-jwt-secret"
@@ -236,11 +285,11 @@ resource "aws_cloudwatch_dashboard" "main_dashboard" {
 }
 
 output "kms_key_arn" {
-  value = aws_kms_key.main_key.arn
+  value = aws_kms_key.main.arn
 }
 
 output "kms_key_alias" {
-  value = aws_kms_alias.main_key_alias.name
+  value = aws_kms_alias.main.name
 }
 
 output "jwt_secret_arn" {
