@@ -3401,7 +3401,7 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
 
 # CloudWatch Log Group for API Gateway Execution Logs
 # API Gateway automatically creates this with format: API-Gateway-Execution-Logs_{rest-api-id}/{stage-name}
-# We create it explicitly to ensure it exists and has proper settings
+# We manage it explicitly to ensure it has proper settings (retention, tags)
 # Using hardcoded stage name "prod" to avoid circular dependencies
 resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
   name              = "API-Gateway-Execution-Logs_${aws_api_gateway_rest_api.main_api.id}/prod"
@@ -3411,6 +3411,12 @@ resource "aws_cloudwatch_log_group" "api_gateway_execution_logs" {
     Name        = "acme-api-gateway-execution-logs"
     Environment = "dev"
     Project     = "CS_450_Phase_2"
+  }
+
+  # Lifecycle: API Gateway auto-creates this log group when execution logging is enabled
+  # If it already exists, we just manage its settings (retention, tags) rather than recreating
+  lifecycle {
+    create_before_destroy = false
   }
 }
 

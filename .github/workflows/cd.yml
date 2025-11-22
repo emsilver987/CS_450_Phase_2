@@ -239,6 +239,56 @@ jobs:
           import_table 'module.ddb.aws_dynamodb_table.this["packages"]' packages
           import_table 'module.ddb.aws_dynamodb_table.this["downloads"]' downloads
 
+      - name: Import existing API Gateway execution log group
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        env:
+          TF_VAR_aws_region: us-east-1
+          TF_VAR_artifacts_bucket: pkg-artifacts
+        run: |
+          # Import execution log group if it exists but not in state
+          # Get the API Gateway ID that Terraform is managing
+          RESOURCE_ADDRESS="module.api_gateway.aws_cloudwatch_log_group.api_gateway_execution_logs"
+          
+          # Check if already in state
+          if terraform state show "${RESOURCE_ADDRESS}" >/dev/null 2>&1; then
+            echo "Execution log group already in state, skipping import"
+            exit 0
+          fi
+          
+          # Try to get API Gateway ID from Terraform state or output
+          API_GW_ID=$(terraform state show module.api_gateway.aws_api_gateway_rest_api.main_api 2>/dev/null | grep "^id" | awk '{print $3}' | tr -d '"' || echo "")
+          
+          if [ -z "$API_GW_ID" ]; then
+            # Try terraform output
+            API_GW_ID=$(terraform output -raw api_gateway_id 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$API_GW_ID" ]; then
+            # Try to get from AWS (use the first one found)
+            API_GW_ID=$(aws apigateway get-rest-apis --region us-east-1 --query 'items[?name==`acme-api`].id' --output text | awk '{print $1}' || echo "")
+          fi
+          
+          if [ -z "$API_GW_ID" ]; then
+            echo "Could not determine API Gateway ID, skipping import (will be created if needed)"
+            exit 0
+          fi
+          
+          LOG_GROUP_NAME="API-Gateway-Execution-Logs_${API_GW_ID}/prod"
+          
+          # Check if log group exists in AWS
+          if aws logs describe-log-groups --log-group-name "$LOG_GROUP_NAME" --region us-east-1 --query "logGroups[0].logGroupName" --output text 2>/dev/null | grep -q "$LOG_GROUP_NAME"; then
+            echo "Importing execution log group: ${LOG_GROUP_NAME}..."
+            terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" "${RESOURCE_ADDRESS}" "${LOG_GROUP_NAME}" || {
+              echo "Failed to import ${LOG_GROUP_NAME} (may already be managed or not match Terraform configuration)"
+              exit 0
+            }
+            echo "Successfully imported execution log group: ${LOG_GROUP_NAME}"
+          else
+            echo "Execution log group ${LOG_GROUP_NAME} does not exist yet, will be created if needed"
+          fi
+
       - name: Cleanup orphaned Terraform state resources
         shell: bash
         working-directory: ${{ env.TF_DIR }}
