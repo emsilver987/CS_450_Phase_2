@@ -7,6 +7,48 @@ resource "aws_kms_key" "main_key" {
   description             = "KMS key for ACME project encryption"
   deletion_window_in_days = 7
 
+  # Key policy to allow necessary principals to use the key
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::838693051036:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow Secrets Manager to use the key"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow GitHub Actions OIDC role to use the key"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::838693051036:role/github-actions-oidc-role"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
   tags = {
     Name        = "acme-main-key"
     Environment = "dev"
@@ -198,4 +240,3 @@ output "jwt_secret_arn" {
 output "dashboard_url" {
   value = "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main_dashboard.dashboard_name}"
 }
-
