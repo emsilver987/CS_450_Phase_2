@@ -3406,22 +3406,22 @@ resource "aws_api_gateway_stage" "main_stage" {
 resource "aws_api_gateway_method_settings" "throttle_settings" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   stage_name  = aws_api_gateway_stage.main_stage.stage_name
-  method_path = "*/*"  # Apply to all methods and paths
+  method_path = "*/*" # Apply to all methods and paths
 
   settings {
     # Throttling settings
     # Rate limit: Maximum number of requests per second per client
     # Burst limit: Maximum number of requests that can be made in a burst
-    throttling_rate_limit  = 100  # 100 requests per second per client
-    throttling_burst_limit = 200  # Allow bursts up to 200 requests
-    
+    throttling_rate_limit  = 100 # 100 requests per second per client
+    throttling_burst_limit = 200 # Allow bursts up to 200 requests
+
     # Logging settings
     metrics_enabled = true
     logging_level   = "INFO"
-    
+
     # Caching (disabled for now, can be enabled per method if needed)
     caching_enabled = false
-    
+
     # Data tracing (useful for debugging, can be disabled in production)
     data_trace_enabled = false
   }

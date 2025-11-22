@@ -1,12 +1,5 @@
-# Look up KMS key by alias if kms_key_arn is not provided
-data "aws_kms_alias" "main_key" {
-  count = var.kms_key_arn == "" ? 1 : 0
-  name  = "alias/acme-main-key"
-}
-
-locals {
-  kms_key_id = var.kms_key_arn != "" ? var.kms_key_arn : data.aws_kms_alias.main_key[0].target_key_arn
-}
+# KMS key ARN is provided as a variable from the monitoring module
+# This ensures proper dependency ordering and avoids circular dependencies
 
 resource "aws_s3_bucket" "artifacts" {
   bucket        = var.artifacts_name
@@ -26,7 +19,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = local.kms_key_id
+      kms_master_key_id = var.kms_key_arn
     }
   }
 }
@@ -40,7 +33,7 @@ resource "aws_s3_access_point" "main" {
     block_public_acls       = true
     block_public_policy     = true
     ignore_public_acls      = true
-    restrict_public_buckets  = true
+    restrict_public_buckets = true
   }
 
   lifecycle {
@@ -52,8 +45,8 @@ resource "aws_s3_access_point" "main" {
 }
 
 output "artifacts_bucket" { value = aws_s3_bucket.artifacts.id }
-output "access_point_arn" { 
-  value = aws_s3_access_point.main.arn 
+output "access_point_arn" {
+  value = aws_s3_access_point.main.arn
 }
 
 

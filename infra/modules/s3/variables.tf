@@ -5,8 +5,7 @@ variable "environment" {
 }
 variable "kms_key_arn" {
   type        = string
-  description = "ARN of the KMS key for S3 encryption. If not provided, will look up by alias 'alias/acme-main-key'"
-  default     = ""
+  description = "ARN of the KMS key for S3 encryption (provided by monitoring module)"
 }
 
 

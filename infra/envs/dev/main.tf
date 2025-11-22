@@ -39,16 +39,25 @@ locals {
   ddb_tables_arnmap = module.ddb.arn_map
 }
 
+# Create monitoring module first to ensure KMS key exists
+module "monitoring" {
+  source            = "../../modules/monitoring"
+  artifacts_bucket  = local.artifacts_bucket
+  ddb_tables_arnmap = local.ddb_tables_arnmap
+}
+
 module "iam" {
   source            = "../../modules/iam"
   artifacts_bucket  = local.artifacts_bucket
   ddb_tables_arnmap = local.ddb_tables_arnmap
 }
 
+# S3 module now receives KMS key ARN from monitoring module
 module "s3" {
   source         = "../../modules/s3"
   artifacts_name = local.artifacts_bucket
   environment    = "dev"
+  kms_key_arn    = module.monitoring.kms_key_arn
 }
 
 module "ecs" {
@@ -56,13 +65,6 @@ module "ecs" {
   artifacts_bucket  = local.artifacts_bucket
   ddb_tables_arnmap = local.ddb_tables_arnmap
   image_tag         = var.image_tag
-}
-
-module "monitoring" {
-  source                = "../../modules/monitoring"
-  artifacts_bucket      = local.artifacts_bucket
-  ddb_tables_arnmap     = local.ddb_tables_arnmap
-  validator_service_url = module.ecs.validator_service_url
 }
 
 # WAF Module - Must be created in us-east-1 for CloudFront
@@ -81,7 +83,7 @@ module "cloudfront" {
   source       = "../../modules/cloudfront"
   alb_dns_name = replace(replace(module.ecs.validator_service_url, "http://", ""), "https://", "")
   aws_region   = var.aws_region
-  web_acl_id   = module.waf.web_acl_arn  # CloudFront requires ARN, not ID
+  web_acl_id   = module.waf.web_acl_arn # CloudFront requires ARN, not ID
 }
 
 # API Gateway module - provides REST API endpoints and throttling

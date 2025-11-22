@@ -1,6 +1,9 @@
 variable "artifacts_bucket" { type = string }
 variable "ddb_tables_arnmap" { type = map(string) }
-variable "validator_service_url" { type = string }
+variable "validator_service_url" {
+  type    = string
+  default = ""
+}
 
 # KMS Key for encryption
 resource "aws_kms_key" "main_key" {
