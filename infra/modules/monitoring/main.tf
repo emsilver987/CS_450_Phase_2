@@ -120,9 +120,12 @@ resource "aws_kms_key" "main" {
   }
 
   lifecycle {
-    # Prevent accidental deletion - keys are critical infrastructure
-    prevent_destroy = true
-    ignore_changes  = [policy]
+    # Ignore policy changes to prevent Terraform from trying to update the key policy
+    # The GitHub Actions OIDC role needs IAM permission (kms:PutKeyPolicy) to update
+    # the key policy, which must be granted outside of Terraform.
+    ignore_changes = [policy]
+    # Note: prevent_destroy removed temporarily to allow resource migration
+    # Re-enable after migration: prevent_destroy = true
   }
 }
 
