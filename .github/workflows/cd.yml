@@ -334,6 +334,79 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
 
+      - name: Import API Gateway execution log group if exists
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        env:
+          TF_VAR_aws_region: us-east-1
+          TF_VAR_artifacts_bucket: pkg-artifacts
+        run: |
+          # After plan, check if we need to import the execution log group
+          RESOURCE_ADDRESS="module.api_gateway.aws_cloudwatch_log_group.api_gateway_execution_logs"
+          
+          # Check if already in state
+          if terraform state show "${RESOURCE_ADDRESS}" >/dev/null 2>&1; then
+            echo "✓ Execution log group already in state"
+            exit 0
+          fi
+          
+          # Try multiple ways to get API Gateway ID
+          API_GW_ID=""
+          
+          # Method 1: From Terraform state
+          if [ -z "$API_GW_ID" ]; then
+            API_GW_ID=$(terraform state show module.api_gateway.aws_api_gateway_rest_api.main_api 2>/dev/null | grep "^id" | awk '{print $3}' | tr -d '"' || echo "")
+          fi
+          
+          # Method 2: From Terraform output
+          if [ -z "$API_GW_ID" ]; then
+            API_GW_ID=$(terraform output -raw api_gateway_id 2>/dev/null || echo "")
+          fi
+          
+          # Method 3: From AWS (get the one Terraform is managing)
+          if [ -z "$API_GW_ID" ]; then
+            # Check plan to see which API Gateway is being used
+            PLAN_JSON=$(terraform show -json tfplan 2>/dev/null || echo "{}")
+            API_GW_ID=$(echo "$PLAN_JSON" | jq -r '.configuration.root_module.child_modules[] | select(.address=="module.api_gateway") | .resources[] | select(.type=="aws_api_gateway_rest_api") | .values.name // empty' | head -1 || echo "")
+            if [ "$API_GW_ID" != "acme-api" ]; then
+              API_GW_ID=$(aws apigateway get-rest-apis --region us-east-1 --query 'items[?name==`acme-api`].id' --output text | awk '{print $1}' || echo "")
+            else
+              API_GW_ID=""
+            fi
+          fi
+          
+          # Final fallback: get from AWS directly
+          if [ -z "$API_GW_ID" ]; then
+            API_GW_ID=$(aws apigateway get-rest-apis --region us-east-1 --query 'items[?name==`acme-api`].id' --output text | awk '{print $1}' || echo "")
+          fi
+          
+          if [ -z "$API_GW_ID" ]; then
+            echo "⚠ Could not determine API Gateway ID, skipping import (Terraform will create if needed)"
+            exit 0
+          fi
+          
+          LOG_GROUP_NAME="API-Gateway-Execution-Logs_${API_GW_ID}/prod"
+          echo "Checking for execution log group: ${LOG_GROUP_NAME}..."
+          
+          # Check if log group exists in AWS
+          if aws logs describe-log-groups --log-group-name "$LOG_GROUP_NAME" --region us-east-1 --query "logGroups[0].logGroupName" --output text 2>/dev/null | grep -q "$LOG_GROUP_NAME"; then
+            echo "Found existing log group ${LOG_GROUP_NAME}, importing into Terraform state..."
+            if terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}" "${RESOURCE_ADDRESS}" "${LOG_GROUP_NAME}" 2>&1; then
+              echo "✓ Successfully imported execution log group"
+              
+              # Re-run plan after import to sync state
+              echo "Re-running plan after import..."
+              terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}" || {
+                echo "Plan failed after import, but continuing with original plan"
+              }
+            else
+              echo "⚠ Import failed (log group may need different configuration), continuing anyway"
+            fi
+          else
+            echo "Execution log group ${LOG_GROUP_NAME} does not exist yet, Terraform will create it"
+          fi
+
       - name: Terraform apply
         shell: bash
         working-directory: ${{ env.TF_DIR }}
