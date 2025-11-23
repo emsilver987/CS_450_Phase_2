@@ -16,6 +16,7 @@ from .score_pull_requests import score_pull_requests_with_latency
 from .reviewedness_metric import ReviewednessMetric
 from .reproducibility_metric import ReproducibilityMetric
 from .treescore_metric import TreescoreMetric
+from .llm_summary_metric import LLMSummaryMetric
 from .base import register
 
 # Register all metrics
@@ -33,6 +34,7 @@ register(LoggingEnvMetric())
 register(ReviewednessMetric())
 register(ReproducibilityMetric())
 register(TreescoreMetric())
+register(LLMSummaryMetric())
 
 # Phase-2 registry for new scoring functions
 # This provides a mapping of metric names to their scoring functions
@@ -52,6 +54,7 @@ METRIC_FUNCTIONS = {
     "reviewedness": ReviewednessMetric().score,
     "reproducibility": ReproducibilityMetric().score,
     "treescore": TreescoreMetric().score,
+    "llm_summary": LLMSummaryMetric().score,
     "dependencies": score_dependencies_with_latency,
     "pull_requests": score_pull_requests_with_latency,
 }

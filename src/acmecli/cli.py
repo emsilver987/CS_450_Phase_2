@@ -146,15 +146,26 @@ def process_url(url: str, github_handler, hf_handler, cache):
         reviewedness_latency=get_metric_latency("reviewedness"),
         treescore=get_metric_value("treescore"),
         treescore_latency=get_metric_latency("treescore"),
+        llm_summary=get_metric_value("LLMSummary"),
+        llm_summary_latency=get_metric_latency("LLMSummary"),
     )
 
 
 def main(argv: list[str]) -> int:
     setup_logging()
-    if len(argv) < 2:
+    # Handle both formats: ['run', 'score', 'url_file'] or ['score', 'url_file'] or ['url_file']
+    if len(argv) >= 3 and argv[1] == "score":
+        # Format: ['run', 'score', 'url_file']
+        url_file = argv[2]
+    elif len(argv) >= 2 and argv[0] == "score":
+        # Format: ['score', 'url_file']
+        url_file = argv[1]
+    elif len(argv) >= 2:
+        # Format: ['run', 'url_file'] or ['url_file']
+        url_file = argv[-1]
+    else:
         print("Usage: run score <URL_FILE>")
         return 1
-    _, url_file = argv
     github_handler = GitHubHandler()
     hf_handler = HFHandler()
     cache = InMemoryCache()

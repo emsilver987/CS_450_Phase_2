@@ -5,7 +5,7 @@ def compute_net_score(results: dict):
     """Compute weighted net score from individual metric results."""
     # Weighted sum (weights should add up to 1.0)
     weights = {
-        "license": 0.15,  # High weight for license compatibility
+        "license": 0.14,  # High weight for license compatibility (reduced from 0.15)
         "ramp_up_time": 0.12,  # Important for ease of adoption
         "bus_factor": 0.10,  # Risk management
         "performance_claims": 0.10,  # Evidence of quality
@@ -16,6 +16,7 @@ def compute_net_score(results: dict):
         "reproducibility": 0.10,  # Reproducibility and documentation
         "reviewedness": 0.05,  # Code review quality
         "treescore": 0.05,  # Code structure and organization
+        "llm_summary": 0.05,  # LLM-based documentation analysis
     }
 
     t0 = time.perf_counter()

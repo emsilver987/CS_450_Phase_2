@@ -58,6 +58,8 @@ class ReportRow:
     reviewedness_latency: int
     treescore: float
     treescore_latency: int
+    llm_summary: float
+    llm_summary_latency: int
 
 
 class SourceHandler(Protocol):

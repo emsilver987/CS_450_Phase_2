@@ -568,6 +568,7 @@ def run_acme_metrics(
         "dataset_quality": "dataset_quality",
         "code_quality": "code_quality",
         "Reproducibility": "reproducibility",
+        "LLMSummary": "llm_summary",
         "dependencies": "pull_requests",
         "pull_requests": "pull_requests",
     }

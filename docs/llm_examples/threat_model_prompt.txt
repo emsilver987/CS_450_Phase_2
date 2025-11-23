@@ -1,0 +1,30 @@
+# Threat Model Prompt (Sanitized)
+
+## Context
+We're building an ACME Trustworthy Module Registry with the following architecture:
+- API Gateway → Lambda (Upload/Search/Auth) → ECS Fargate Validator → S3 + DynamoDB
+- JWT authentication, IAM roles, KMS encryption, CloudWatch monitoring
+
+## Request
+Help us identify STRIDE threats for this system, focusing on:
+1. Spoofing: How could attackers impersonate users or services?
+2. Tampering: What data could be modified in transit or at rest?
+3. Repudiation: What actions need non-repudiation guarantees?
+4. Information Disclosure: Where could sensitive data leak?
+5. Denial of Service: What could cause service unavailability?
+6. Elevation of Privilege: How could users gain unauthorized access?
+
+Consider trust boundaries between:
+- External clients → API Gateway
+- API Gateway → Lambda/ECS
+- Compute → AWS data stores (S3, DynamoDB)
+- Compute → Security services (KMS, Secrets Manager)
+
+## What We Used
+Used this prompt to brainstorm initial threat list, then reviewed against:
+- AWS security best practices
+- Course lecture material on STRIDE methodology
+- Our actual IAM policies and encryption settings
+
+Final threats documented in `docs/security/stride-threat-model.md`.
+

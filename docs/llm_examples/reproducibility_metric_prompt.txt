@@ -1,0 +1,28 @@
+# Reproducibility Metric Prompt (Sanitized)
+
+## Context
+We need to score how reproducible a machine learning model repository is. The metric should evaluate:
+- Presence of demo/example code
+- Installation instructions
+- Whether referenced files/scripts actually exist in the repo
+- Absence of hardcoded secrets or sensitive paths
+
+## Request
+Help design a heuristic scoring function that:
+1. Checks README for demo/example mentions
+2. Looks for simple installation instructions (pip install, requirements.txt, etc.)
+3. Extracts file paths mentioned in README (e.g., "run train.py")
+4. Verifies those files exist in the repository file list
+5. Penalizes if secrets or API keys are hardcoded
+
+Score should be:
+- 1.0: demo + simple install + referenced targets exist + no secrets
+- 0.5: demo exists but some pieces missing
+- 0.0: no demo/run hints found
+
+## What We Used
+Used this to brainstorm the initial logic, then implemented in `src/acmecli/metrics/reproducibility_metric.py` with:
+- README text analysis for demo keywords
+- File existence checking against repo file list
+- Heuristic scoring based on completeness
+
