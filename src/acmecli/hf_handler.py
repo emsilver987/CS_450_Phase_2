@@ -251,10 +251,29 @@ class HFHandler:
                 card_data.get("README", "") or
                 ""
             )
-            if isinstance(readme_text, str):
-                meta["readme_text"] = readme_text
-            else:
-                meta["readme_text"] = ""
+        
+        # If README not found in cardData, try fetching the raw README.md file
+        if not readme_text:
+            try:
+                # Try main branch first
+                raw_readme_url = f"https://huggingface.co/{model_id}/raw/main/README.md"
+                logging.debug("Fetching raw README from: %s", raw_readme_url)
+                request = Request(raw_readme_url, headers=self._headers)
+                with urlopen(request, timeout=5) as response:
+                    readme_text = response.read().decode("utf-8")
+            except Exception:
+                # Try master branch as fallback
+                try:
+                    raw_readme_url = f"https://huggingface.co/{model_id}/raw/master/README.md"
+                    logging.debug("Fetching raw README from: %s", raw_readme_url)
+                    request = Request(raw_readme_url, headers=self._headers)
+                    with urlopen(request, timeout=5) as response:
+                        readme_text = response.read().decode("utf-8")
+                except Exception as e:
+                    logging.warning("Could not fetch raw README for %s: %s", model_id, e)
+        
+        if isinstance(readme_text, str):
+            meta["readme_text"] = readme_text
         else:
             meta["readme_text"] = ""
         

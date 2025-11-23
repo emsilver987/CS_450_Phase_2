@@ -65,7 +65,3 @@ class LLMSummaryMetric:
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return MetricValue(self.name, round(final_score, 2), latency_ms)
 
-
-# Register the metric
-register(LLMSummaryMetric())
-
