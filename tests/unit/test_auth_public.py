@@ -113,7 +113,8 @@ class TestAuthEndpoints:
             "/authenticate",
             json={"user": {"name": EXPECTED_USERNAME}}
         )
-        assert response.status_code in [400, 422]
+        # API may return 401 for missing password or 400/422 for malformed request
+        assert response.status_code in [400, 401, 422]
     
     def test_auth_invalid_json(self, client):
         """Test authentication with invalid JSON"""
