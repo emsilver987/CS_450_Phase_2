@@ -1,10 +1,14 @@
 [run]
-source = src/acmecli
+source = src
 omit = 
     src/acmecli/cache.py
     src/acmecli/cli.py
     src/acmecli/github_handler.py
     src/acmecli/hf_handler.py
+    src/autograder/*
+    src/ai_model_catalog.egg-info/*
+    src/__pycache__/*
+    */__pycache__/*
 
 [report]
 exclude_lines =
@@ -12,3 +16,4 @@ exclude_lines =
     def __repr__
     raise AssertionError
     raise NotImplementedError
+    if __name__ == .__main__.:

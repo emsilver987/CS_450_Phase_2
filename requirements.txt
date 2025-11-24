@@ -1,5 +1,8 @@
 pytest
 pytest-cov
+pytest-asyncio
+selenium>=4.15.0
+webdriver-manager>=4.0.0
 fastapi==0.114.2
 starlette
 uvicorn==0.30.6
