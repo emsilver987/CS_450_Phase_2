@@ -699,7 +699,7 @@ def _link_model_to_datasets_code(artifact_id: str, model_name: str, readme_text:
         normalized_dataset_name = normalize_name(dataset_name)
         # First check _artifact_storage for immediate consistency
         global _artifact_storage
-        for artifact_id, artifact_data in _artifact_storage.items():
+        for stored_artifact_id, artifact_data in _artifact_storage.items():
             if artifact_data.get("type") == "dataset":
                 artifact_name = artifact_data.get("name", "")
                 normalized_artifact_name = normalize_name(artifact_name)
@@ -708,7 +708,7 @@ def _link_model_to_datasets_code(artifact_id: str, model_name: str, readme_text:
                     normalized_artifact_name.lower() in normalized_dataset_name.lower() or
                     dataset_name.lower() in artifact_name.lower() or 
                     artifact_name.lower() in dataset_name.lower()):
-                    dataset_id = artifact_id
+                    dataset_id = stored_artifact_id
                     logger.info(f"DEBUG: Linked model '{model_name}' to dataset '{artifact_name}' (id={dataset_id}) from _artifact_storage")
                     break
 
@@ -731,7 +731,7 @@ def _link_model_to_datasets_code(artifact_id: str, model_name: str, readme_text:
     if code_name:
         normalized_code_name = normalize_name(code_name)
         # First check _artifact_storage for immediate consistency
-        for artifact_id, artifact_data in _artifact_storage.items():
+        for stored_artifact_id, artifact_data in _artifact_storage.items():
             if artifact_data.get("type") == "code":
                 artifact_name = artifact_data.get("name", "")
                 normalized_artifact_name = normalize_name(artifact_name)
@@ -740,7 +740,7 @@ def _link_model_to_datasets_code(artifact_id: str, model_name: str, readme_text:
                     normalized_artifact_name.lower() in normalized_code_name.lower() or
                     code_name.lower() in artifact_name.lower() or 
                     artifact_name.lower() in code_name.lower()):
-                    code_id = artifact_id
+                    code_id = stored_artifact_id
                     logger.info(f"DEBUG: Linked model '{model_name}' to code '{artifact_name}' (id={code_id}) from _artifact_storage")
                     break
 

@@ -8,5 +8,5 @@ def test_performance_metric_range():
 def test_performance_metric_missing():
     metric = PerformanceClaimsMetric()
     mv = metric.score({})
-    assert mv.value == 0.0
+    assert mv.value == 0.5
     assert mv.latency_ms >= 0

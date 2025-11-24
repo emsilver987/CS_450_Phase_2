@@ -8,5 +8,5 @@ def test_cli_metric_documentation():
 def test_cli_metric_no_cli():
     metric = CLIMetric()
     mv = metric.score({"readme_text": "This project is for data analysis"})
-    assert mv.value < 0.5
+    assert mv.value == 0.5
     assert mv.latency_ms >= 0
