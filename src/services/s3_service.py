@@ -1,6 +1,5 @@
 import boto3
 import zipfile
-import hashlib
 import io
 import re
 import json
@@ -262,20 +261,13 @@ def upload_model(
         safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
         s3_key = f"models/{safe_model_id}/{safe_version}/model.zip"
 
-        # Compute SHA-256 hash
-        sha256_hash = hashlib.sha256(file_content).hexdigest()
-
         s3.put_object(
-            Bucket=ap_arn,
-            Key=s3_key,
-            Body=file_content,
-            ContentType="application/zip",
-            Metadata={"sha256": sha256_hash},
+            Bucket=ap_arn, Key=s3_key, Body=file_content, ContentType="application/zip"
         )
         print(
-            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes, SHA256: {sha256_hash}) -> {s3_key}"
+            f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}"
         )
-        return {"message": "Upload successful", "sha256": sha256_hash}
+        return {"message": "Upload successful"}
     except Exception as e:
         error_msg = str(e)
         logger.error(
@@ -299,28 +291,33 @@ def upload_model(
             )
 
 
-def download_model(
-    model_id: str, version: str, component: str = "full", expected_hash: str = None
-) -> bytes:
+def download_model(model_id: str, version: str, component: str = "full") -> bytes:
     if not aws_available:
         raise HTTPException(
             status_code=503,
             detail="AWS services not available. Please check your AWS configuration.",
         )
+    
+    # Import instrumentation here to avoid circular imports
+    from .performance.instrumentation import measure_operation, publish_metric
+    
     try:
         s3_key = f"models/{model_id}/{version}/model.zip"
-        response = s3.get_object(Bucket=ap_arn, Key=s3_key)
-        zip_content = response["Body"].read()
-
-        if expected_hash:
-            computed_hash = hashlib.sha256(zip_content).hexdigest()
-            if computed_hash != expected_hash:
-                logger.error(
-                    f"Hash mismatch for {model_id} v{version}: expected {expected_hash}, got {computed_hash}"
-                )
-                raise HTTPException(
-                    status_code=500, detail="Integrity check failed: Hash mismatch"
-                )
+        
+        # Measure S3 download latency
+        with measure_operation("S3DownloadLatency", {"Component": "S3"}):
+            response = s3.get_object(Bucket=ap_arn, Key=s3_key)
+            zip_content = response["Body"].read()
+        
+        # Publish bytes transferred metric
+        bytes_transferred = len(zip_content)
+        publish_metric(
+            "S3DownloadBytes",
+            value=float(bytes_transferred),
+            unit="Bytes",
+            dimensions={"Component": "S3"}
+        )
+        
         if component != "full":
             try:
                 result = extract_model_component(zip_content, component)
