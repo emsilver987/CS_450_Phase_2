@@ -63,6 +63,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::838693051036:role/github-actions-oidc-role
           role-session-name: GitHubActions-CDPipeline
+      
 
       - name: Configure AWS credentials (Static)
         if: ${{ env.USE_OIDC != 'true' }}
@@ -138,7 +139,7 @@ jobs:
           ACCESS_POINT_NAME="cs450-s3"
           BUCKET_NAME="pkg-artifacts"
           ACCOUNT_ID="838693051036"
-
+          
           # Check if access point exists
           if ! aws s3control get-access-point \
             --account-id "${ACCOUNT_ID}" \
@@ -166,7 +167,7 @@ jobs:
           TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
         run: |
           mkdir -p $HOME/.terraform.d/plugin-cache
-
+          
           # Try normal init first
           if terraform init -input=false -lock-timeout=5m 2>&1 | tee /tmp/init-output.log; then
             echo "Terraform init succeeded"
@@ -230,7 +231,7 @@ jobs:
               terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" "${resource_address}" "${table_name}" || echo "Failed to import ${table_name} (may not exist or already imported)"
             fi
           }
-
+          
           import_table 'module.ddb.aws_dynamodb_table.this["artifacts"]' artifacts
           import_table 'module.ddb.aws_dynamodb_table.this["users"]' users
           import_table 'module.ddb.aws_dynamodb_table.this["uploads"]' uploads
@@ -244,7 +245,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Cleaning up orphaned resources from Terraform state..."
-
+          
           # Function to safely remove from state
           remove_from_state() {
             local resource=$1
@@ -255,7 +256,7 @@ jobs:
               echo "${resource} not in state, skipping"
             fi
           }
-
+          
           # Remove Config resources
           echo "Removing Config resources..."
           remove_from_state "module.config.aws_config_configuration_recorder.config_recorder"
@@ -263,20 +264,38 @@ jobs:
           remove_from_state "module.config.aws_config_delivery_channel.config_delivery"
           remove_from_state "module.config.aws_iam_role.config_role"
           remove_from_state "module.config.aws_s3_bucket.config_snapshots"
-
+          
           # Remove CloudTrail resources
           echo "Removing CloudTrail resources..."
           remove_from_state "module.monitoring.aws_cloudtrail.audit_trail"
           remove_from_state "module.monitoring.aws_s3_bucket.cloudtrail_logs"
           remove_from_state "module.monitoring.aws_s3_bucket_policy.cloudtrail_logs"
-
-          # Remove S3 bucket from state (it's used as Terraform backend, so shouldn't be managed by Terraform)
-          echo "Removing S3 backend bucket from state (bucket is used as Terraform backend)..."
-          remove_from_state "module.s3.aws_s3_bucket.artifacts"
-          remove_from_state "module.s3.aws_s3_bucket_server_side_encryption_configuration.this"
-          remove_from_state "module.s3.aws_s3_bucket_versioning.this"
-
+          
           echo "Cleanup complete"
+
+      - name: Import S3 bucket if not in state
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        env:
+          TF_VAR_aws_region: us-east-1
+          TF_VAR_artifacts_bucket: pkg-artifacts
+        run: |
+          # Import S3 bucket if it exists but is not in state
+          if ! terraform state show module.s3.aws_s3_bucket.artifacts >/dev/null 2>&1; then
+            echo "S3 bucket not in state, importing..."
+            terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" module.s3.aws_s3_bucket.artifacts pkg-artifacts || echo "Failed to import bucket (may not exist)"
+          else
+            echo "S3 bucket already in state, skipping import"
+          fi
+          
+          # Import encryption configuration if not in state
+          if ! terraform state show module.s3.aws_s3_bucket_server_side_encryption_configuration.this >/dev/null 2>&1; then
+            echo "S3 encryption configuration not in state, importing..."
+            terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" module.s3.aws_s3_bucket_server_side_encryption_configuration.this pkg-artifacts || echo "Failed to import encryption config"
+          else
+            echo "S3 encryption configuration already in state, skipping import"
+          fi
 
       - name: Terraform plan
         shell: bash
@@ -306,15 +325,15 @@ jobs:
             --services $ECS_SERVICE \
             --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount,deployments:deployments[*].{id:id,status:status,runningCount:runningCount,desiredCount:desiredCount}}' \
             --output table
-
+          
           echo "Starting wait for PRIMARY deployment to stabilize (max 15 minutes)..."
           MAX_ATTEMPTS=60
           ATTEMPT=0
           SLEEP_INTERVAL=15
-
+          
           FAILED_ATTEMPTS=0
           MAX_FAILED_ATTEMPTS=5  # Fail after 5 consecutive failures (75 seconds)
-
+          
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             ATTEMPT=$((ATTEMPT + 1))
             echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Checking service status..."
@@ -418,7 +437,7 @@ jobs:
             
             sleep $SLEEP_INTERVAL
           done
-
+          
           echo "Service stabilization wait timed out after $MAX_ATTEMPTS attempts"
           echo "Checking final service status..."
           aws ecs describe-services \
