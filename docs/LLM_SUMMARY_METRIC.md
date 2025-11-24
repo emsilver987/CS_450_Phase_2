@@ -269,7 +269,7 @@ The metric is designed to work offline for autograder compatibility:
 ## Related Documentation
 
 - **`docs/LLM_USAGE.md`**: Overall LLM usage plan for Phase 2
-- **`LLM_IMPLEMENTATION_PLAN.md`**: Detailed implementation guide
+- **`docs/llm_examples/LLM_IMPLEMENTATION_PLAN.md`**: Detailed implementation guide
 - **`README.md`**: Project overview and metric reference
 
 ## Code Examples
