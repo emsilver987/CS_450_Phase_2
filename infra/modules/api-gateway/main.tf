@@ -136,18 +136,6 @@ resource "aws_api_gateway_resource" "health_performance_workload" {
   path_part   = "workload"
 }
 
-resource "aws_api_gateway_resource" "health_performance_results" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  parent_id   = aws_api_gateway_resource.health_performance.id
-  path_part   = "results"
-}
-
-resource "aws_api_gateway_resource" "health_performance_results_run_id" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  parent_id   = aws_api_gateway_resource.health_performance_results.id
-  path_part   = "{run_id}"
-}
-
 resource "aws_api_gateway_resource" "artifacts" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
@@ -549,106 +537,6 @@ resource "aws_api_gateway_integration_response" "health_performance_workload_pos
   ]
 }
 
-# GET /health/performance/results/{run_id}
-resource "aws_api_gateway_method" "health_performance_results_run_id_get" {
-  rest_api_id   = aws_api_gateway_rest_api.main_api.id
-  resource_id   = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method   = "GET"
-  authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.run_id" = true
-  }
-}
-
-resource "aws_api_gateway_integration" "health_performance_results_run_id_get" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-
-  integration_http_method = "GET"
-  type                    = "HTTP_PROXY"
-  uri                     = "${var.validator_service_url}/health/performance/results/{run_id}"
-
-  request_parameters = {
-    "integration.request.path.run_id" = "method.request.path.run_id"
-  }
-}
-
-# Method responses for GET /health/performance/results/{run_id}
-resource "aws_api_gateway_method_response" "health_performance_results_run_id_get_200" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code = "200"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "health_performance_results_run_id_get_404" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code = "404"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-resource "aws_api_gateway_method_response" "health_performance_results_run_id_get_500" {
-  rest_api_id = aws_api_gateway_rest_api.main_api.id
-  resource_id = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code = "500"
-
-  response_models = {
-    "application/json" = "Empty"
-  }
-}
-
-# Integration responses for GET /health/performance/results/{run_id}
-resource "aws_api_gateway_integration_response" "health_performance_results_run_id_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method       = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code       = aws_api_gateway_method_response.health_performance_results_run_id_get_200.status_code
-  selection_pattern = "200"
-
-  depends_on = [
-    aws_api_gateway_integration.health_performance_results_run_id_get,
-    aws_api_gateway_method_response.health_performance_results_run_id_get_200,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "health_performance_results_run_id_get_404" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method       = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code       = aws_api_gateway_method_response.health_performance_results_run_id_get_404.status_code
-  selection_pattern = "404"
-
-  depends_on = [
-    aws_api_gateway_integration.health_performance_results_run_id_get,
-    aws_api_gateway_method_response.health_performance_results_run_id_get_404,
-  ]
-}
-
-resource "aws_api_gateway_integration_response" "health_performance_results_run_id_get_500" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.health_performance_results_run_id.id
-  http_method       = aws_api_gateway_method.health_performance_results_run_id_get.http_method
-  status_code       = aws_api_gateway_method_response.health_performance_results_run_id_get_500.status_code
-  selection_pattern = "500"
-
-  depends_on = [
-    aws_api_gateway_integration.health_performance_results_run_id_get,
-    aws_api_gateway_method_response.health_performance_results_run_id_get_500,
-  ]
-}
-
 # POST /artifacts
 resource "aws_api_gateway_method" "artifacts_post" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -1025,10 +913,10 @@ resource "aws_api_gateway_method_response" "package_id_get_500" {
 }
 
 resource "aws_api_gateway_integration_response" "package_id_get_200" {
-  rest_api_id       = aws_api_gateway_rest_api.main_api.id
-  resource_id       = aws_api_gateway_resource.package_id.id
-  http_method       = aws_api_gateway_method.package_id_get.http_method
-  status_code       = aws_api_gateway_method_response.package_id_get_200.status_code
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.package_id.id
+  http_method = aws_api_gateway_method.package_id_get.http_method
+  status_code = aws_api_gateway_method_response.package_id_get_200.status_code
   selection_pattern = "200"
 
   depends_on = [
@@ -3225,7 +3113,7 @@ resource "aws_api_gateway_method" "artifact_byname_name_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.proxy"             = true
+    "method.request.path.proxy"              = true
     "method.request.header.X-Authorization" = true
   }
 }
@@ -3739,14 +3627,6 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration_response.artifact_type_options_200,
     aws_api_gateway_integration_response.authenticate_options_200,
     aws_api_gateway_integration_response.artifact_byregex_options_200,
-    aws_api_gateway_integration.health_performance_workload_post,
-    aws_api_gateway_integration.health_performance_results_run_id_get,
-    aws_api_gateway_integration_response.health_performance_workload_post_202,
-    aws_api_gateway_integration_response.health_performance_workload_post_400,
-    aws_api_gateway_integration_response.health_performance_workload_post_500,
-    aws_api_gateway_integration_response.health_performance_results_run_id_get_200,
-    aws_api_gateway_integration_response.health_performance_results_run_id_get_404,
-    aws_api_gateway_integration_response.health_performance_results_run_id_get_500,
   ]
 
   triggers = {
@@ -3755,10 +3635,6 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       # Resources
       aws_api_gateway_resource.health.id,
       aws_api_gateway_resource.health_components.id,
-      aws_api_gateway_resource.health_performance.id,
-      aws_api_gateway_resource.health_performance_workload.id,
-      aws_api_gateway_resource.health_performance_results.id,
-      aws_api_gateway_resource.health_performance_results_run_id.id,
       aws_api_gateway_resource.artifacts.id,
       aws_api_gateway_resource.artifacts_type.id,
       aws_api_gateway_resource.artifacts_type_id.id,
@@ -3791,8 +3667,6 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       # Methods
       aws_api_gateway_method.health_get.id,
       aws_api_gateway_method.health_components_get.id,
-      aws_api_gateway_method.health_performance_workload_post.id,
-      aws_api_gateway_method.health_performance_results_run_id_get.id,
       aws_api_gateway_method.artifact_get.id,
       aws_api_gateway_method.artifacts_post.id,
       aws_api_gateway_method.reset_delete.id,
@@ -3867,8 +3741,6 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_directory_get.id,
       aws_api_gateway_integration.artifact_byname_name_get.id,
       aws_api_gateway_integration.artifact_byregex_post.id,
-      aws_api_gateway_integration.health_performance_workload_post.id,
-      aws_api_gateway_integration.health_performance_results_run_id_get.id,
     ]))
   }
 
