@@ -21,6 +21,7 @@ class TestHuggingFaceIntegration:
         mock_response.status_code = 200
         mock_response.headers = {"content-length": "1024000"}
         mock_response.iter_content = MagicMock(return_value=[b"chunk1", b"chunk2"])
+        mock_response.json.return_value = {"siblings": [{"rfilename": "config.json"}]}
         mock_requests.get.return_value = mock_response
         
         result = download_from_huggingface("user/model", "main", "full")
@@ -265,6 +266,7 @@ class TestS3ErrorHandling:
             {"ETag": "abc123"}
         ]
         
-        result = upload_model("model1", b"data", "1.0.0")
-        # Should either succeed on retry or raise
-        assert result in [True, False] or True  # Allow either outcome
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            upload_model(b"data", "model1", "1.0.0")
+        assert exc.value.status_code == 500

@@ -10,7 +10,7 @@ import urllib.error
 import requests
 import shutil
 import tempfile
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from fastapi import HTTPException
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
@@ -479,8 +479,12 @@ def reset_registry() -> Dict[str, str]:
 
 
 def store_artifact_metadata(
-    artifact_id: str, artifact_name: str, artifact_type: str, version: str, url: str
-) -> Dict[str, str]:
+    artifact_id: str,
+    artifact_name: Union[str, Dict[str, Any]],
+    artifact_type: str = "model",
+    version: str = "1.0.0",
+    url: str = ""
+) -> Dict[str, Any]:
     """
     Store artifact metadata in S3 for all artifact types (model, dataset, code).
     For models, the actual file is already stored via upload_model.
@@ -493,9 +497,31 @@ def store_artifact_metadata(
         from datetime import datetime, timezone
         from botocore.exceptions import ClientError
         
+        metadata: Dict[str, Any] = {}
+        if isinstance(artifact_name, dict):
+            metadata = artifact_name
+            # Extract fields if available, otherwise use defaults
+            _name = metadata.get("name", "unknown")
+            _type = metadata.get("type", artifact_type)
+            _version = metadata.get("version", version)
+            _url = metadata.get("url", url)
+        else:
+            _name = artifact_name
+            _type = artifact_type
+            _version = version
+            _url = url
+            metadata = {
+                "artifact_id": artifact_id,
+                "name": _name,
+                "type": _type,
+                "version": _version,
+                "url": _url,
+                "stored_at": datetime.now(timezone.utc).isoformat(),
+            }
+
         # Sanitize artifact name for S3 key
         sanitized_name = (
-            artifact_name.replace("https://huggingface.co/", "")
+            str(_name).replace("https://huggingface.co/", "")
             .replace("http://huggingface.co/", "")
             .replace("/", "_")
             .replace(":", "_")
@@ -507,17 +533,11 @@ def store_artifact_metadata(
             .replace(">", "_")
             .replace("|", "_")
         )
-        safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
+        safe_version = str(_version).replace("/", "_").replace(":", "_").replace("\\", "_")
         
-        # Store metadata.json file
-        metadata = {
-            "artifact_id": artifact_id,
-            "name": artifact_name,
-            "type": artifact_type,
-            "version": version,
-            "url": url,
-            "stored_at": datetime.now(timezone.utc).isoformat(),
-        }
+        # Store metadata.json file (if not already constructed from dict)
+        if "stored_at" not in metadata:
+             metadata["stored_at"] = datetime.now(timezone.utc).isoformat()
         
         s3_key = f"{artifact_type}s/{sanitized_name}/{safe_version}/metadata.json"
         logger.info(f"DEBUG: Storing metadata to S3 key: {s3_key}")
@@ -1164,7 +1184,7 @@ def download_file(url: str, timeout: int = 120) -> bytes | None:
     return None
 
 
-def download_from_huggingface(model_id: str, version: str = "main") -> bytes:
+def download_from_huggingface(model_id: str, version: str = "main", component: str = "full") -> bytes:
     try:
         clean_model_id = model_id
         if model_id.startswith("https://huggingface.co/"):
