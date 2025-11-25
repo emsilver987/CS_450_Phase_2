@@ -1279,7 +1279,7 @@ def download_from_huggingface(model_id: str, version: str = "main") -> bytes:
         )
 
 
-def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
+def model_ingestion(model_id: str, version: str = "main") -> Dict[str, Any]:
     from ..services.rating import create_metadata_from_files, run_acme_metrics
     import time
     import tempfile

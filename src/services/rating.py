@@ -475,7 +475,7 @@ def analyze_model_content(
         raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
 
 
-def create_metadata_from_files(temp_dir: str, model_name: str) -> Dict[str, Any]:
+def create_metadata_from_files(temp_dir: str, model_name: str = "unknown") -> Dict[str, Any]:
     meta = {
         "repo_files": set(),
         "readme_text": "",
