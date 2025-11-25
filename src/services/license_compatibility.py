@@ -378,6 +378,36 @@ def check_license_compatibility(
                 "MIT license is compatible with other permissive licenses"
             )
             return result
+    
+    # If rule-based checking couldn't determine compatibility, try LLM analysis
+    # This helps with edge cases and complex license texts
+    try:
+        from .llm_service import analyze_license_compatibility as llm_analyze, is_llm_available
+        
+        if is_llm_available():
+            # Try to get full license text for better LLM analysis
+            model_license_text = model_license
+            github_license_text = github_license
+            
+            # If we only have normalized license names, try to get full text
+            # For now, use what we have - LLM can still analyze normalized names
+            llm_result = llm_analyze(model_license_text, github_license_text, use_case)
+            
+            if llm_result:
+                result["compatible"] = llm_result.get("compatible", False)
+                result["reason"] = (
+                    f"LLM-assisted analysis: {llm_result.get('reason', 'Analysis completed')}"
+                )
+                if "restrictions" in llm_result:
+                    result["restrictions"].extend(llm_result["restrictions"])
+                result["llm_enhanced"] = True
+                return result
+    except Exception as e:
+        # If LLM fails, fall through to default behavior
+        import logging
+        logging.getLogger(__name__).debug(f"LLM license analysis failed: {e}")
+    
+    # Default fallback when neither rule-based nor LLM can determine
     result["compatible"] = False
     result["reason"] = (
         f"License compatibility could not be determined ({model_lic} vs {github_lic})"

@@ -710,12 +710,35 @@ def rate_model(modelId: str, body: RateRequest, enforce: bool = Query(False)):
             (k, v) for k, v in subscores.items() if v is not None and float(v) <= 0.5
         ]
         if failures:
+            # Try to generate a helpful error message with LLM
+            error_message = f"Failed ingestibility: {', '.join(f'{k}={v}' for k, v in failures)}"
+            try:
+                from .llm_service import generate_helpful_error_message, is_llm_available
+                
+                if is_llm_available():
+                    llm_message = generate_helpful_error_message(
+                        error_type="INGESTIBILITY_FAILURE",
+                        error_context={
+                            "modelId": modelId,
+                            "target": body.target,
+                            "netScore": netScore,
+                            "failed_metrics": {k: v for k, v in failures},
+                            "all_subscores": subscores,
+                        },
+                        user_action=f"Attempting to rate model {modelId} with enforce=true"
+                    )
+                    if llm_message:
+                        error_message = llm_message
+            except Exception as llm_error:
+                # If LLM fails, use default message
+                import logging
+                logging.getLogger(__name__).debug(f"LLM error message generation failed: {llm_error}")
+            
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error": "INGESTIBILITY_FAILURE",
-                    "message": "Failed ingestibility: "
-                    + ", ".join(f"{k}={v}" for k, v in failures),
+                    "message": error_message,
                     "data": {
                         "modelId": modelId,
                         "target": body.target,
