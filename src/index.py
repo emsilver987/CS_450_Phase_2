@@ -306,6 +306,180 @@ def sanitize_model_id_for_s3(model_id: str) -> str:
     )
 
 
+def normalize_name(name: str) -> str:
+    """Normalize artifact name by removing special characters and converting to lowercase"""
+    if not name:
+        return ""
+    # Remove special characters but keep alphanumeric, hyphens, underscores
+    normalized = re.sub(r'[^a-zA-Z0-9\-_]', '', name.lower())
+    return normalized
+
+
+def parse_package_query(query_str: str) -> Dict[str, Any]:
+    """
+    Parse a package query string into components (name, version, etc.)
+    Handles formats like:
+    - "package-name"
+    - "package-name@1.2.3"
+    - "package-name>=1.0.0"
+    """
+    if not query_str:
+        return {"name": "", "version": None, "operator": None}
+    
+    # Check for version operators
+    operators = [">=", "<=", "==", "!=", ">", "<", "~", "^"]
+    for op in operators:
+        if op in query_str:
+            parts = query_str.split(op, 1)
+            return {
+                "name": parts[0].strip(),
+                "version": parts[1].strip() if len(parts) > 1 else None,
+                "operator": op
+            }
+    
+    # Check for @ separator (common in npm-style syntax)
+    if "@" in query_str and not query_str.startswith("@"):
+        parts = query_str.rsplit("@", 1)
+        return {
+            "name": parts[0].strip(),
+            "version": parts[1].strip() if len(parts) > 1 else None,
+            "operator": "=="
+        }
+    
+    # No version specified
+    return {"name": query_str.strip(), "version": None, "operator": None}
+
+
+def validate_artifact_name(name: str) -> bool:
+    """
+    Validate artifact name follows naming conventions:
+    - Must not be empty
+    - Must contain only alphanumeric, hyphens, underscores, slashes, dots
+    - Must not start or end with special characters
+    - Length between 1 and 200 characters
+    """
+    if not name or not isinstance(name, str):
+        return False
+    
+    # Check length
+    if len(name) < 1 or len(name) > 200:
+        return False
+    
+    # Check for valid characters (alphanumeric + -_/.@)
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\-_/.@]*[a-zA-Z0-9]$', name):
+        # Allow single character names
+        if len(name) == 1 and re.match(r'^[a-zA-Z0-9]$', name):
+            return True
+        return False
+    
+    return True
+
+
+def normalize_version(version: str) -> str:
+    """
+    Normalize version string to standard format (e.g., remove 'v' prefix, normalize separators)
+    Handles formats like:
+    - "v1.2.3" -> "1.2.3"
+    - "1.2" -> "1.2.0"
+    - "latest" -> "latest"
+    """
+    if not version or not isinstance(version, str):
+        return "1.0.0"
+    
+    version = version.strip().lower()
+    
+    # Handle special version strings
+    if version in ["latest", "main", "master", "dev"]:
+        return version
+    
+    # Remove 'v' prefix if present
+    if version.startswith("v"):
+        version = version[1:]
+    
+    # Try to parse semantic version
+    parts = version.split(".")
+    try:
+        # Pad to 3 parts if needed
+        while len(parts) < 3:
+            parts.append("0")
+        
+        # Validate parts are numeric
+        for i in range(min(3, len(parts))):
+            int(parts[i])  # Will raise ValueError if not numeric
+        
+        return ".".join(parts[:3])
+    except (ValueError, IndexError):
+        # If parsing fails, return as-is or default
+        return version if version else "1.0.0"
+
+
+def compare_versions(v1: str, v2: str) -> int:
+    """
+    Compare two version strings.
+    Returns:
+      -1 if v1 < v2
+       0 if v1 == v2
+       1 if v1 > v2
+    """
+    # Normalize versions first
+    v1_norm = normalize_version(v1)
+    v2_norm = normalize_version(v2)
+    
+    # Handle special versions
+    if v1_norm == v2_norm:
+        return 0
+    
+    # Special version strings
+    special_versions = ["latest", "main", "master", "dev"]
+    if v1_norm in special_versions and v2_norm in special_versions:
+        return 0  # Consider all special versions equal
+    if v1_norm in special_versions:
+        return 1  # Special versions are "greater"
+    if v2_norm in special_versions:
+        return -1
+    
+    # Compare semantic versions
+    try:
+        parts1 = [int(p) for p in v1_norm.split(".")[:3]]
+        parts2 = [int(p) for p in v2_norm.split(".")[:3]]
+        
+        for p1, p2 in zip(parts1, parts2):
+            if p1 < p2:
+                return -1
+            elif p1 > p2:
+                return 1
+        return 0
+    except (ValueError, AttributeError):
+        # Fallback to string comparison
+        if v1_norm < v2_norm:
+            return -1
+        elif v1_norm > v2_norm:
+            return 1
+        return 0
+
+
+def format_validation_error(error: Any) -> str:
+    """Format a validation error message for API responses"""
+    if isinstance(error, str):
+        return error
+    elif isinstance(error, dict):
+        return json.dumps(error)
+    elif hasattr(error, '__dict__'):
+        return str(error)
+    else:
+        return "Validation error occurred"
+
+
+def format_error_response(error_message: str, status_code: int = 400) -> Dict[str, Any]:
+    """Format a standardized error response"""
+    return {
+        "error": {
+            "code": status_code,
+            "message": error_message
+        }
+    }
+
+
 def generate_download_url(artifact_name: str, artifact_type: str, version: str = "main") -> str:
     """
     Generate a download URL for an artifact.

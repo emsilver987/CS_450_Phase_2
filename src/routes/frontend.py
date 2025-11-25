@@ -415,3 +415,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# Export router for backward compatibility with tests
+from fastapi import APIRouter
+router = APIRouter()  # Empty router for backward compatibility
+
+

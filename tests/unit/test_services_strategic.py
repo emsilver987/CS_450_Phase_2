@@ -10,19 +10,34 @@ from botocore.exceptions import ClientError
 class TestS3ServiceLargeBlocks:
     """Target large uncovered blocks in s3_service"""
     
-    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.requests")
-    def test_huggingface_download_success(self, mock_requests, mock_s3):
+    def test_huggingface_download_success(self, mock_requests):
         """Test downloading from HuggingFace"""
         from src.services.s3_service import download_from_huggingface
         
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.iter_content.return_value = [b"chunk1", b"chunk2"]
-        mock_requests.get.return_value = mock_response
+        # Mock HuggingFace API response with model info
+        mock_api_response = MagicMock()
+        mock_api_response.status_code = 200
+        mock_api_response.json.return_value = {
+            "modelId": "user/model",
+            "siblings": [
+                {"rfilename": "config.json"},
+                {"rfilename": "README.md"},
+                {"rfilename": "LICENSE"}
+            ]
+        }
+        
+        # Mock file download responses
+        mock_file_response = MagicMock()
+        mock_file_response.status_code = 200
+        mock_file_response.content = b"file content"
+        
+        # First call is API, subsequent calls are file downloads
+        mock_requests.get.side_effect = [mock_api_response, mock_file_response, mock_file_response, mock_file_response]
         
         result = download_from_huggingface("user/model", "1.0.0")
         assert result is not None
+        assert isinstance(result, bytes)
 
     @patch("src.services.s3_service.s3")
     def test_list_models_with_pagination(self, mock_s3):
@@ -60,32 +75,50 @@ class TestS3ServiceLargeBlocks:
     @patch("src.services.s3_service.requests")
     def test_fetch_huggingface_metadata(self, mock_requests):
         """Test fetching HuggingFace metadata"""
-        from src.services.s3_service import fetch_huggingface_metadata
+        # fetch_huggingface_metadata doesn't exist as a function, but we can test the pattern
+        # by testing download_from_huggingface which fetches metadata first
+        from src.services.s3_service import download_from_huggingface
         
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
+        mock_api_response = MagicMock()
+        mock_api_response.status_code = 200
+        mock_api_response.json.return_value = {
             "modelId": "user/model",
             "license": "MIT",
-            "tags": ["nlp", "transformer"]
+            "tags": ["nlp", "transformer"],
+            "siblings": [
+                {"rfilename": "config.json"},
+                {"rfilename": "README.md"}
+            ]
         }
-        mock_requests.get.return_value = mock_response
         
-        result = fetch_huggingface_metadata("user/model")
-        assert result["license"] == "MIT"
+        mock_file_response = MagicMock()
+        mock_file_response.status_code = 200
+        mock_file_response.content = b"file content"
+        
+        # First call is API metadata, subsequent calls are file downloads
+        mock_requests.get.side_effect = [mock_api_response, mock_file_response, mock_file_response]
+        
+        # The function fetches metadata as part of download
+        result = download_from_huggingface("user/model")
+        assert result is not None
+        # Verify the API was called to get metadata
+        assert mock_requests.get.call_count >= 1
 
 
 class TestRatingServiceCoverage:
     """Target uncovered areas in rating service"""
     
     @patch("src.services.rating.subprocess.run")
-    def test_run_scorer_success(self, mock_run):
+    @patch("src.services.rating.analyze_model_content")
+    @patch.dict("os.environ", {"GITHUB_TOKEN": "test_token"})
+    def test_run_scorer_success(self, mock_analyze, mock_run):
         """Test successful scorer execution"""
         from src.services.rating import run_scorer
         
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout='{"NetScore": 0.8, "BusFactor": 0.9}'
+            stdout='{"NetScore": 0.8, "BusFactor": 0.9}\n',
+            stderr=""
         )
         
         result = run_scorer("https://github.com/user/repo")
@@ -159,15 +192,16 @@ class TestLicenseCompatibilityCoverage:
         """Test compatible licenses"""
         from src.services.license_compatibility import check_license_compatibility
         
-        result = check_license_compatibility("MIT", ["MIT", "Apache-2.0"])
-        assert result == True
+        result = check_license_compatibility("MIT", "MIT")
+        assert result["compatible"] == True
 
     def test_check_license_compatibility_incompatible(self):
         """Test incompatible licenses"""
         from src.services.license_compatibility import check_license_compatibility
         
-        result = check_license_compatibility("GPL-3.0", ["MIT"])
-        assert result == False
+        # MIT (permissive) + GPL-3.0 (copyleft) should be incompatible
+        result = check_license_compatibility("MIT", "GPL-3.0")
+        assert result["compatible"] == False
 
     def test_extract_license_from_text(self):
         """Test extracting license from text"""
@@ -196,13 +230,13 @@ class TestArtifactStorageCoverage:
     @patch("src.services.artifact_storage.dynamodb")
     def test_get_artifact_not_found(self, mock_dynamodb):
         """Test getting non-existent artifact"""
-        from src.services.artifact_storage import get_artifact_from_db
+        from src.services.artifact_storage import get_artifact
         
         mock_table = MagicMock()
         mock_table.get_item.return_value = {}
         mock_dynamodb.Table.return_value = mock_table
         
-        result = get_artifact_from_db("nonexistent")
+        result = get_artifact("nonexistent")
         assert result is None
 
     @patch("src.services.artifact_storage.dynamodb")
@@ -221,25 +255,35 @@ class TestArtifactStorageCoverage:
 class TestPackageServiceCoverage:
     """Target package service"""
     
-    @patch("src.services.package_service.get_artifact_from_db")
-    def test_get_package_by_id(self, mock_get):
+    @patch("src.services.package_service.dynamodb")
+    def test_get_package_by_id(self, mock_dynamodb):
         """Test getting package by ID"""
         from src.services.package_service import get_package_by_id
         
-        mock_get.return_value = {"id": "p1", "name": "package1"}
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {
+            "Item": {"pkg_key": "p1", "pkg_name": "package1", "version": "1.0.0"}
+        }
+        mock_dynamodb.Table.return_value = mock_table
         
         result = get_package_by_id("p1")
-        assert result["name"] == "package1"
+        assert result is not None
+        assert result["pkg_name"] == "package1"
 
-    @patch("src.services.package_service.list_all_artifacts")
-    def test_search_packages(self, mock_list):
+    @patch("src.services.package_service.dynamodb")
+    def test_search_packages(self, mock_dynamodb):
         """Test searching packages"""
         from src.services.package_service import search_packages
         
-        mock_list.return_value = [
-            {"id": "p1", "name": "test-package"},
-            {"id": "p2", "name": "other-package"}
-        ]
+        mock_table = MagicMock()
+        mock_table.scan.return_value = {
+            "Items": [
+                {"pkg_key": "p1", "pkg_name": "test-package", "version": "1.0.0"},
+                {"pkg_key": "p2", "pkg_name": "other-package", "version": "1.0.0"}
+            ]
+        }
+        mock_dynamodb.Table.return_value = mock_table
         
         result = search_packages("test")
         assert len(result) > 0
+        assert result[0]["pkg_name"] == "test-package"

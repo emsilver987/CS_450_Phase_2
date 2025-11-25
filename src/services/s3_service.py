@@ -1753,3 +1753,339 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
         print(f"[INGEST] TRACEBACK:\n{error_traceback}")
         logger.error(f"Failed to ingest model {model_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to ingest model: {str(e)}")
+
+
+# ===== Additional Helper Functions for Tests =====
+
+def extract_github_url_from_config(config: Dict[str, Any]) -> Optional[str]:
+    """Extract GitHub URL from config dictionary"""
+    if not config:
+        return None
+    
+    # Check common fields for GitHub URLs
+    for field in ["repository", "github", "repo", "source_code", "description", "readme", "text"]:
+        value = config.get(field, "")
+        if not value:
+            continue
+        
+        # Search for GitHub URL in the text
+        url = extract_github_url_from_text(str(value))
+        if url:
+            return url
+    
+    return None
+
+
+def create_metadata_from_files(directory: str, model_id: str, artifact_type: str = "model") -> Dict[str, Any]:
+    """Create metadata from extracted model files"""
+    metadata = {
+        "model_id": model_id,
+        "type": artifact_type,
+        "files": [],
+        "config": {}
+    }
+    
+    try:
+        # List all files in directory
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                rel_path = os.path.relpath(os.path.join(root, file), directory)
+                metadata["files"].append(rel_path)
+        
+        # Try to extract config.json
+        config_path = os.path.join(directory, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                metadata["config"] = json.load(f)
+    except Exception as e:
+        logger.debug(f"Error creating metadata from files: {e}")
+    
+    return metadata
+
+
+def validate_github_url(url: str) -> bool:
+    """Validate if a URL is a valid GitHub URL"""
+    if not url:
+        return False
+    
+    import re
+    pattern = r"^https?://(www\.)?github\.com/[\w\-]+/[\w\-\.]+"
+    return bool(re.match(pattern, url))
+
+
+def clean_github_url(url: str) -> Optional[str]:
+    """Clean and normalize GitHub URL"""
+    if not url:
+        return None
+    
+    # Remove .git suffix
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    
+    # Remove tree/branch paths
+    if "/tree/" in url:
+        url = url.split("/tree/")[0]
+    
+    # Ensure https://
+    if url.startswith("github.com"):
+        url = "https://" + url
+    
+    return url
+
+
+def detect_model_files(directory: str) -> list:
+    """Detect model file types in a directory"""
+    model_files = []
+    
+    try:
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                if file.endswith((".bin", ".safetensors", ".pt", ".pth", ".h5", ".onnx")):
+                    model_files.append(os.path.relpath(os.path.join(root, file), directory))
+    except Exception as e:
+        logger.debug(f"Error detecting model files: {e}")
+    
+    return model_files
+
+
+def process_model_zip(zip_content: bytes, model_id: str) -> Optional[Dict[str, Any]]:
+    """Extract and process model zip file"""
+    try:
+        result = {
+            "model_id": model_id,
+            "files": [],
+            "config": None,
+            "readme": None
+        }
+        
+        with zipfile.ZipFile(io.BytesIO(zip_content), "r") as zip_file:
+            result["files"] = zip_file.namelist()
+            
+            # Extract config if exists
+            config = extract_config_from_model(zip_content)
+            if config:
+                result["config"] = config
+            
+            # Extract README if exists
+            for file in zip_file.namelist():
+                if file.upper().endswith("README.MD") or file.upper() == "README":
+                    try:
+                        readme_content = zip_file.read(file).decode("utf-8", errors="ignore")
+                        result["readme"] = readme_content
+                        break
+                    except Exception:
+                        pass
+        
+        return result
+    except Exception as e:
+        logger.debug(f"Error processing model zip: {e}")
+        return None
+
+
+def fetch_github_repo_metadata(repo_path: str) -> Optional[Dict[str, Any]]:
+    """Fetch metadata from GitHub API for a repo"""
+    try:
+        # repo_path should be like "user/repo"
+        api_url = f"https://api.github.com/repos/{repo_path}"
+        
+        response = requests.get(api_url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "full_name": data.get("full_name"),
+                "stargazers_count": data.get("stargazers_count", 0),
+                "forks_count": data.get("forks_count", 0),
+                "license": data.get("license", {}).get("name") if data.get("license") else None,
+                "language": data.get("language"),
+                "description": data.get("description")
+            }
+        return None
+    except Exception as e:
+        logger.debug(f"Error fetching GitHub metadata: {e}")
+        return None
+
+
+def extract_license_from_config(config: Dict[str, Any]) -> Optional[str]:
+    """Extract license information from config"""
+    if not config:
+        return None
+    
+    # Check common license fields
+    for field in ["license", "license_name", "license_id"]:
+        license_value = config.get(field)
+        if license_value:
+            return str(license_value)
+    
+    return None
+
+
+def extract_license_from_readme(readme: str) -> Optional[str]:
+    """Extract license information from README text"""
+    if not readme:
+        return None
+    
+    import re
+    
+    # Common license patterns
+    license_patterns = [
+        r"licen[cs]ed?\s+under\s+(?:the\s+)?([A-Za-z0-9\-\. ]+)",
+        r"licen[cs]e:\s*([A-Za-z0-9\-\.]+)",
+        r"(MIT|Apache|GPL|BSD|ISC|MPL)[\s\-]*(Licen[cs]e)?",
+    ]
+    
+    for pattern in license_patterns:
+        match = re.search(pattern, readme, re.IGNORECASE)
+        if match:
+            return match.group(1).strip() if match.lastindex >= 1 else match.group(0).strip()
+    
+    return None
+
+
+def fetch_huggingface_metadata(model_id: str) -> Dict[str, Any]:
+    """Fetch metadata from HuggingFace API"""
+    try:
+        # Clean model_id
+        if "huggingface.co/" in model_id:
+            model_id = model_id.split("huggingface.co/")[-1]
+        
+        api_url = f"https://huggingface.co/api/models/{model_id}"
+        
+        response = requests.get(api_url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=404, detail=f"HuggingFace model {model_id} not found")
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch HuggingFace metadata: {str(e)}")
+
+
+def fetch_huggingface_readme(model_id: str) -> str:
+    """Fetch README from HuggingFace"""
+    try:
+        # Clean model_id
+        if "huggingface.co/" in model_id:
+            model_id = model_id.split("huggingface.co/")[-1]
+        
+        readme_url = f"https://huggingface.co/{model_id}/raw/main/README.md"
+        
+        response = requests.get(readme_url, timeout=10)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return ""
+    except Exception as e:
+        logger.debug(f"Error fetching HuggingFace README: {e}")
+        return ""
+
+
+def check_model_exists(model_id: str, version: str) -> bool:
+    """Check if a model exists in S3"""
+    if not aws_available:
+        return False
+    
+    try:
+        from botocore.exceptions import ClientError
+        
+        s3_key = f"models/{model_id}/{version}/model.zip"
+        s3.head_object(Bucket=ap_arn, Key=s3_key)
+        return True
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code == "404" or error_code == "NoSuchKey":
+            return False
+        raise
+    except Exception:
+        return False
+
+
+def delete_model_from_s3(model_id: str, version: str) -> bool:
+    """Delete a model from S3"""
+    if not aws_available:
+        return False
+    
+    try:
+        s3_key = f"models/{model_id}/{version}/model.zip"
+        s3.delete_object(Bucket=ap_arn, Key=s3_key)
+        
+        # Also delete metadata if exists
+        metadata_key = f"models/{model_id}/{version}/metadata.json"
+        try:
+            s3.delete_object(Bucket=ap_arn, Key=metadata_key)
+        except Exception:
+            pass
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting model from S3: {e}")
+        return False
+
+
+def list_model_versions(model_id: str) -> list:
+    """List all versions of a specific model"""
+    if not aws_available:
+        return []
+    
+    try:
+        prefix = f"models/{model_id}/"
+        response = s3.list_objects_v2(Bucket=ap_arn, Prefix=prefix)
+        
+        versions = []
+        if "Contents" in response:
+            for item in response["Contents"]:
+                key = item["Key"]
+                if key.endswith("/model.zip"):
+                    # Extract version from path: models/{model_id}/{version}/model.zip
+                    parts = key.split("/")
+                    if len(parts) >= 3:
+                        version = parts[2]
+                        versions.append(version)
+        
+        return versions
+    except Exception as e:
+        logger.error(f"Error listing model versions: {e}")
+        return []
+
+
+def copy_model(source_model_id: str, source_version: str, dest_model_id: str, dest_version: str) -> bool:
+    """Copy a model within S3"""
+    if not aws_available:
+        return False
+    
+    try:
+        source_key = f"models/{source_model_id}/{source_version}/model.zip"
+        dest_key = f"models/{dest_model_id}/{dest_version}/model.zip"
+        
+        copy_source = {"Bucket": ap_arn, "Key": source_key}
+        s3.copy_object(CopySource=copy_source, Bucket=ap_arn, Key=dest_key)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error copying model: {e}")
+        return False
+
+
+def update_artifact_metadata(artifact_id: str, new_metadata: Dict[str, Any]) -> bool:
+    """Update existing artifact metadata"""
+    try:
+        # Find the existing artifact to get its S3 key
+        existing = find_artifact_metadata_by_id(artifact_id)
+        if not existing:
+            return False
+        
+        s3_key = existing.get("s3_key")
+        if not s3_key:
+            return False
+        
+        # Update metadata
+        s3.put_object(
+            Bucket=ap_arn,
+            Key=s3_key,
+            Body=json.dumps(new_metadata, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error updating artifact metadata: {e}")
+        return False

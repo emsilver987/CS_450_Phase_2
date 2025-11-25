@@ -65,6 +65,39 @@ class DownloadUrlResponse(BaseModel):
     expires_at: str
 
 
+# Helper functions for package operations
+def get_package_by_id(pkg_key: str) -> Optional[Dict[str, Any]]:
+    """Get package by pkg_key (pkg_name/version)"""
+    try:
+        packages_table = dynamodb.Table(PACKAGES_TABLE)
+        response = packages_table.get_item(Key={"pkg_key": pkg_key})
+        if "Item" in response:
+            return response["Item"]
+        return None
+    except Exception as e:
+        logging.error(f"Error getting package {pkg_key}: {e}")
+        return None
+
+
+def search_packages(query: str) -> List[Dict[str, Any]]:
+    """Search packages by name (case-insensitive partial match)"""
+    try:
+        packages_table = dynamodb.Table(PACKAGES_TABLE)
+        response = packages_table.scan()
+        
+        results = []
+        query_lower = query.lower()
+        for item in response.get("Items", []):
+            pkg_name = item.get("pkg_name", "").lower()
+            if query_lower in pkg_name:
+                results.append(item)
+        
+        return results
+    except Exception as e:
+        logging.error(f"Error searching packages: {e}")
+        return []
+
+
 def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
@@ -433,3 +466,44 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "3003"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+# Additional helper functions for test compatibility
+def get_package_from_db(pkg_key: str) -> Optional[Dict[str, Any]]:
+    """Get package from database by pkg_key (alias for get_package_by_id)"""
+    return get_package_by_id(pkg_key)
+
+
+def list_packages_from_db(limit: int = 100) -> List[Dict[str, Any]]:
+    """List packages from database"""
+    try:
+        packages_table = dynamodb.Table(PACKAGES_TABLE)
+        response = packages_table.scan(Limit=limit)
+        return response.get("Items", [])
+    except Exception as e:
+        logging.error(f"Error listing packages: {e}")
+        return []
+
+
+def save_package_to_db(pkg_key_or_data: Any, package_data: Optional[Dict[str, Any]] = None) -> bool:
+    """Save package to database (supports both old two-parameter and new single-parameter format)"""
+    try:
+        packages_table = dynamodb.Table(PACKAGES_TABLE)
+        
+        # Handle both old and new call signatures
+        if package_data is not None:
+            # Old format: save_package_to_db("p1", {"name": "package1"})
+            # Merge pkg_key with data
+            item = package_data.copy()
+            if "pkg_key" not in item:
+                item["pkg_key"] = str(pkg_key_or_data)
+        else:
+            # New format: save_package_to_db({"pkg_key": "p1", "name": "package1"})
+            item = pkg_key_or_data
+        
+        packages_table.put_item(Item=item)
+        return True
+    except Exception as e:
+        logging.error(f"Error saving package: {e}")
+        return False
+

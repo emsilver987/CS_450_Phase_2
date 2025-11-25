@@ -81,8 +81,11 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+def verify_password(password: str, hashed: str | bytes) -> bool:
+    """Verify password against hash (accepts both str and bytes for hashed)"""
+    password_bytes = password.encode("utf-8")
+    hashed_bytes = hashed if isinstance(hashed, bytes) else hashed.encode("utf-8")
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
 def create_jwt_token(user_data: Dict[str, Any]) -> Dict[str, Any]:

@@ -137,7 +137,6 @@ def analyze_model_content(
         except Exception as s3_check_error:
             # If S3 check fails, continue to try HuggingFace
             print(f"[RATE] S3 check failed: {s3_check_error}")
-            import traceback
             print(f"[RATE] S3 check traceback: {traceback.format_exc()}")
             pass
 

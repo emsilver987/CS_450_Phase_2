@@ -10,6 +10,45 @@ from .s3_service import (
 )
 
 
+def extract_license_from_text(text: str) -> Optional[str]:
+    """
+    Extract license name from text content.
+    Looks for common license mentions in text.
+    """
+    if not text:
+        return None
+    
+    text_lower = text.lower()
+    
+    # Common license patterns
+    license_patterns = [
+        (r'mit\s+license', 'MIT'),
+        (r'bsd\s+license', 'BSD'),
+        (r'apache\s+license', 'Apache-2.0'),
+        (r'apache\s+2\.0', 'Apache-2.0'),
+        (r'gpl\s+v?3', 'GPL-3.0'),
+        (r'gpl\s+v?2', 'GPL-2.0'),
+        (r'gnu\s+general\s+public\s+license\s+v?3', 'GPL-3.0'),
+        (r'gnu\s+general\s+public\s+license\s+v?2', 'GPL-2.0'),
+        (r'lgpl\s+v?3', 'LGPL-3.0'),
+        (r'lgpl\s+v?2', 'LGPL-2.1'),
+        (r'mpl\s+2\.0', 'MPL-2.0'),
+        (r'mozilla\s+public\s+license', 'MPL-2.0'),
+    ]
+    
+    for pattern, license_name in license_patterns:
+        if re.search(pattern, text_lower):
+            return license_name
+    
+    # Fallback: check if any known license name appears
+    known_licenses = ['mit', 'bsd', 'apache', 'gpl', 'lgpl', 'mpl', 'cc0', 'unlicense']
+    for license_name in known_licenses:
+        if license_name in text_lower:
+            return license_name.upper() if len(license_name) <= 4 else license_name.capitalize()
+    
+    return None
+
+
 def normalize_license(license_str: str) -> str:
     """Normalize license string to a standard format."""
     if not license_str:
@@ -386,3 +425,51 @@ def check_license_compatibility(
         "Consult legal counsel for compatibility determination"
     )
     return result
+
+
+def is_license_compatible(license: Optional[str], use_case: str = "inference") -> bool:
+    """
+    Check if a license is compatible for a given use case.
+    
+    Args:
+        license: License identifier (e.g., "MIT", "Apache-2.0", "GPL-3.0")
+        use_case: Use case to check compatibility for (default: "inference")
+    
+    Returns:
+        True if the license is compatible, False otherwise
+    """
+    if not license:
+        return False
+    
+    # Normalize the license
+    normalized = normalize_license(license)
+    
+    # Permissive licenses are generally compatible
+    permissive_licenses = [
+        "mit",
+        "bsd",
+        "apache-2",
+        "apache",
+        "mpl-2.0",
+        "mpl",
+        "lgpl-2.1",
+        "lgpl-3",
+        "cc0-1.0",
+        "cc0",
+        "unlicense",
+        "public-domain",
+    ]
+    
+    # Check if it's a permissive license
+    for perm_license in permissive_licenses:
+        if perm_license in normalized:
+            return True
+    
+    # Copyleft licenses (GPL) are restrictive but usually allow inference
+    # Fine-tuning may require compliance
+    if use_case == "inference":
+        # Most licenses allow inference/usage
+        return "gpl" not in normalized or True  # Even GPL allows running
+    
+    # For other use cases, be more restrictive
+    return False

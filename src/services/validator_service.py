@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import boto3
 import json
 import logging
+import re
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 import os
@@ -50,6 +51,38 @@ class ValidationResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     timestamp: str
+
+
+def validate_package_name(pkg_name: str) -> bool:
+    """
+    Validate package name format.
+    Package names should:
+    - Not be empty
+    - Be <= 214 characters (npm limit)
+    - Contain only lowercase letters, numbers, hyphens, and underscores
+    - Not contain spaces
+    """
+    if not pkg_name or len(pkg_name) == 0:
+        return False
+    if len(pkg_name) > 214:
+        return False
+    # Allow lowercase letters, numbers, hyphens, underscores
+    pattern = r'^[a-z0-9_-]+$'
+    return bool(re.match(pattern, pkg_name))
+
+
+def validate_semver(version: str) -> bool:
+    """
+    Validate semantic version format (semver).
+    Accepts formats like: 1.0.0, 2.1.3, 1.0.0-alpha, 1.0.0-beta.1
+    Does NOT accept: 1.0, v1.0.0, or non-numeric versions
+    """
+    if not version:
+        return False
+    # Semver pattern: major.minor.patch[-prerelease][+build]
+    # We'll accept: X.Y.Z or X.Y.Z-prerelease (no build metadata for simplicity)
+    pattern = r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$'
+    return bool(re.match(pattern, version))
 
 
 def get_package_metadata(pkg_name: str, version: str) -> Optional[Dict[str, Any]]:
