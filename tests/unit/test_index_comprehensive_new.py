@@ -391,8 +391,8 @@ class TestLinkingFunctions:
         # Should not update if no README
         mock_update.assert_not_called()
 
-    @patch("src.services.artifact_storage.find_artifacts_by_type")
-    @patch("src.services.artifact_storage.update_artifact")
+    @patch("src.index.find_artifacts_by_type")
+    @patch("src.index.update_artifact_db")
     def test_link_model_to_datasets_code_with_matches(self, mock_update, mock_find):
         """Test linking model with dataset and code matches"""
         readme = "Uses imagenet dataset and pytorch library"
@@ -408,8 +408,8 @@ class TestLinkingFunctions:
         # Should update with both dataset_id and code_id
         assert mock_update.called or mock_find.called
 
-    @patch("src.services.artifact_storage.find_models_with_null_link")
-    @patch("src.services.artifact_storage.update_artifact")
+    @patch("src.index.find_models_with_null_link")
+    @patch("src.index.update_artifact_db")
     def test_link_dataset_to_models(self, mock_update, mock_find):
         """Test linking dataset to models"""
         mock_find.return_value = [
@@ -422,8 +422,8 @@ class TestLinkingFunctions:
         # Should update model with dataset_id
         assert mock_update.called or mock_find.called
 
-    @patch("src.services.artifact_storage.find_models_with_null_link")
-    @patch("src.services.artifact_storage.update_artifact")
+    @patch("src.index.find_models_with_null_link")
+    @patch("src.index.update_artifact_db")
     def test_link_code_to_models(self, mock_update, mock_find):
         """Test linking code to models"""
         mock_find.return_value = [

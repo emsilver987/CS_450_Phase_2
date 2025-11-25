@@ -53,7 +53,7 @@ from .services.artifact_storage import (
     save_artifact,
     get_artifact as get_artifact_from_db,
     get_generic_artifact_metadata,
-    update_artifact,
+    update_artifact as update_artifact_db,
     delete_artifact,
     list_all_artifacts,
     find_artifacts_by_type,
@@ -888,7 +888,7 @@ def _link_model_to_datasets_code(artifact_id: str, model_name: str, readme_text:
         updates["code_id"] = code_id
     
     if updates:
-        update_artifact(artifact_id, updates)
+        update_artifact_db(artifact_id, updates)
 
 
 def _link_dataset_code_to_models(artifact_id: str, artifact_name: str, artifact_type: str):
@@ -917,12 +917,12 @@ def _link_dataset_code_to_models(artifact_id: str, artifact_name: str, artifact_
                     normalized_model_dataset_name.lower() in normalized_artifact_name.lower() or
                     artifact_name.lower() in model_dataset_name.lower() or 
                     model_dataset_name.lower() in artifact_name.lower()):
-                    update_artifact(model_id, {"dataset_id": artifact_id})
+                    update_artifact_db(model_id, {"dataset_id": artifact_id})
                     logger.info(f"DEBUG: Linked dataset '{artifact_name}' to model '{model_name}' (id={model_id}) via dataset_name='{model_dataset_name}'")
             else:
                 # Fallback: simple name matching if dataset_name not stored
                 if artifact_name.lower() in model_name.lower():
-                    update_artifact(model_id, {"dataset_id": artifact_id})
+                    update_artifact_db(model_id, {"dataset_id": artifact_id})
                     logger.info(f"DEBUG: Linked dataset '{artifact_name}' to model '{model_name}' (id={model_id}) via name matching")
     
     elif artifact_type == "code":
@@ -942,12 +942,12 @@ def _link_dataset_code_to_models(artifact_id: str, artifact_name: str, artifact_
                     normalized_model_code_name.lower() in normalized_artifact_name.lower() or
                     artifact_name.lower() in model_code_name.lower() or 
                     model_code_name.lower() in artifact_name.lower()):
-                    update_artifact(model_id, {"code_id": artifact_id})
+                    update_artifact_db(model_id, {"code_id": artifact_id})
                     logger.info(f"DEBUG: Linked code '{artifact_name}' to model '{model_name}' (id={model_id}) via code_name='{model_code_name}'")
             else:
                 # Fallback: simple name matching if code_name not stored
                 if artifact_name.lower() in model_name.lower():
-                    update_artifact(model_id, {"code_id": artifact_id})
+                    update_artifact_db(model_id, {"code_id": artifact_id})
                     logger.info(f"DEBUG: Linked code '{artifact_name}' to model '{model_name}' (id={model_id}) via name matching")
 
 
@@ -2692,7 +2692,7 @@ async def update_artifact(artifact_type: str, id: str, request: Request):
                         status_code=400,
                         detail="There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid. URL is required in data.",
                     )
-                update_artifact(id, {
+                update_artifact_db(id, {
                     "name": metadata.get("name", artifact.get("name", id)),
                     "type": artifact_type,
                     "id": id,
