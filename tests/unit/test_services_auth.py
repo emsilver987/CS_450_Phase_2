@@ -10,8 +10,7 @@ import jwt
 class TestAuthService:
     """Test authentication service"""
     
-    @patch('src.services.auth_service.get_users_table')
-    def test_hash_password(self, mock_table):
+    def test_hash_password(self):
         """Test password hashing"""
         from src.services.auth_service import hash_password
         
@@ -44,142 +43,159 @@ class TestAuthService:
         result = create_jwt_token(user_data)
         assert "token" in result
         assert "expires_at" in result
-        assert "remaining_uses" in result
+        assert "jti" in result
         
         # Verify token can be decoded
         token = result["token"]
-        decoded = jwt.decode(token, "test-secret", algorithms=["HS256"], options={"verify_signature": False})
+        # Use the actual JWT_SECRET from the module or decode without verification
+        decoded = jwt.decode(token, options={"verify_signature": False})
         assert decoded["user_id"] == "123"
         assert decoded["username"] == "testuser"
     
-    @patch('src.services.auth_service.get_users_table')
-    def test_create_user_success(self, mock_table):
+    @patch('src.services.auth_service.get_user_by_username')
+    @patch('src.services.auth_service.dynamodb')
+    def test_create_user_success(self, mock_dynamodb, mock_get_user):
         """Test creating a user successfully"""
-        from src.services.auth_service import create_user
+        from src.services.auth_service import create_user, UserRegistration
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {}  # User doesn't exist
+        mock_get_user.return_value = None  # User doesn't exist
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
         
-        result = create_user("testuser", "password123", roles=["user"])
+        user_data = UserRegistration(
+            username="testuser",
+            password="password123",
+            roles=["user"]
+        )
+        result = create_user(user_data)
         assert result is not None
         assert result["username"] == "testuser"
     
-    @patch('src.services.auth_service.get_users_table')
-    def test_create_user_already_exists(self, mock_table):
+    @patch('src.services.auth_service.get_user_by_username')
+    def test_create_user_already_exists(self, mock_get_user):
         """Test creating a user that already exists"""
-        from src.services.auth_service import create_user
+        from src.services.auth_service import create_user, UserRegistration
+        from fastapi import HTTPException
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {
-            "Item": {"username": "testuser"}
-        }
+        mock_get_user.return_value = {"username": "testuser"}  # User exists
         
-        result = create_user("testuser", "password123")
-        assert result is None
+        user_data = UserRegistration(
+            username="testuser",
+            password="password123"
+        )
+        
+        with pytest.raises(HTTPException) as exc_info:
+            create_user(user_data)
+        assert exc_info.value.status_code == 409
     
-    @patch('src.services.auth_service.get_users_table')
-    def test_get_user_by_username(self, mock_table):
+    @patch('src.services.auth_service.dynamodb')
+    def test_get_user_by_username(self, mock_dynamodb):
         """Test getting user by username"""
         from src.services.auth_service import get_user_by_username
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {
-            "Item": {
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+        mock_table.query.return_value = {
+            "Items": [{
                 "user_id": "123",
                 "username": "testuser",
                 "password_hash": "hashed",
                 "roles": ["user"]
-            }
+            }]
         }
         
         result = get_user_by_username("testuser")
         assert result is not None
         assert result["username"] == "testuser"
     
-    @patch('src.services.auth_service.get_users_table')
-    def test_get_user_by_username_not_found(self, mock_table):
+    @patch('src.services.auth_service.dynamodb')
+    def test_get_user_by_username_not_found(self, mock_dynamodb):
         """Test getting non-existent user"""
         from src.services.auth_service import get_user_by_username
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {}
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+        mock_table.query.return_value = {"Items": []}
+        mock_table.scan.return_value = {"Items": []}
         
         result = get_user_by_username("nonexistent")
         assert result is None
     
-    @patch('src.services.auth_service.get_users_table')
+    @patch('src.services.auth_service.get_user_by_username')
     @patch('src.services.auth_service.verify_password')
-    def test_authenticate_user_success(self, mock_verify, mock_table):
+    def test_authenticate_user_success(self, mock_verify, mock_get_user):
         """Test authenticating a user successfully"""
         from src.services.auth_service import authenticate_user
         
         mock_verify.return_value = True
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {
-            "Item": {
-                "user_id": "123",
-                "username": "testuser",
-                "password_hash": "hashed",
-                "roles": ["user"],
-                "groups": ["group1"]
-            }
+        mock_get_user.return_value = {
+            "user_id": "123",
+            "username": "testuser",
+            "password_hash": "hashed",
+            "roles": ["user"],
+            "groups": ["group1"]
         }
         
         result = authenticate_user("testuser", "password123")
         assert result is not None
         assert result["username"] == "testuser"
     
-    @patch('src.services.auth_service.get_users_table')
+    @patch('src.services.auth_service.get_user_by_username')
     @patch('src.services.auth_service.verify_password')
-    def test_authenticate_user_wrong_password(self, mock_verify, mock_table):
+    def test_authenticate_user_wrong_password(self, mock_verify, mock_get_user):
         """Test authenticating with wrong password"""
         from src.services.auth_service import authenticate_user
         
         mock_verify.return_value = False
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {
-            "Item": {
-                "user_id": "123",
-                "username": "testuser",
-                "password_hash": "hashed"
-            }
+        mock_get_user.return_value = {
+            "user_id": "123",
+            "username": "testuser",
+            "password_hash": "hashed"
         }
         
         result = authenticate_user("testuser", "wrong-password")
         assert result is None
     
-    @patch('src.services.auth_service.get_tokens_table')
-    def test_store_token(self, mock_table):
+    @patch('src.services.auth_service.get_user_by_username')
+    def test_authenticate_user_not_found(self, mock_get_user):
+        """Test authenticating with non-existent user"""
+        from src.services.auth_service import authenticate_user
+        
+        mock_get_user.return_value = None
+        
+        result = authenticate_user("nonexistent", "password")
+        assert result is None
+    
+    @patch('src.services.auth_service.dynamodb')
+    def test_store_token(self, mock_dynamodb):
         """Test storing a token"""
         from src.services.auth_service import store_token
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
         
-        token_data = {
-            "token_id": "token123",
+        token_id = "token123"
+        user_data = {
             "user_id": "123",
-            "token": "jwt-token",
-            "expires_at": datetime.now(timezone.utc).isoformat()
+            "username": "testuser",
+            "roles": ["user"],
+            "groups": ["group1"]
         }
+        token = "jwt-token"
+        expires_at = datetime.now(timezone.utc)
         
-        result = store_token(token_data)
-        assert result is True
-        mock_table_instance.put_item.assert_called_once()
+        store_token(token_id, user_data, token, expires_at)
+        mock_table.put_item.assert_called_once()
     
-    @patch('src.services.auth_service.get_tokens_table')
-    def test_verify_jwt_token_valid(self, mock_table):
+    def test_verify_jwt_token_valid(self):
         """Test verifying a valid JWT token"""
+        import src.services.auth_service as auth_module
         from src.services.auth_service import verify_jwt_token
         
+        # Get the actual secret from the module
+        secret = auth_module.JWT_SECRET
+        
         # Create a valid token
-        secret = "test-secret"
         payload = {
             "user_id": "123",
             "username": "testuser",
@@ -187,35 +203,25 @@ class TestAuthService:
         }
         token = jwt.encode(payload, secret, algorithm="HS256")
         
-        mock_table_instance = MagicMock()
-        mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {
-            "Item": {
-                "token_id": "token123",
-                "user_id": "123",
-                "remaining_uses": 10
-            }
-        }
-        
-        with patch('src.services.auth_service.JWT_SECRET', secret):
-            result = verify_jwt_token(token)
-            assert result is not None
-            assert result["user_id"] == "123"
+        result = verify_jwt_token(token)
+        assert result is not None
+        assert result["user_id"] == "123"
     
-    @patch('src.services.auth_service.get_tokens_table')
-    def test_verify_jwt_token_expired(self, mock_table):
+    def test_verify_jwt_token_expired(self):
         """Test verifying an expired JWT token"""
+        import src.services.auth_service as auth_module
         from src.services.auth_service import verify_jwt_token
         
+        # Get the actual secret from the module
+        secret = auth_module.JWT_SECRET
+        
         # Create an expired token
-        secret = "test-secret"
         payload = {
             "user_id": "123",
             "exp": int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp())
         }
         token = jwt.encode(payload, secret, algorithm="HS256")
         
-        with patch('src.services.auth_service.JWT_SECRET', secret):
-            result = verify_jwt_token(token)
-            assert result is None
+        result = verify_jwt_token(token)
+        assert result is None
 
