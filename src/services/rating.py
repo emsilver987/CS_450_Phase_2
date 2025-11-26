@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from ..services.s3_service import download_model
+from ..services.s3_service import (
+    download_model,
+    list_models,
+    download_from_huggingface,
+    extract_config_from_model,
+)
 from ..acmecli.metrics import METRIC_FUNCTIONS
 from ..acmecli.types import MetricValue
 from ..acmecli.scoring import compute_net_score
@@ -41,13 +46,6 @@ def analyze_model_content(
     target: str, suppress_errors: bool = False
 ) -> Optional[Dict[str, Any]]:
     try:
-        from ..services.s3_service import (
-            extract_config_from_model,
-            download_from_huggingface,
-            download_model,
-            list_models,
-        )
-        from fastapi import HTTPException
         import re
 
         model_content = None
