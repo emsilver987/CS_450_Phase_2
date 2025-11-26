@@ -310,8 +310,10 @@ def normalize_name(name: str) -> str:
     """Normalize artifact name by removing special characters and converting to lowercase"""
     if not name:
         return ""
+    # Replace slashes with hyphens first, then remove other special characters
+    normalized = name.lower().replace('/', '-')
     # Remove special characters but keep alphanumeric, hyphens, underscores
-    normalized = re.sub(r'[^a-zA-Z0-9\-_]', '', name.lower())
+    normalized = re.sub(r'[^a-zA-Z0-9\-_]', '', normalized)
     return normalized
 
 
