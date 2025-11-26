@@ -561,12 +561,26 @@ def _get_model_name_for_s3(artifact_id: str) -> Optional[str]:
     Models are stored in S3 by name (sanitized), not by artifact_id.
     
     Args:
-        artifact_id: The artifact ID to look up
+        artifact_id: The artifact ID to look up (can be a URL, name, or database ID)
         
     Returns:
         Sanitized model name for S3, or None if not found
     """
     try:
+        # If it's a HuggingFace URL, extract and return the name directly
+        if "huggingface.co/" in artifact_id:
+            # Extract user/model from URL
+            name = (
+                artifact_id.replace("https://huggingface.co/", "")
+                .replace("http://huggingface.co/", "")
+            )
+            # Return as-is without sanitizing slashes for direct URL input
+            return name
+        
+        # If it already looks like a name (contains /), return it
+        if "/" in artifact_id and not artifact_id.startswith("http"):
+            return artifact_id
+        
         # Try to get artifact from database
         artifact = get_generic_artifact_metadata("model", artifact_id)
         if not artifact:
