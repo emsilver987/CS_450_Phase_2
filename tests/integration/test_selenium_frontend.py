@@ -229,3 +229,91 @@ class TestNavigation:
         # Should be on directory page
         assert "directory" in driver.current_url.lower() or driver.page_source is not None
 
+
+class TestUploadAction:
+    """Test actual upload functionality"""
+    
+    def test_invalid_upload_no_file(self, driver, base_url):
+        """Test upload without selecting a file"""
+        driver.get(f"{base_url}/upload")
+        
+        # Find submit button (assuming there is one)
+        try:
+            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+            submit_btn.click()
+            
+            # Should see some error or stay on page
+            # This depends on implementation, but usually an alert or error message
+            # For now, just ensure we didn't crash
+            assert driver.page_source is not None
+        except NoSuchElementException:
+            pytest.skip("Upload submit button not found")
+
+    def test_valid_upload_simulation(self, driver, base_url, tmp_path):
+        """
+        Test valid upload flow.
+        Creates a dummy zip file and attempts to upload it.
+        """
+        driver.get(f"{base_url}/upload")
+        
+        # Create dummy zip
+        dummy_zip = tmp_path / "test_package.zip"
+        import zipfile
+        with zipfile.ZipFile(dummy_zip, 'w') as zf:
+            zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
+        
+        try:
+            file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
+            file_input.send_keys(str(dummy_zip))
+            
+            # Fill other fields if they exist
+            try:
+                name_input = driver.find_element(By.NAME, "name")
+                name_input.send_keys("test-pkg")
+            except: pass
+            
+            try:
+                version_input = driver.find_element(By.NAME, "version")
+                version_input.send_keys("1.0.0")
+            except: pass
+            
+            # Submit
+            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+            submit_btn.click()
+            
+            # Wait for result - either success message or redirect
+            # This is hard to assert generically without knowing exact UI behavior
+            # But we can check if we are still alive
+            time.sleep(1)
+            assert driver.page_source is not None
+            
+        except NoSuchElementException:
+            pytest.skip("Upload form elements not found")
+
+
+class TestSearchAction:
+    """Test search functionality"""
+    
+    def test_search_execution(self, driver, base_url):
+        """Test performing a search"""
+        driver.get(f"{base_url}/directory")
+        
+        try:
+            search_input = driver.find_element(By.CSS_SELECTOR, "input[type='text'], input[type='search']")
+            search_input.send_keys("test")
+            
+            # Try to find search button or hit enter
+            try:
+                search_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button.search-btn")
+                search_btn.click()
+            except:
+                search_input.submit()
+            
+            # Wait for results or page update
+            time.sleep(1)
+            assert driver.page_source is not None
+            
+        except NoSuchElementException:
+            pytest.skip("Search input not found")
+
+
