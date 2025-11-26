@@ -76,7 +76,16 @@ class TestValidatorService:
     def test_get_validator_script_exception(self, mock_s3):
         """Test getting validator script with exception"""
         from src.services.validator_service import get_validator_script
+        from botocore.exceptions import ClientError
         
+        # The code tries to catch s3.exceptions.NoSuchKey, but this doesn't exist
+        # We need to mock it as a proper exception class
+        class NoSuchKeyException(Exception):
+            pass
+        mock_s3.exceptions = MagicMock()
+        mock_s3.exceptions.NoSuchKey = NoSuchKeyException
+        
+        # Use generic Exception which will be caught by the second except clause
         mock_s3.get_object.side_effect = Exception("S3 error")
         
         result = get_validator_script("test-pkg", "1.0.0")
@@ -152,6 +161,7 @@ class TestValidatorService:
         mock_queue.empty.return_value = True
         
         mock_process = MagicMock()
+        # After join, is_alive should return True to simulate timeout
         mock_process.is_alive.return_value = True
         mock_process.join.return_value = None
         mock_process.terminate.return_value = None
@@ -163,7 +173,8 @@ class TestValidatorService:
         
         result = execute_validator(script, data)
         assert result["valid"] is False
-        assert "timeout" in result["error"].lower()
+        # Error message contains "timed out" or "timeout"
+        assert "timed out" in result["error"].lower() or "timeout" in result["error"].lower()
 
     @patch('src.services.validator_service.dynamodb')
     def test_log_download_event_success(self, mock_dynamodb):
@@ -198,16 +209,16 @@ class TestValidatorService:
 class TestValidatorServiceEndpoints:
     """Test validator service API endpoints"""
 
+    @pytest.mark.asyncio
     @patch('boto3.resource')
     @patch('boto3.client')
-    def test_health_check(self, mock_client, mock_resource):
+    async def test_health_check(self, mock_client, mock_resource):
         """Test health check endpoint"""
-        with patch('src.services.validator_service.app') as mock_app:
-            from src.services.validator_service import health_check
-            
-            result = health_check()
-            assert result.status == "healthy"
-            assert "timestamp" in result.dict()
+        from src.services.validator_service import health_check
+        
+        result = await health_check()
+        assert result.status == "healthy"
+        assert "timestamp" in result.dict()
 
     @pytest.mark.asyncio
     @patch('src.services.validator_service.get_package_metadata')
