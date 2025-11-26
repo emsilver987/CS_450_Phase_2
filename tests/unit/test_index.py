@@ -659,3 +659,558 @@ class TestCheckModelLicense:
                             json={"github_url": "https://github.com/nonexistent/repo"}
                         )
                         assert response.status_code == 404
+
+
+class TestIndexHelperFunctions:
+    """Tests for helper functions in index.py"""
+
+    def test_extract_dataset_code_names_from_readme(self):
+        """Test extracting dataset and code names from README"""
+        from src.index import _extract_dataset_code_names_from_readme
+
+        readme = """
+        This model uses the dataset: imagenet
+        Built with library: pytorch
+        """
+        result = _extract_dataset_code_names_from_readme(readme)
+        assert "dataset_name" in result
+        assert "code_name" in result
+
+    def test_extract_dataset_code_names_empty(self):
+        """Test extracting from empty README"""
+        from src.index import _extract_dataset_code_names_from_readme
+
+        result = _extract_dataset_code_names_from_readme("")
+        assert result["dataset_name"] is None
+        assert result["code_name"] is None
+
+    def test_extract_dataset_code_names_with_patterns(self):
+        """Test extracting with various patterns"""
+        from src.index import _extract_dataset_code_names_from_readme
+
+        readme = "Trained on coco dataset. Uses tensorflow library."
+        result = _extract_dataset_code_names_from_readme(readme)
+        assert result["dataset_name"] is not None or result["code_name"] is not None
+
+    def test_get_model_name_for_s3(self):
+        """Test getting model name for S3 lookup"""
+        from src.index import _get_model_name_for_s3
+
+        with patch("src.index.get_artifact_from_db") as mock_get:
+            mock_get.return_value = {"name": "test-model", "type": "model"}
+            result = _get_model_name_for_s3("test-id")
+            assert result == "test-model"
+
+    def test_get_model_name_for_s3_not_found(self):
+        """Test getting model name when not found"""
+        from src.index import _get_model_name_for_s3
+
+        with patch("src.index.get_artifact_from_db", return_value=None):
+            result = _get_model_name_for_s3("nonexistent")
+            assert result is None
+
+    def test_extract_size_scores_dict(self):
+        """Test extracting size scores from dict"""
+        from src.index import _extract_size_scores
+
+        rating = {
+            "size_score": {
+                "raspberry_pi": 0.5,
+                "jetson_nano": 0.6,
+                "desktop_pc": 0.7,
+                "aws_server": 0.8
+            }
+        }
+        result = _extract_size_scores(rating)
+        assert result["raspberry_pi"] == 0.5
+        assert result["jetson_nano"] == 0.6
+
+    def test_extract_size_scores_not_dict(self):
+        """Test extracting size scores when not a dict"""
+        from src.index import _extract_size_scores
+
+        rating = {"size_score": 0.5}
+        result = _extract_size_scores(rating)
+        assert result["raspberry_pi"] == 0.0
+        assert result["jetson_nano"] == 0.0
+
+    def test_extract_size_scores_missing(self):
+        """Test extracting size scores when missing"""
+        from src.index import _extract_size_scores
+
+        rating = {}
+        result = _extract_size_scores(rating)
+        assert result["raspberry_pi"] == 0.0
+
+    def test_get_tracks(self):
+        """Test GET /tracks endpoint"""
+        response = client.get("/tracks")
+        assert response.status_code == 200
+        data = response.json()
+        assert "plannedTracks" in data
+        assert isinstance(data["plannedTracks"], list)
+
+    def test_get_package_alias(self, mock_auth):
+        """Test GET /package/{id} alias endpoint"""
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            mock_get.return_value = {
+                "name": "test-model",
+                "id": "test-id",
+                "type": "model",
+                "url": "https://huggingface.co/test-model",
+                "version": "main"
+            }
+            response = client.get("/package/test-id")
+            assert response.status_code == 200
+
+    def test_reset_system_no_auth(self):
+        """Test reset system without auth"""
+        with patch("src.index.verify_auth_token", return_value=False):
+            response = client.delete("/reset")
+            assert response.status_code == 403
+
+    def test_reset_system_not_admin(self, mock_auth):
+        """Test reset system without admin permissions"""
+        with patch("src.index.verify_jwt_token") as mock_verify:
+            mock_verify.return_value = {"username": "regular_user"}
+            response = client.delete("/reset", headers={"Authorization": "Bearer token"})
+            assert response.status_code == 401
+
+    def test_reset_system_admin(self, mock_auth):
+        """Test reset system with admin permissions"""
+        with patch("src.index.verify_jwt_token") as mock_verify:
+            with patch("src.index.clear_all_artifacts") as mock_clear:
+                with patch("src.index.reset_registry") as mock_reset:
+                    with patch("src.index.purge_tokens") as mock_purge:
+                        with patch("src.index.ensure_default_admin") as mock_admin:
+                            mock_verify.return_value = {
+                                "username": "ece30861defaultadminuser"
+                            }
+                            mock_reset.return_value = {"message": "Reset successful"}
+                            response = client.delete(
+                                "/reset",
+                                headers={"Authorization": "Bearer admin-token"}
+                            )
+                            assert response.status_code == 200
+
+    def test_link_model_to_datasets_code(self):
+        """Test linking model to datasets and code"""
+        from src.index import _link_model_to_datasets_code
+
+        with patch("src.index._extract_dataset_code_names_from_readme") as mock_extract:
+            with patch("src.index.find_artifacts_by_type") as mock_find:
+                with patch("src.index.update_artifact") as mock_update:
+                    mock_extract.return_value = {
+                        "dataset_name": "test-dataset",
+                        "code_name": "test-code"
+                    }
+                    mock_find.return_value = [
+                        {"id": "dataset-id", "name": "test-dataset", "type": "dataset"},
+                        {"id": "code-id", "name": "test-code", "type": "code"}
+                    ]
+                    _link_model_to_datasets_code(
+                        "model-id", "test-model", "README with dataset and code"
+                    )
+                    mock_update.assert_called()
+
+    def test_link_dataset_code_to_models(self):
+        """Test linking dataset/code to models"""
+        from src.index import _link_dataset_code_to_models
+
+        with patch("src.index.find_models_with_null_link") as mock_find:
+            with patch("src.index.update_artifact") as mock_update:
+                mock_find.return_value = [
+                    {"id": "model-id", "name": "test-model", "dataset_name": "test-dataset"}
+                ]
+                _link_dataset_code_to_models("dataset-id", "test-dataset", "dataset")
+                mock_update.assert_called()
+
+    def test_link_dataset_code_to_models_invalid_type(self):
+        """Test linking with invalid artifact type"""
+        from src.index import _link_dataset_code_to_models
+
+        with patch("src.index.find_models_with_null_link") as mock_find:
+            _link_dataset_code_to_models("artifact-id", "test-name", "invalid")
+            mock_find.assert_not_called()
+
+    def test_sanitize_model_id_for_s3(self):
+        """Test sanitizing model ID for S3"""
+        from src.index import sanitize_model_id_for_s3
+
+        result = sanitize_model_id_for_s3("test/model:name")
+        assert "/" not in result
+        assert ":" not in result
+
+    def test_sanitize_model_id_for_s3_huggingface_url(self):
+        """Test sanitizing HuggingFace URL"""
+        from src.index import sanitize_model_id_for_s3
+
+        result = sanitize_model_id_for_s3("https://huggingface.co/test/model")
+        assert "https://" not in result
+        assert "/" not in result
+
+    def test_generate_download_url(self):
+        """Test generating download URL"""
+        from src.index import generate_download_url
+
+        url = generate_download_url("test-model", "model", "1.0.0")
+        assert "test-model" in url
+        assert "1.0.0" in url
+
+    def test_build_artifact_response(self):
+        """Test building artifact response"""
+        from src.index import build_artifact_response
+
+        response = build_artifact_response(
+            "test-model", "test-id", "model", "https://example.com", "1.0.0"
+        )
+        assert response["metadata"]["name"] == "test-model"
+        assert response["metadata"]["id"] == "test-id"
+        assert response["metadata"]["type"] == "model"
+
+    def test_run_async_rating_success(self):
+        """Test async rating success"""
+        from src.index import _run_async_rating
+
+        with patch("src.index.analyze_model_content") as mock_analyze:
+            mock_analyze.return_value = {"net_score": 0.8}
+            _run_async_rating("test-id", "test-model", "1.0.0")
+            # Check that status was set
+            from src.index import _rating_status
+            assert "test-id" in _rating_status
+
+    def test_run_async_rating_failed(self):
+        """Test async rating failure"""
+        from src.index import _run_async_rating
+
+        with patch("src.index.analyze_model_content", return_value=None):
+            _run_async_rating("test-id-2", "test-model", "1.0.0")
+            from src.index import _rating_status
+            assert _rating_status.get("test-id-2") == "failed"
+
+    def test_run_async_rating_disqualified(self):
+        """Test async rating disqualified"""
+        from src.index import _run_async_rating
+
+        with patch("src.index.analyze_model_content") as mock_analyze:
+            mock_analyze.return_value = {"net_score": 0.3}  # Below 0.5 threshold
+            _run_async_rating("test-id-3", "test-model", "1.0.0")
+            from src.index import _rating_status
+            assert _rating_status.get("test-id-3") == "disqualified"
+
+    def test_health_components_invalid_window(self):
+        """Test health components with invalid window"""
+        response = client.get("/health/components?windowMinutes=3")
+        assert response.status_code == 400
+
+    def test_health_components_with_timeline(self):
+        """Test health components with timeline"""
+        response = client.get("/health/components?windowMinutes=60&includeTimeline=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert "timeline" in data["components"][0]
+
+    def test_verify_auth_token_static_token(self):
+        """Test verify_auth_token with static token"""
+        from src.index import verify_auth_token
+        from fastapi import Request
+        from unittest.mock import MagicMock
+
+        request = MagicMock(spec=Request)
+        request.headers.get.side_effect = lambda key, default=None: {
+            "x-authorization": "Bearer test-static-token",
+            "authorization": None
+        }.get(key.lower(), default)
+        
+        with patch("src.services.auth_public.STATIC_TOKEN", "test-static-token"):
+            result = verify_auth_token(request)
+            assert result is True
+
+    def test_verify_auth_token_invalid_jwt(self):
+        """Test verify_auth_token with invalid JWT"""
+        from src.index import verify_auth_token
+        from fastapi import Request
+        from unittest.mock import MagicMock
+
+        request = MagicMock(spec=Request)
+        request.headers.get.return_value = "Bearer invalid.jwt.token"
+        
+        with patch("src.index.verify_jwt_token", return_value=None):
+            result = verify_auth_token(request)
+            assert result is False
+
+    def test_verify_auth_token_no_header(self):
+        """Test verify_auth_token with no header"""
+        from src.index import verify_auth_token
+        from fastapi import Request
+        from unittest.mock import MagicMock
+
+        request = MagicMock(spec=Request)
+        request.headers.get.return_value = None
+        
+        result = verify_auth_token(request)
+        assert result is False
+
+    def test_get_artifact_cost_with_dependency(self, mock_auth):
+        """Test get artifact cost with dependency=true"""
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            with patch("src.index.get_model_sizes") as mock_sizes:
+                with patch("src.index.get_model_lineage_from_config") as mock_lineage:
+                    mock_get.return_value = {"type": "model", "id": "test-id"}
+                    mock_sizes.return_value = {"full": 1024 * 1024}
+                    mock_lineage.return_value = {"lineage_map": {}}
+                    response = client.get("/artifact/model/test-id/cost?dependency=true")
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert "test-id" in data
+
+    def test_get_artifact_cost_dataset(self, mock_auth):
+        """Test get artifact cost for dataset"""
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            mock_get.return_value = {"type": "dataset", "id": "test-dataset-id"}
+            response = client.get("/artifact/dataset/test-dataset-id/cost")
+            assert response.status_code == 200
+            data = response.json()
+            assert "test-dataset-id" in data
+
+    def test_get_artifact_audit_dataset(self, mock_auth):
+        """Test get artifact audit for dataset"""
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            mock_get.return_value = {
+                "type": "dataset",
+                "id": "test-dataset-id",
+                "name": "test-dataset"
+            }
+            response = client.get("/artifact/dataset/test-dataset-id/audit")
+            assert response.status_code == 200
+            data = response.json()
+            assert isinstance(data, list)
+            assert len(data) > 0
+
+    def test_get_model_rate_invalid_id(self, mock_auth):
+        """Test get model rate with invalid ID format"""
+        response = client.get("/artifact/model/{id}/rate")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["net_score"] == 0.0
+
+    def test_get_model_rate_pending_status(self, mock_auth):
+        """Test get model rate with pending status"""
+        from src.index import _rating_status, _rating_locks, _rating_results
+        import threading
+
+        _rating_status["test-id-pending"] = "pending"
+        _rating_locks["test-id-pending"] = threading.Event()
+        _rating_locks["test-id-pending"].set()  # Signal immediately
+        # Set status to completed after wait
+        _rating_status["test-id-pending"] = "completed"
+        _rating_results["test-id-pending"] = {"net_score": 0.8}
+
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            mock_get.return_value = {"type": "model", "id": "test-id-pending", "name": "test-model"}
+            response = client.get("/artifact/model/test-id-pending/rate")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["net_score"] == 0.8
+
+    def test_get_model_lineage_with_dependencies(self, mock_auth):
+        """Test get model lineage with dependencies"""
+        with patch("src.index.get_generic_artifact_metadata") as mock_get:
+            with patch("src.index.get_model_lineage_from_config") as mock_lineage:
+                mock_get.return_value = {"type": "model", "id": "test-id"}
+                mock_lineage.return_value = {
+                    "lineage_map": {
+                        "parent-1": {
+                            "name": "Parent Model",
+                            "dependencies": [{"id": "dep-1"}]
+                        }
+                    }
+                }
+                response = client.get("/artifact/model/test-id/lineage")
+                assert response.status_code == 200
+                data = response.json()
+                assert "nodes" in data
+                assert "edges" in data
+
+
+class TestCreateArtifactByType:
+    """Tests for POST /artifact/{artifact_type}"""
+
+    def test_create_artifact_no_auth(self):
+        """Test create artifact without auth"""
+        with patch("src.index.verify_auth_token", return_value=False):
+            response = client.post("/artifact/model", json={"url": "https://huggingface.co/test/model"})
+            assert response.status_code == 403
+
+    def test_create_artifact_invalid_type(self, mock_auth):
+        """Test create artifact with invalid type"""
+        response = client.post("/artifact/invalid", json={"url": "https://example.com/test"})
+        assert response.status_code == 400
+
+    def test_create_artifact_missing_url(self, mock_auth):
+        """Test create artifact without URL"""
+        response = client.post("/artifact/model", json={})
+        assert response.status_code == 400
+
+    def test_create_artifact_dataset_success(self, mock_auth):
+        """Test create dataset artifact"""
+        with patch("src.index._artifact_storage", {}) as mock_storage:
+            with patch("src.index.list_all_artifacts", return_value=[]):
+                with patch("src.index.save_artifact") as mock_save:
+                    with patch("src.index._link_dataset_code_to_models"):
+                        with patch("src.index.store_artifact_metadata"):
+                            response = client.post(
+                                "/artifact/dataset",
+                                json={"url": "https://example.com/dataset", "name": "test-dataset"}
+                            )
+                            assert response.status_code == 201
+                            data = response.json()
+                            assert data["metadata"]["type"] == "dataset"
+
+    def test_create_artifact_code_success(self, mock_auth):
+        """Test create code artifact"""
+        with patch("src.index._artifact_storage", {}) as mock_storage:
+            with patch("src.index.list_all_artifacts", return_value=[]):
+                with patch("src.index.save_artifact") as mock_save:
+                    with patch("src.index._link_dataset_code_to_models"):
+                        with patch("src.index.store_artifact_metadata"):
+                            response = client.post(
+                                "/artifact/code",
+                                json={"url": "https://github.com/test/repo", "name": "test-code"}
+                            )
+                            assert response.status_code == 201
+                            data = response.json()
+                            assert data["metadata"]["type"] == "code"
+
+    def test_create_artifact_model_exists(self, mock_auth):
+        """Test create model that already exists"""
+        with patch("src.index.list_models") as mock_list:
+            mock_list.return_value = {"models": [{"name": "test-model", "id": "test-id"}]}
+            response = client.post(
+                "/artifact/model",
+                json={"url": "https://huggingface.co/test/model"}
+            )
+            assert response.status_code == 409
+
+    def test_create_artifact_dataset_exists(self, mock_auth):
+        """Test create dataset that already exists"""
+        with patch("src.index._artifact_storage", {"existing-id": {"name": "test-dataset", "type": "dataset", "url": "https://example.com/dataset"}}):
+            with patch("src.index.list_all_artifacts", return_value=[{"id": "existing-id", "name": "test-dataset", "type": "dataset", "url": "https://example.com/dataset"}]):
+                response = client.post(
+                    "/artifact/dataset",
+                    json={"url": "https://example.com/dataset", "name": "test-dataset"}
+                )
+                assert response.status_code == 409
+
+
+class TestUpdateArtifact:
+    """Tests for PUT /artifacts/{artifact_type}/{id}"""
+
+    def test_update_artifact_no_auth(self):
+        """Test update artifact without auth"""
+        with patch("src.index.verify_auth_token", return_value=False):
+            response = client.put(
+                "/artifacts/model/test-id",
+                json={"metadata": {"id": "test-id", "name": "test"}, "data": {"url": "https://example.com"}}
+            )
+            assert response.status_code == 403
+
+    def test_update_artifact_missing_fields(self, mock_auth):
+        """Test update artifact with missing fields"""
+        response = client.put("/artifacts/model/test-id", json={})
+        assert response.status_code == 400
+
+    def test_update_artifact_id_mismatch(self, mock_auth):
+        """Test update artifact with ID mismatch"""
+        response = client.put(
+            "/artifacts/model/test-id",
+            json={"metadata": {"id": "other-id", "name": "test"}, "data": {"url": "https://example.com"}}
+        )
+        assert response.status_code == 400
+
+    def test_update_artifact_model_not_found(self, mock_auth):
+        """Test update model that doesn't exist"""
+        with patch("src.index.get_artifact_from_db", return_value=None):
+            with patch("src.index._get_model_name_for_s3", return_value=None):
+                with patch("src.index.s3") as mock_s3:
+                    from botocore.exceptions import ClientError
+                    error_response = {"Error": {"Code": "NoSuchKey"}}
+                    mock_s3.head_object.side_effect = ClientError(error_response, "HeadObject")
+                    with patch("src.index.list_models", return_value={"models": []}):
+                        response = client.put(
+                            "/artifacts/model/nonexistent",
+                            json={"metadata": {"id": "nonexistent", "name": "test"}, "data": {"url": "https://example.com"}}
+                        )
+                        assert response.status_code == 404
+
+    def test_update_artifact_dataset_success(self, mock_auth):
+        """Test update dataset artifact"""
+        with patch("src.index.get_artifact_from_db") as mock_get:
+            with patch("src.index.update_artifact") as mock_update:
+                mock_get.return_value = {"type": "dataset", "id": "test-id"}
+                response = client.put(
+                    "/artifacts/dataset/test-id",
+                    json={"metadata": {"id": "test-id", "name": "updated"}, "data": {"url": "https://example.com/new"}}
+                )
+                assert response.status_code == 200
+                mock_update.assert_called()
+
+    def test_update_artifact_missing_url(self, mock_auth):
+        """Test update artifact without URL"""
+        with patch("src.index.get_artifact_from_db") as mock_get:
+            mock_get.return_value = {"type": "model", "id": "test-id"}
+            response = client.put(
+                "/artifacts/model/test-id",
+                json={"metadata": {"id": "test-id", "name": "test"}, "data": {}}
+            )
+            assert response.status_code == 400
+
+
+class TestDeleteArtifact:
+    """Tests for DELETE /artifacts/{artifact_type}/{id}"""
+
+    def test_delete_artifact_no_auth(self):
+        """Test delete artifact without auth"""
+        with patch("src.index.verify_auth_token", return_value=False):
+            response = client.delete("/artifacts/model/test-id")
+            assert response.status_code == 403
+
+    def test_delete_artifact_dataset_success(self, mock_auth):
+        """Test delete dataset artifact"""
+        with patch("src.index.get_artifact_from_db") as mock_get:
+            with patch("src.index.delete_artifact") as mock_delete:
+                with patch("src.index._artifact_storage", {"test-id": {"type": "dataset"}}) as mock_storage:
+                    mock_get.return_value = {"type": "dataset", "id": "test-id"}
+                    response = client.delete("/artifacts/dataset/test-id")
+                    assert response.status_code == 200
+                    mock_delete.assert_called()
+
+    def test_delete_artifact_model_not_found(self, mock_auth):
+        """Test delete model that doesn't exist"""
+        with patch("src.index.get_artifact_from_db", return_value=None):
+            with patch("src.index.s3") as mock_s3:
+                from botocore.exceptions import ClientError
+                error_response = {"Error": {"Code": "NoSuchKey"}}
+                mock_s3.head_object.side_effect = ClientError(error_response, "HeadObject")
+                with patch("src.index.list_models", return_value={"models": []}):
+                    response = client.delete("/artifacts/model/nonexistent")
+                    assert response.status_code == 404
+
+    def test_delete_artifact_code_success(self, mock_auth):
+        """Test delete code artifact"""
+        with patch("src.index.get_artifact_from_db") as mock_get:
+            with patch("src.index.delete_artifact") as mock_delete:
+                with patch("src.index._artifact_storage", {"test-id": {"type": "code"}}) as mock_storage:
+                    mock_get.return_value = {"type": "code", "id": "test-id"}
+                    response = client.delete("/artifacts/code/test-id")
+                    assert response.status_code == 200
+                    mock_delete.assert_called()
+
+    def test_delete_artifact_model_s3_success(self, mock_auth):
+        """Test delete model from S3"""
+        with patch("src.index.get_artifact_from_db", return_value=None):
+            with patch("src.index.s3") as mock_s3:
+                mock_s3.head_object.return_value = {}  # Model exists
+                mock_s3.delete_object.return_value = {}
+                response = client.delete("/artifacts/model/test-id")
+                assert response.status_code == 200

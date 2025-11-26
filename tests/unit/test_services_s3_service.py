@@ -653,3 +653,148 @@ class TestS3ServiceWithMocks:
         assert extract_github_url_from_zip(None) is None
         assert extract_github_url_from_zip(b"") is None
 
+    def test_search_model_card_content_cached(self):
+        """Test search_model_card_content with cached content"""
+        from src.services.s3_service import clear_model_card_cache
+        
+        clear_model_card_cache()
+        cache_key = "test-model@1.0.0"
+        from src.services.s3_service import _model_card_cache
+        _model_card_cache[cache_key] = ["content with pattern"]
+        
+        result = search_model_card_content("test-model", "1.0.0", "pattern")
+        assert result is True
+
+    def test_search_model_card_content_filename_match(self):
+        """Test search_model_card_content matching filename"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.head_object.return_value = {"ContentLength": 100000}
+                    mock_s3.get_object.return_value = {
+                        "Body": MagicMock(read=lambda: b"fake zip")
+                    }
+                    result = search_model_card_content("test-model", "1.0.0", "readme.md")
+                    assert isinstance(result, bool)
+
+    def test_extract_github_url_from_text_html_link(self):
+        """Test extracting GitHub URL from HTML link"""
+        text = '<a href="https://github.com/owner/repo">Click here</a>'
+        result = extract_github_url_from_text(text)
+        assert result == "https://github.com/owner/repo"
+
+    def test_extract_github_url_from_text_markdown_link(self):
+        """Test extracting GitHub URL from markdown link"""
+        text = '[Click here](https://github.com/owner/repo)'
+        result = extract_github_url_from_text(text)
+        assert result == "https://github.com/owner/repo"
+
+    def test_extract_github_url_from_text_plain_url(self):
+        """Test extracting GitHub URL from plain text"""
+        text = 'Check out https://github.com/owner/repo for more info'
+        result = extract_github_url_from_text(text)
+        assert result == "https://github.com/owner/repo"
+
+    def test_extract_github_url_from_text_owner_repo_format(self):
+        """Test extracting GitHub URL from owner/repo format"""
+        text = 'Repository: owner/repo'
+        result = extract_github_url_from_text(text)
+        assert result == "https://github.com/owner/repo"
+
+    def test_extract_github_url_from_text_empty(self):
+        """Test extracting GitHub URL from empty text"""
+        assert extract_github_url_from_text("") is None
+        assert extract_github_url_from_text(None) is None
+
+    def test_store_artifact_metadata_success(self):
+        """Test storing artifact metadata successfully"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    result = store_artifact_metadata(
+                        "test-id", "test-name", "model", "1.0.0", "https://example.com"
+                    )
+                    assert result["status"] == "success"
+                    mock_s3.put_object.assert_called_once()
+
+    def test_store_artifact_metadata_aws_unavailable(self):
+        """Test storing artifact metadata when AWS unavailable"""
+        with patch("src.services.s3_service.aws_available", False):
+            result = store_artifact_metadata(
+                "test-id", "test-name", "model", "1.0.0", "https://example.com"
+            )
+            assert result["status"] == "skipped"
+
+    def test_store_artifact_metadata_exception(self):
+        """Test storing artifact metadata with exception"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.put_object.side_effect = Exception("S3 error")
+                    result = store_artifact_metadata(
+                        "test-id", "test-name", "model", "1.0.0", "https://example.com"
+                    )
+                    assert result["status"] == "error"
+
+    def test_clear_model_card_cache(self):
+        """Test clearing model card cache"""
+        from src.services.s3_service import clear_model_card_cache, _model_card_cache
+        
+        _model_card_cache["test"] = ["content"]
+        clear_model_card_cache()
+        assert len(_model_card_cache) == 0
+
+    def test_get_model_sizes_exception(self):
+        """Test get_model_sizes with exception"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.head_object.side_effect = Exception("S3 error")
+                    result = get_model_sizes("test-model", "1.0.0")
+                    assert "error" in result
+
+    def test_list_models_with_continuation_token(self):
+        """Test list_models with continuation token"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.list_objects_v2.return_value = {
+                        "Contents": [],
+                        "NextContinuationToken": "next-token"
+                    }
+                    result = list_models(continuation_token="token")
+                    assert "next_token" in result
+
+    def test_list_artifacts_from_s3_with_regex(self):
+        """Test list_artifacts_from_s3 with regex filter"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_paginator = MagicMock()
+                    mock_s3.get_paginator.return_value = mock_paginator
+                    mock_paginator.paginate.return_value = [{
+                        "Contents": [{
+                            "Key": "models/test_model/1.0.0/model.zip"
+                        }]
+                    }]
+                    result = list_artifacts_from_s3("model", name_regex="^test")
+                    assert "artifacts" in result
+
+    def test_reset_registry_no_objects(self):
+        """Test reset_registry when no objects found"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.list_objects_v2.return_value = {}
+                    result = reset_registry()
+                    assert result["message"] == "Reset done successfully"
+
+    def test_reset_registry_exception(self):
+        """Test reset_registry with exception"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.list_objects_v2.side_effect = Exception("S3 error")
+                    with pytest.raises(HTTPException):
+                        reset_registry()
+
