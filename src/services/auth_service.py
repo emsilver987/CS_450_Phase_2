@@ -307,10 +307,17 @@ async def register_user(user_data: UserRegistration):
     )
 
 
+def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+    user = get_user_by_username(username)
+    if not user or not verify_password(password, user["password_hash"]):
+        return None
+    return user
+
+
 @auth_public.post("/login", response_model=TokenResponse)
 async def login_user(login_data: UserLogin):
-    user = get_user_by_username(login_data.username)
-    if not user or not verify_password(login_data.password, user["password_hash"]):
+    user = authenticate_user(login_data.username, login_data.password)
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token_obj = create_jwt_token(user)  # {token, jti, expires_at}
     store_token(token_obj["jti"], user, token_obj["token"], token_obj["expires_at"])
