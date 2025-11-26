@@ -342,3 +342,310 @@ class TestPackagesRoutes:
         assert len(call_args[0]) >= 4  # file_content, model_id, version, debloat
         if len(call_args[0]) > 3:
             assert call_args[0][3] is True
+    
+    # Error path tests to improve coverage
+    @patch('src.services.rating.run_scorer')
+    def test_rate_package_http_exception(self, mock_scorer, client):
+        """Test rate_package with HTTPException"""
+        from fastapi import HTTPException
+        mock_scorer.side_effect = HTTPException(status_code=404, detail="Not found")
+        
+        response = client.get("/api/packages/rate/test-model")
+        assert response.status_code == 404
+    
+    @patch('src.services.rating.run_scorer')
+    def test_rate_package_generic_exception(self, mock_scorer, client):
+        """Test rate_package with generic exception"""
+        mock_scorer.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/rate/test-model")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.list_models')
+    def test_search_packages_http_exception(self, mock_list, client):
+        """Test search_packages with HTTPException"""
+        from fastapi import HTTPException
+        mock_list.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.get("/api/packages/search", params={"q": "test"})
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.list_models')
+    def test_search_packages_generic_exception(self, mock_list, client):
+        """Test search_packages with generic exception"""
+        mock_list.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/search", params={"q": "test"})
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.list_models')
+    def test_search_model_cards_http_exception(self, mock_list, client):
+        """Test search_model_cards with HTTPException"""
+        from fastapi import HTTPException
+        mock_list.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.get("/api/packages/search/model-cards", params={"q": "test"})
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.list_models')
+    def test_search_model_cards_generic_exception(self, mock_list, client):
+        """Test search_model_cards with generic exception"""
+        mock_list.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/search/model-cards", params={"q": "test"})
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.list_models')
+    def test_advanced_search_http_exception(self, mock_list, client):
+        """Test advanced_search with HTTPException"""
+        from fastapi import HTTPException
+        mock_list.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.get(
+            "/api/packages/search/advanced", params={"name_regex": "test.*"}
+        )
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.list_models')
+    def test_advanced_search_generic_exception(self, mock_list, client):
+        """Test advanced_search with generic exception"""
+        mock_list.side_effect = Exception("Unexpected error")
+        
+        response = client.get(
+            "/api/packages/search/advanced", params={"name_regex": "test.*"}
+        )
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.list_models')
+    def test_list_packages_http_exception(self, mock_list, client):
+        """Test list_packages with HTTPException"""
+        from fastapi import HTTPException
+        mock_list.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.get("/api/packages")
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.list_models')
+    def test_list_packages_generic_exception(self, mock_list, client):
+        """Test list_packages with generic exception"""
+        mock_list.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_model_file_http_exception(self, mock_upload, client, mock_zip_file):
+        """Test upload_model_file with HTTPException"""
+        from fastapi import HTTPException
+        mock_upload.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.post(
+            "/api/packages/models/test-model/1.0.0/model.zip",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_model_file_access_denied(self, mock_upload, client, mock_zip_file):
+        """Test upload_model_file with AccessDenied error"""
+        from botocore.exceptions import ClientError
+        error_response = {"Error": {"Code": "AccessDenied"}}
+        mock_upload.side_effect = ClientError(error_response, "PutObject")
+        
+        response = client.post(
+            "/api/packages/models/test-model/1.0.0/model.zip",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 500
+        assert "Access denied" in response.json()["detail"]
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_model_file_other_s3_error(self, mock_upload, client, mock_zip_file):
+        """Test upload_model_file with other S3 error"""
+        from botocore.exceptions import ClientError
+        error_response = {"Error": {"Code": "InvalidRequest"}}
+        mock_upload.side_effect = ClientError(error_response, "PutObject")
+        
+        response = client.post(
+            "/api/packages/models/test-model/1.0.0/model.zip",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 500
+        assert "InvalidRequest" in response.json()["detail"]
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_model_file_generic_exception(
+        self, mock_upload, client, mock_zip_file
+    ):
+        """Test upload_model_file with generic exception"""
+        mock_upload.side_effect = Exception("Unexpected error")
+        
+        response = client.post(
+            "/api/packages/models/test-model/1.0.0/model.zip",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.download_model')
+    def test_download_model_file_http_exception(self, mock_download, client):
+        """Test download_model_file with HTTPException"""
+        from fastapi import HTTPException
+        mock_download.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/model.zip")
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.download_model')
+    def test_download_model_file_no_such_bucket(self, mock_download, client):
+        """Test download_model_file with NoSuchBucket error"""
+        from botocore.exceptions import ClientError
+        error_response = {"Error": {"Code": "NoSuchBucket"}}
+        mock_download.side_effect = ClientError(error_response, "GetObject")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/model.zip")
+        assert response.status_code == 500
+        assert "S3 bucket not found" in response.json()["detail"]
+    
+    @patch('src.routes.packages.download_model')
+    def test_download_model_file_access_denied(self, mock_download, client):
+        """Test download_model_file with AccessDenied error"""
+        from botocore.exceptions import ClientError
+        error_response = {"Error": {"Code": "AccessDenied"}}
+        mock_download.side_effect = ClientError(error_response, "GetObject")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/model.zip")
+        assert response.status_code == 500
+        assert "Access denied" in response.json()["detail"]
+    
+    @patch('src.routes.packages.download_model')
+    def test_download_model_file_other_s3_error(self, mock_download, client):
+        """Test download_model_file with other S3 error"""
+        from botocore.exceptions import ClientError
+        error_response = {"Error": {"Code": "InvalidRequest"}}
+        mock_download.side_effect = ClientError(error_response, "GetObject")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/model.zip")
+        assert response.status_code == 500
+        assert "InvalidRequest" in response.json()["detail"]
+    
+    @patch('src.routes.packages.download_model')
+    def test_download_model_file_generic_exception(self, mock_download, client):
+        """Test download_model_file with generic exception"""
+        mock_download.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/model.zip")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_package_http_exception(self, mock_upload, client, mock_zip_file):
+        """Test upload_package with HTTPException"""
+        from fastapi import HTTPException
+        mock_upload.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.post(
+            "/api/packages/upload",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.upload_model')
+    def test_upload_package_generic_exception(self, mock_upload, client, mock_zip_file):
+        """Test upload_package with generic exception"""
+        mock_upload.side_effect = Exception("Unexpected error")
+        
+        response = client.post(
+            "/api/packages/upload",
+            files={"file": ("test.zip", mock_zip_file, "application/zip")}
+        )
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.reset_registry')
+    def test_reset_system_http_exception(self, mock_reset, client):
+        """Test reset_system with HTTPException"""
+        from fastapi import HTTPException
+        mock_reset.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.post("/api/packages/reset")
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.reset_registry')
+    def test_reset_system_generic_exception(self, mock_reset, client):
+        """Test reset_system with generic exception"""
+        mock_reset.side_effect = Exception("Unexpected error")
+        
+        response = client.post("/api/packages/reset")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.sync_model_lineage_to_neptune')
+    def test_sync_neptune_http_exception(self, mock_sync, client):
+        """Test sync_neptune with HTTPException"""
+        from fastapi import HTTPException
+        mock_sync.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.post("/api/packages/sync-neptune")
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.sync_model_lineage_to_neptune')
+    def test_sync_neptune_generic_exception(self, mock_sync, client):
+        """Test sync_neptune with generic exception"""
+        mock_sync.side_effect = Exception("Unexpected error")
+        
+        response = client.post("/api/packages/sync-neptune")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.get_model_lineage_from_config')
+    def test_get_model_lineage_http_exception(self, mock_lineage, client):
+        """Test get_model_lineage_from_config_api with HTTPException"""
+        from fastapi import HTTPException
+        mock_lineage.side_effect = HTTPException(status_code=404, detail="Not found")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/lineage")
+        assert response.status_code == 404
+    
+    @patch('src.routes.packages.get_model_lineage_from_config')
+    def test_get_model_lineage_generic_exception(self, mock_lineage, client):
+        """Test get_model_lineage_from_config_api with generic exception"""
+        mock_lineage.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/lineage")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.get_model_sizes')
+    def test_get_model_sizes_http_exception(self, mock_sizes, client):
+        """Test get_model_sizes_api with HTTPException"""
+        from fastapi import HTTPException
+        mock_sizes.side_effect = HTTPException(status_code=404, detail="Not found")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/size")
+        assert response.status_code == 404
+    
+    @patch('src.routes.packages.get_model_sizes')
+    def test_get_model_sizes_generic_exception(self, mock_sizes, client):
+        """Test get_model_sizes_api with generic exception"""
+        mock_sizes.side_effect = Exception("Unexpected error")
+        
+        response = client.get("/api/packages/models/test-model/1.0.0/size")
+        assert response.status_code == 500
+    
+    @patch('src.routes.packages.model_ingestion')
+    def test_ingest_model_http_exception(self, mock_ingest, client):
+        """Test ingest_model with HTTPException"""
+        from fastapi import HTTPException
+        mock_ingest.side_effect = HTTPException(status_code=400, detail="Bad request")
+        
+        response = client.post(
+            "/api/packages/models/ingest",
+            params={"model_id": "test-model"}
+        )
+        assert response.status_code == 400
+    
+    @patch('src.routes.packages.model_ingestion')
+    def test_ingest_model_generic_exception(self, mock_ingest, client):
+        """Test ingest_model with generic exception"""
+        mock_ingest.side_effect = Exception("Unexpected error")
+        
+        response = client.post(
+            "/api/packages/models/ingest",
+            params={"model_id": "test-model"}
+        )
+        assert response.status_code == 500
