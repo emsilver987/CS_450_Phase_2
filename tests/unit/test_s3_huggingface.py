@@ -16,16 +16,31 @@ class TestHuggingFaceIntegration:
         """Test downloading full model from HuggingFace"""
         from src.services.s3_service import download_from_huggingface
         
-        # Mock HF API response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-length": "1024000"}
-        mock_response.iter_content = MagicMock(return_value=[b"chunk1", b"chunk2"])
-        mock_response.json.return_value = {"siblings": [{"rfilename": "config.json"}]}
-        mock_requests.get.return_value = mock_response
+        # Mock API response
+        mock_api_resp = MagicMock()
+        mock_api_resp.status_code = 200
+        mock_api_resp.json.return_value = {"siblings": [{"rfilename": "config.json"}]}
+        
+        # Mock File response
+        mock_file_resp = MagicMock()
+        mock_file_resp.status_code = 200
+        mock_file_resp.content = b"file_content"
+        
+        # side_effect: first call is API, subsequent calls are file downloads
+        def side_effect(*args, **kwargs):
+            if "api/models" in args[0]:
+                return mock_api_resp
+            return mock_file_resp
+            
+        mock_requests.get.side_effect = side_effect
         
         result = download_from_huggingface("user/model", "main", "full")
-        assert result == b"chunk1chunk2" or result is not None
+        # The result is a zip file containing the downloaded files
+        import zipfile
+        import io
+        with zipfile.ZipFile(io.BytesIO(result), "r") as z:
+            assert "config.json" in z.namelist()
+            assert z.read("config.json") == b"file_content"
 
     @patch("src.services.s3_service.requests")
     def test_download_from_huggingface_not_found(self, mock_requests):
@@ -95,18 +110,45 @@ class TestHuggingFaceIntegration:
         meta_response.status_code = 200
         meta_response.json.return_value = {
             "modelId": "user/model",
-            "license": "MIT"
+            "license": "MIT",
+            "siblings": [{"rfilename": "config.json"}, {"rfilename": "pytorch_model.bin"}]
         }
         
-        # Mock HF download
-        download_response = MagicMock()
-        download_response.status_code = 200
-        download_response.iter_content = MagicMock(return_value=[b"data"])
+        # Mock HF download (download_from_huggingface)
+        # We need to mock requests.get to handle both metadata fetch and file download
+        # But model_ingestion calls download_from_huggingface which calls requests.get
+        # And it also calls validate_huggingface_structure which checks zip content
         
-        mock_requests.get.side_effect = [meta_response, download_response]
-        
-        result = model_ingestion("https://huggingface.co/user/model", "main")
-        assert result["status"] in ["success", "error"]
+        # Let's mock download_from_huggingface directly to simplify
+        with patch("src.services.s3_service.download_from_huggingface") as mock_download:
+            # Create a valid zip file
+            import io
+            import zipfile
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as z:
+                z.writestr("config.json", "{}")
+                z.writestr("pytorch_model.bin", "data")
+            mock_download.return_value = buffer.getvalue()
+            
+            # Mock run_acme_metrics to return passing scores
+            # Note: run_acme_metrics is imported from src.services.rating inside model_ingestion
+            with patch("src.services.rating.run_acme_metrics") as mock_metrics:
+                mock_metrics.return_value = {
+                    "license": 1.0,
+                    "ramp_up": 1.0,
+                    "bus_factor": 1.0,
+                    "performance_claims": 1.0,
+                    "size": 1.0,
+                    "dataset_code": 1.0,
+                    "dataset_quality": 1.0,
+                    "code_quality": 1.0,
+                    "reproducibility": 1.0,
+                    "reviewedness": 1.0,
+                    "treescore": 1.0
+                }
+                
+                result = model_ingestion("https://huggingface.co/user/model", "main")
+                assert result["message"] == "Model ingestion successful"
 
 
 class TestS3HelperFunctions:
@@ -188,7 +230,7 @@ class TestS3MetadataOperations:
         }
         
         result = store_artifact_metadata("a1", metadata)
-        assert result in [True, False]
+        assert result["status"] == "success"
         mock_s3.put_object.assert_called()
 
     @patch("src.services.s3_service.s3")
@@ -196,31 +238,41 @@ class TestS3MetadataOperations:
         """Test finding metadata by various search criteria"""
         from src.services.s3_service import find_artifact_metadata_by_id
         
-        mock_s3.get_object.return_value = {
-            "Body": MagicMock(
-                read=MagicMock(return_value=b'{"name": "model1", "type": "model"}')
-            )
-        }
-        
-        result = find_artifact_metadata_by_id("a1")
-        assert result["name"] == "model1"
+        # Mock list_models to return nothing to force comprehensive search
+        with patch("src.services.s3_service.list_models", return_value={"models": []}):
+            # Mock paginator
+            paginator = MagicMock()
+            mock_s3.get_paginator.return_value = paginator
+            
+            # Mock page with metadata file
+            paginator.paginate.return_value = [
+                {"Contents": [{"Key": "models/model1/1.0.0/metadata.json"}]}
+            ]
+            
+            # Mock get_object to return metadata with matching artifact_id
+            mock_s3.get_object.return_value = {
+                "Body": MagicMock(
+                    read=MagicMock(return_value=b'{"artifact_id": "a1", "name": "model1", "type": "model"}')
+                )
+            }
+            
+            result = find_artifact_metadata_by_id("a1")
+            assert result is not None
+            assert result["name"] == "model1"
 
     @patch("src.services.s3_service.s3")
     def test_update_model_metadata(self, mock_s3):
         """Test updating existing model metadata"""
-        from src.services.s3_service import update_artifact_metadata
+        from src.services.s3_service import update_artifact_metadata, find_artifact_metadata_by_id
         
-        # First get existing
-        mock_s3.get_object.return_value = {
-            "Body": MagicMock(
-                read=MagicMock(return_value=b'{"name": "model1", "version": "1.0.0"}')
-            )
-        }
-        
-        # Then update
-        new_data = {"name": "model1", "version": "2.0.0"}
-        result = update_artifact_metadata("a1", new_data)
-        assert result in [True, False]
+        # First get existing (mock find_artifact_metadata_by_id)
+        with patch("src.services.s3_service.find_artifact_metadata_by_id") as mock_find:
+            mock_find.return_value = {"s3_key": "models/model1/1.0.0/metadata.json"}
+            
+            # Then update
+            new_data = {"name": "model1", "version": "2.0.0"}
+            result = update_artifact_metadata("a1", new_data)
+            assert result is True
 
 
 class TestS3ErrorHandling:
