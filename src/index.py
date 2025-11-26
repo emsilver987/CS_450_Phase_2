@@ -725,22 +725,32 @@ def health_components(windowMinutes: int = 60, includeTimeline: bool = False):
 @app.post("/artifacts")
 async def list_artifacts(request: Request, offset: str = None):
     global _artifact_storage
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
+    # Validate request body first (before auth) for better error messages
     try:
         body = (
             await request.json()
             if request.headers.get("content-type") == "application/json"
             else {}
         )
-        if not isinstance(body, list):
-            raise HTTPException(
-                status_code=400,
-                detail="Request body must be an array of ArtifactQuery objects",
-            )
+    except Exception:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid or missing request body",
+        )
+    
+    if not isinstance(body, list):
+        raise HTTPException(
+            status_code=422,
+            detail="Request body must be an array of ArtifactQuery objects",
+        )
+    
+    # Now check authentication
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+    try:
         results = []
         for query in body:
             if not isinstance(query, dict):
@@ -748,12 +758,68 @@ async def list_artifacts(request: Request, offset: str = None):
                     status_code=400, detail="Each query must be an object"
                 )
             name = query.get("name")
-            if not name:
+            query_type = query.get("type")
+            types_filter = query.get("types", [])
+            
+            # If type is specified, add it to types_filter
+            if query_type and query_type not in types_filter:
+                types_filter = [query_type]
+            
+            # Allow queries by type alone (backward compatibility)
+            if not name and not types_filter:
                 raise HTTPException(
                     status_code=400,
-                    detail="Missing required field 'name' in artifact_query",
+                    detail="Missing required field 'name' or 'type' in artifact_query",
                 )
-            types_filter = query.get("types", [])
+            
+            # If no name provided but type is, search by type only
+            if not name and types_filter:
+                # Search by type
+                if "model" in types_filter:
+                    result = list_models(limit=1000)
+                    if result is None:
+                        result = {"models": []}
+                    models = result.get("models") or []
+                    for model in models:
+                        if isinstance(model, dict):
+                            results.append(
+                                {
+                                    "name": model.get("name", ""),
+                                    "id": model.get("id", model.get("name", "")),
+                                    "type": "model",
+                                }
+                            )
+                
+                # Search _artifact_storage for datasets and code
+                if "dataset" in types_filter or "code" in types_filter:
+                    for artifact_id, artifact_data in _artifact_storage.items():
+                        artifact_type_stored = artifact_data.get("type", "")
+                        if artifact_type_stored in types_filter:
+                            results.append(
+                                {
+                                    "name": artifact_data.get("name", ""),
+                                    "id": artifact_id,
+                                    "type": artifact_type_stored,
+                                }
+                            )
+                
+                # Also get artifacts from database
+                all_artifacts = find_artifacts_by_type(types_filter[0]) if len(types_filter) == 1 else list_all_artifacts()
+                seen_ids = {r.get("id") for r in results}
+                for artifact in all_artifacts:
+                    artifact_type_stored = artifact.get("type", "")
+                    artifact_id = artifact.get("id", "")
+                    if artifact_id not in seen_ids and artifact_type_stored in types_filter:
+                        results.append(
+                            {
+                                "name": artifact.get("name", artifact_id),
+                                "id": artifact_id,
+                                "type": artifact_type_stored,
+                            }
+                        )
+                        seen_ids.add(artifact_id)
+                continue  # Skip to next query
+            
             if name == "*":
                 # Search S3 for models
                 if not types_filter or "model" in types_filter:
@@ -1538,14 +1604,15 @@ async def search_artifacts_by_regex(request: Request):
 
         logger.info(f"Search criteria: {search_criteria}")
 
-        # Validate regex field
-        regex_pattern = search_criteria.get("regex")
+        # Validate regex field (case-insensitive)
+        regex_pattern = search_criteria.get("regex") or search_criteria.get("RegEx")
         if not regex_pattern or not isinstance(regex_pattern, str):
             logger.error(f"Missing or invalid regex field. search_criteria: {search_criteria}")
             raise HTTPException(
                 status_code=400,
                 detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
             )
+
 
         # Validate regex pattern and check for ReDoS (Regular Expression Denial of Service) patterns
         # Check for dangerous patterns that cause catastrophic backtracking
@@ -3868,6 +3935,176 @@ def get_tracks():
 @app.get("/package/{id}/rate")
 def get_package_rate(id: str, request: Request):
     return get_model_rate(id, request)
+
+
+# Additional endpoints for test compatibility
+@app.get("/models")
+def get_models_list(name_regex: str = None, version_range: str = None, limit: int = 1000):
+    """List all models - wrapper around list_models from s3_service"""
+    try:
+        result = list_models(name_regex=name_regex, version_range=version_range, limit=limit)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing models: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
+@app.get("/lineage/{model_id}/{version}")
+def get_lineage_by_id_version(model_id: str, version: str):
+    """Get lineage for a specific model version"""
+    try:
+        # Get lineage from config
+        result = get_model_lineage_from_config(model_id, version)
+        if "error" in result:
+            error_msg = result["error"].lower()
+            if (
+                "not found" in error_msg
+                or "does not exist" in error_msg
+                or "no such" in error_msg
+            ):
+                raise HTTPException(status_code=404, detail="Artifact does not exist.")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="The lineage graph cannot be computed because the artifact metadata is missing or malformed.",
+                )
+
+        # Build lineage graph
+        lineage_map = result.get("lineage_map", {})
+        nodes = []
+        edges = []
+
+        # Add nodes from lineage map
+        for mid, metadata in lineage_map.items():
+            # Handle both dict metadata and list of children
+            if isinstance(metadata, dict):
+                nodes.append(
+                    {
+                        "artifact_id": mid,
+                        "name": metadata.get("name", mid),
+                        "source": metadata.get("source", "config_json"),
+                    }
+                )
+
+                # Add edges from dependencies/relationships
+                if "dependencies" in metadata or "relationships" in metadata:
+                    deps = metadata.get("dependencies", []) or metadata.get(
+                        "relationships", []
+                    )
+                    for dep in deps:
+                        if isinstance(dep, dict):
+                            dep_id = dep.get("id") or dep.get("artifact_id")
+                            relationship = dep.get("relationship", "dependency")
+                            if dep_id:
+                                edges.append(
+                                    {
+                                        "from_node_artifact_id": dep_id,
+                                        "to_node_artifact_id": mid,
+                                        "relationship": relationship,
+                                    }
+                                )
+            elif isinstance(metadata, list):
+                # Handle list format: {"parent": ["child1", "child2"]}
+                nodes.append(
+                    {
+                        "artifact_id": mid,
+                        "name": mid,
+                        "source": "config_json",
+                    }
+                )
+                # Add edges for children
+                for child in metadata:
+                    if isinstance(child, str):
+                        edges.append(
+                            {
+                                "from_node_artifact_id": mid,
+                                "to_node_artifact_id": child,
+                                "relationship": "parent_of",
+                            }
+                        )
+                        # Also add child as node
+                        nodes.append(
+                            {
+                                "artifact_id": child,
+                                "name": child,
+                                "source": "config_json",
+                            }
+                        )
+
+        # Return lineage graph
+        return {"nodes": nodes, "edges": edges}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting lineage for {model_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail="The lineage graph cannot be computed because the artifact metadata is missing or malformed.",
+        )
+
+
+@app.get("/size-cost/{model_id}/{version}")
+def get_size_cost_by_id_version(model_id: str, version: str):
+    """Get size and cost information for a model"""
+    try:
+        sizes = get_model_sizes(model_id, version)
+        if "error" in sizes:
+            raise HTTPException(status_code=404, detail="Model not found")
+        return sizes
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting size/cost for {model_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get size/cost: {str(e)}")
+
+
+@app.post("/ingest")
+async def post_ingest(request: Request):
+    """Ingest a model from HuggingFace or other source"""
+    try:
+        # Parse request body
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        model_id = body.get("model_id")
+        version = body.get("version", "main")
+
+        if not model_id:
+            raise HTTPException(status_code=400, detail="model_id is required")
+
+        # Call model ingestion
+        result = model_ingestion(model_id, version)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ingesting model: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
+
+
+@app.delete("/artifact/{id}")
+def delete_artifact_by_id(id: str, request: Request):
+    """Delete an artifact by ID"""
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+    try:
+        result = delete_artifact(id)
+        if result:
+            return {"message": "Artifact deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting artifact {id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete artifact: {str(e)}")
 
 
 # @app.get("/")
