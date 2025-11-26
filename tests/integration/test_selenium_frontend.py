@@ -11,6 +11,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import time
 import os
+import requests
 
 
 @pytest.fixture(scope="module")
@@ -21,6 +22,7 @@ def driver():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--remote-debugging-port=9222")
     
     # Try to create driver
     try:
@@ -31,13 +33,24 @@ def driver():
         pytest.skip(f"Chrome WebDriver not available: {e}")
     finally:
         if 'driver' in locals():
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
 
 
 @pytest.fixture
 def base_url():
     """Get base URL from environment or use default"""
-    return os.getenv("TEST_BASE_URL", "http://localhost:3000")
+    base = os.getenv("TEST_BASE_URL", "http://localhost:3000")
+    # Check if server is running
+    try:
+        response = requests.get(f"{base}/health", timeout=2)
+        if response.status_code != 200:
+            pytest.skip(f"Server at {base} is not responding correctly")
+    except (requests.exceptions.RequestException, requests.exceptions.Timeout):
+        pytest.skip(f"Server at {base} is not running. Start the server with: python -m src.index")
+    return base
 
 
 class TestHomePage:
