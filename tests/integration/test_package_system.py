@@ -7,6 +7,7 @@ This script tests the package management functionality using the 3 models in S3.
 import boto3
 import json
 import os
+import pytest
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 
@@ -28,9 +29,7 @@ def test_s3_packages():
         # List all packages in S3
         response = s3.list_objects_v2(Bucket=ARTIFACTS_BUCKET, Prefix='models/')
         
-        if 'Contents' not in response:
-            print("[FAIL] No packages found in S3")
-            return False
+        assert 'Contents' in response, "No packages found in S3"
             
         packages = []
         for obj in response['Contents']:
@@ -53,11 +52,8 @@ def test_s3_packages():
             size_mb = pkg['size'] / (1024 * 1024)
             print(f"   Package {pkg['name']} v{pkg['version']} ({size_mb:.1f} MB)")
             
-        return packages
-        
     except Exception as e:
-        print(f"[ERROR] Error accessing S3 packages: {e}")
-        return False
+        pytest.fail(f"Error accessing S3 packages: {e}")
 
 def test_package_metadata():
     """Test DynamoDB package metadata"""
@@ -74,11 +70,8 @@ def test_package_metadata():
         for pkg in packages:
             print(f"   Package {pkg.get('pkg_key', 'Unknown')} - {pkg.get('description', 'No description')}")
             
-        return packages
-        
     except Exception as e:
-        print(f"[ERROR] Error accessing package metadata: {e}")
-        return False
+        pytest.fail(f"Error accessing package metadata: {e}")
 
 def test_presigned_urls():
     """Test presigned URL generation for package downloads"""
@@ -109,13 +102,10 @@ def test_presigned_urls():
                 print(f"      URL: {url[:80]}...")
                 
             except Exception as e:
-                print(f"   [FAIL] {s3_key}: Error generating presigned URL - {e}")
+                pytest.fail(f"{s3_key}: Error generating presigned URL - {e}")
                 
-        return True
-        
     except Exception as e:
-        print(f"[ERROR] Error testing presigned URLs: {e}")
-        return False
+        pytest.fail(f"Error testing presigned URLs: {e}")
 
 def test_user_management():
     """Test user management system"""
@@ -141,11 +131,8 @@ def test_user_management():
                 groups = user.get('groups', [])
                 print(f"   User {username} (groups: {', '.join(groups)})")
                 
-        return True
-        
     except Exception as e:
-        print(f"[ERROR] Error testing user management: {e}")
-        return False
+        pytest.fail(f"Error testing user management: {e}")
 
 def test_package_download_workflow():
     """Test the complete package download workflow"""
@@ -160,8 +147,7 @@ def test_package_download_workflow():
             s3.head_object(Bucket=ARTIFACTS_BUCKET, Key=test_package)
             print("   [PASS] Package exists in S3")
         except s3.exceptions.NoSuchKey:
-            print("   [FAIL] Package not found in S3")
-            return False
+            pytest.fail("Package not found in S3")
             
         # 2. Generate presigned URL
         download_url = s3.generate_presigned_url(
@@ -186,11 +172,8 @@ def test_package_download_workflow():
         print("   [PASS] Download event prepared")
         print(f"   Download URL: {download_url[:80]}...")
         
-        return True
-        
     except Exception as e:
-        print(f"[ERROR] Error testing download workflow: {e}")
-        return False
+        pytest.fail(f"Error testing download workflow: {e}")
 
 def main():
     """Main test function"""
@@ -198,27 +181,52 @@ def main():
     print("=" * 50)
     
     # Test S3 packages
-    s3_packages = test_s3_packages()
+    try:
+        test_s3_packages()
+        s3_success = True
+    except (AssertionError, Exception) as e:
+        print(f"S3 packages test failed: {e}")
+        s3_success = False
     
     # Test package metadata
-    db_packages = test_package_metadata()
+    try:
+        test_package_metadata()
+        db_success = True
+    except (AssertionError, Exception) as e:
+        print(f"Package metadata test failed: {e}")
+        db_success = False
     
     # Test presigned URLs
-    presigned_success = test_presigned_urls()
+    try:
+        test_presigned_urls()
+        presigned_success = True
+    except (AssertionError, Exception) as e:
+        print(f"Presigned URLs test failed: {e}")
+        presigned_success = False
     
     # Test user management
-    user_success = test_user_management()
+    try:
+        test_user_management()
+        user_success = True
+    except (AssertionError, Exception) as e:
+        print(f"User management test failed: {e}")
+        user_success = False
     
     # Test download workflow
-    download_success = test_package_download_workflow()
+    try:
+        test_package_download_workflow()
+        download_success = True
+    except (AssertionError, Exception) as e:
+        print(f"Download workflow test failed: {e}")
+        download_success = False
     
     # Summary
     print("\n" + "=" * 50)
     print("Test Summary:")
     
     tests = [
-        ("S3 Package Storage", s3_packages is not False),
-        ("Package Metadata", db_packages is not False),
+        ("S3 Package Storage", s3_success),
+        ("Package Metadata", db_success),
         ("Presigned URLs", presigned_success),
         ("User Management", user_success),
         ("Download Workflow", download_success)
