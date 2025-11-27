@@ -5,7 +5,7 @@ def compute_net_score(results: dict):
     """Compute weighted net score from individual metric results."""
     # Weighted sum (weights should add up to 1.0)
     weights = {
-        "license": 0.14,  # High weight for license compatibility (reduced from 0.15)
+        "license": 0.10,  # License compatibility (adjusted to sum to 1.0)
         "ramp_up_time": 0.12,  # Important for ease of adoption
         "bus_factor": 0.10,  # Risk management
         "performance_claims": 0.10,  # Evidence of quality

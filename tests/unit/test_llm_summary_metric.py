@@ -78,6 +78,11 @@ def test_llm_metric_metadata_storage():
     
     result = metric.score(meta)
     
+    # Result should be valid
+    assert 0.0 <= result.value <= 1.0
+    assert result.latency_ms >= 0
+    assert result.name == "LLMSummary"
+    
     # Metadata should have LLM fields
     assert "llm_summary" in meta
     assert "llm_risk_flags" in meta
@@ -88,7 +93,7 @@ def test_llm_metric_metadata_storage():
     for flag in meta["llm_risk_flags"]:
         assert isinstance(flag, str)
     
-    print(f"✓ Metadata storage test passed")
+    print(f"✓ Metadata storage test passed: score={result.value}")
     print(f"  Summary: {meta['llm_summary']}")
     print(f"  Risk flags: {meta['llm_risk_flags']}")
 

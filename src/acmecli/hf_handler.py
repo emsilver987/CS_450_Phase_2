@@ -261,16 +261,17 @@ class HFHandler:
                 request = Request(raw_readme_url, headers=self._headers)
                 with urlopen(request, timeout=5) as response:
                     readme_text = response.read().decode("utf-8")
-            except Exception:
+            except Exception as e:
                 # Try master branch as fallback
+                logging.debug("Failed to fetch README from main branch for %s: %s", model_id, e)
                 try:
                     raw_readme_url = f"https://huggingface.co/{model_id}/raw/master/README.md"
                     logging.debug("Fetching raw README from: %s", raw_readme_url)
                     request = Request(raw_readme_url, headers=self._headers)
                     with urlopen(request, timeout=5) as response:
                         readme_text = response.read().decode("utf-8")
-                except Exception as e:
-                    logging.warning("Could not fetch raw README for %s: %s", model_id, e)
+                except Exception as e2:
+                    logging.warning("Could not fetch raw README for %s: %s", model_id, e2)
         
         if isinstance(readme_text, str):
             meta["readme_text"] = readme_text

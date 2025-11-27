@@ -134,6 +134,10 @@ dmypy.json
 *.swp
 *.swo
 
+# Cursor
+.cursor/commands/code-review.md
+.cursor/rules /writing.mdc
+
 # OS
 .DS_Store
 Thumbs.db

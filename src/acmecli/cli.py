@@ -1,16 +1,17 @@
-import sys
 from pathlib import Path
 import logging
 import os
-import json
 import concurrent.futures
-from .types import ReportRow
+from typing import Optional, Dict, Any
+from .types import ReportRow, MetricValue
 from .reporter import write_ndjson
 from .metrics.base import REGISTRY
 from .github_handler import GitHubHandler
 from .hf_handler import HFHandler
 from .cache import InMemoryCache
 from .scoring import compute_net_score
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging():
@@ -67,7 +68,19 @@ def extract_urls(raw: str) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
-def process_url(url: str, github_handler, hf_handler, cache):
+def get_metric_value(results: Dict[str, MetricValue], name: str, default: float = 0.0) -> float:
+    """Safely get metric value from results dictionary."""
+    metric = results.get(name)
+    return metric.value if metric else default
+
+
+def get_metric_latency(results: Dict[str, MetricValue], name: str, default: int = 0) -> int:
+    """Safely get metric latency from results dictionary."""
+    metric = results.get(name)
+    return metric.latency_ms if metric else default
+
+
+def process_url(url: str, github_handler: GitHubHandler, hf_handler: HFHandler, cache: InMemoryCache) -> Optional[ReportRow]:
     if classify(url) == "MODEL_GITHUB":
         repo_name = url.split("/")[-1]
         meta = github_handler.fetch_meta(url)
@@ -89,22 +102,11 @@ def process_url(url: str, github_handler, hf_handler, cache):
                 mv = future.result()
                 results[metric_name] = mv
             except Exception as e:
-                logging.error(f"Error computing metric {metric_name}: {e}")
+                logger.error(f"Error computing metric {metric_name}: {e}", exc_info=True)
                 # Create a default MetricValue for failed metrics
-                from .types import MetricValue
-
                 results[metric_name] = MetricValue(metric_name, 0.0, 0)
 
     net_score, net_score_latency = compute_net_score(results)
-
-    # Helper function to safely get metric values
-    def get_metric_value(name, default=0.0):
-        metric = results.get(name)
-        return metric.value if metric else default
-
-    def get_metric_latency(name, default=0):
-        metric = results.get(name)
-        return metric.latency_ms if metric else default
 
     # Handle size_score specially since it returns a dict
     size_result = results.get("size_score")
@@ -124,46 +126,48 @@ def process_url(url: str, github_handler, hf_handler, cache):
         category="MODEL",
         net_score=net_score,
         net_score_latency=net_score_latency,
-        ramp_up_time=get_metric_value("ramp_up_time"),
-        ramp_up_time_latency=get_metric_latency("ramp_up_time"),
-        bus_factor=get_metric_value("bus_factor"),
-        bus_factor_latency=get_metric_latency("bus_factor"),
-        performance_claims=get_metric_value("performance_claims"),
-        performance_claims_latency=get_metric_latency("performance_claims"),
-        license=get_metric_value("license"),
-        license_latency=get_metric_latency("license"),
+        ramp_up_time=get_metric_value(results, "ramp_up_time"),
+        ramp_up_time_latency=get_metric_latency(results, "ramp_up_time"),
+        bus_factor=get_metric_value(results, "bus_factor"),
+        bus_factor_latency=get_metric_latency(results, "bus_factor"),
+        performance_claims=get_metric_value(results, "performance_claims"),
+        performance_claims_latency=get_metric_latency(results, "performance_claims"),
+        license=get_metric_value(results, "license"),
+        license_latency=get_metric_latency(results, "license"),
         size_score=size_score_value,
-        size_score_latency=get_metric_latency("size_score"),
-        dataset_and_code_score=get_metric_value("dataset_and_code_score"),
-        dataset_and_code_score_latency=get_metric_latency("dataset_and_code_score"),
-        dataset_quality=get_metric_value("dataset_quality"),
-        dataset_quality_latency=get_metric_latency("dataset_quality"),
-        code_quality=get_metric_value("code_quality"),
-        code_quality_latency=get_metric_latency("code_quality"),
-        reproducibility=get_metric_value("reproducibility"),
-        reproducibility_latency=get_metric_latency("reproducibility"),
-        reviewedness=get_metric_value("reviewedness"),
-        reviewedness_latency=get_metric_latency("reviewedness"),
-        treescore=get_metric_value("treescore"),
-        treescore_latency=get_metric_latency("treescore"),
-        llm_summary=get_metric_value("LLMSummary"),
-        llm_summary_latency=get_metric_latency("LLMSummary"),
+        size_score_latency=get_metric_latency(results, "size_score"),
+        dataset_and_code_score=get_metric_value(results, "dataset_and_code_score"),
+        dataset_and_code_score_latency=get_metric_latency(results, "dataset_and_code_score"),
+        dataset_quality=get_metric_value(results, "dataset_quality"),
+        dataset_quality_latency=get_metric_latency(results, "dataset_quality"),
+        code_quality=get_metric_value(results, "code_quality"),
+        code_quality_latency=get_metric_latency(results, "code_quality"),
+        reproducibility=get_metric_value(results, "reproducibility"),
+        reproducibility_latency=get_metric_latency(results, "reproducibility"),
+        reviewedness=get_metric_value(results, "reviewedness"),
+        reviewedness_latency=get_metric_latency(results, "reviewedness"),
+        treescore=get_metric_value(results, "treescore"),
+        treescore_latency=get_metric_latency(results, "treescore"),
+        llm_summary=get_metric_value(results, "LLMSummary"),
+        llm_summary_latency=get_metric_latency(results, "LLMSummary"),
     )
 
 
 def main(argv: list[str]) -> int:
     setup_logging()
-    # Handle both formats: ['run', 'score', 'url_file'] or ['score', 'url_file'] or ['url_file']
-    if len(argv) >= 3 and argv[1] == "score":
-        # Format: ['run', 'score', 'url_file']
-        url_file = argv[2]
-    elif len(argv) >= 2 and argv[0] == "score":
-        # Format: ['score', 'url_file']
-        url_file = argv[1]
-    elif len(argv) >= 2:
-        # Format: ['run', 'url_file'] or ['url_file']
-        url_file = argv[-1]
-    else:
+    
+    # Find URL file - either after "score" or last argument
+    url_file: Optional[str] = None
+    if "score" in argv:
+        score_idx = argv.index("score")
+        if score_idx + 1 < len(argv):
+            url_file = argv[score_idx + 1]
+    
+    if not url_file:
+        url_file = argv[-1] if len(argv) > 0 else None
+    
+    if not url_file or not Path(url_file).exists():
+        print(f"Error: URL file not found: {url_file}")
         print("Usage: run score <URL_FILE>")
         return 1
     github_handler = GitHubHandler()
@@ -173,15 +177,15 @@ def main(argv: list[str]) -> int:
     for raw in lines:
         for url in extract_urls(raw):
             kind = classify(url)
-            logging.debug("Classified URL %s as %s", url, kind)
+            logger.debug("Classified URL %s as %s", url, kind)
             if kind not in {"MODEL_GITHUB", "MODEL_HF"}:
-                logging.debug("Skipping unsupported URL: %s", url)
+                logger.debug("Skipping unsupported URL: %s", url)
                 continue
-            logging.info("Processing URL: %s", url)
+            logger.info("Processing URL: %s", url)
             row = process_url(url, github_handler, hf_handler, cache)
             if row:
-                logging.info("Emitted report for %s", row.name)
+                logger.info("Emitted report for %s", row.name)
                 write_ndjson(row)
             else:
-                logging.debug("No report produced for %s", url)
+                logger.debug("No report produced for %s", url)
     return 0

@@ -16,6 +16,21 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Constants for scoring
+DEFAULT_SCORE = 0.5
+MIN_SCORE = 0.0
+MAX_SCORE = 1.0
+SCORE_PENALTY_MISSING_LICENSE = 0.1
+SCORE_BONUS_INSTALL = 0.1
+SCORE_BONUS_EXAMPLES = 0.1
+SCORE_BONUS_SAFETY = 0.1
+SCORE_BONUS_MODEL_CARD = 0.1
+MIN_README_LENGTH_STUB = 10
+MIN_README_LENGTH_BEDROCK = 50
+MAX_SUMMARY_LENGTH = 200
+MAX_RISK_FLAGS = 5
+MAX_README_LENGTH_BEDROCK = 3000
+
 
 class LLMClient:
     """
@@ -53,14 +68,27 @@ class LLMClient:
         """
         Analyze README text and generate summary + risk flags.
         
+        Uses Bedrock Claude if enabled, otherwise falls back to heuristic stub mode.
+        
         Args:
-            readme_text: Raw README content (markdown/text)
+            readme_text: Raw README content (markdown/text). Should be non-empty
+                         for meaningful analysis. Minimum 10 chars for stub mode,
+                         50 chars for Bedrock mode.
             
         Returns:
             Dict with keys:
-                - summary: str - Human-readable summary (max 200 chars)
-                - risk_flags: List[str] - List of risk indicators (e.g., "missing_license", "safety_concerns")
-                - score: float - Quality score [0.0, 1.0] based on summary completeness
+                - summary (str): Human-readable summary (max 200 chars)
+                - risk_flags (List[str]): List of risk indicators (e.g., "missing_license", 
+                  "safety_concerns"). Max 5 flags.
+                - score (float): Quality score [0.0, 1.0] based on summary completeness
+                  and risk flags. Higher score = better documentation.
+        
+        Example:
+            >>> client = LLMClient()
+            >>> result = client.analyze_readme("# My Model\\n\\nMIT License")
+            >>> assert "summary" in result
+            >>> assert "risk_flags" in result
+            >>> assert 0.0 <= result["score"] <= 1.0
         """
         if not self.enabled or not self.bedrock_client:
             return self._stub_analyze(readme_text)
@@ -79,18 +107,18 @@ class LLMClient:
         Generates a basic summary and flags based on heuristics,
         ensuring autograder compatibility.
         """
-        if not readme_text or len(readme_text.strip()) < 10:
+        if not readme_text or len(readme_text.strip()) < MIN_README_LENGTH_STUB:
             return {
                 "summary": "No README content available.",
                 "risk_flags": ["missing_readme"],
-                "score": 0.0
+                "score": MIN_SCORE
             }
         
         # Heuristic-based summary generation
         readme_lower = readme_text.lower()
         summary_parts = []
         risk_flags = []
-        score = 0.5  # Base score
+        score = DEFAULT_SCORE  # Base score
         
         # Extract key information
         if "license" in readme_lower:
@@ -100,29 +128,29 @@ class LLMClient:
                 risk_flags.append("license_review_needed")
         else:
             risk_flags.append("missing_license")
-            score -= 0.1
+            score -= SCORE_PENALTY_MISSING_LICENSE
         
         if "install" in readme_lower or "usage" in readme_lower:
             summary_parts.append("Installation instructions")
-            score += 0.1
+            score += SCORE_BONUS_INSTALL
         else:
             risk_flags.append("missing_installation_guide")
         
         if "example" in readme_lower or "demo" in readme_lower:
             summary_parts.append("Usage examples")
-            score += 0.1
+            score += SCORE_BONUS_EXAMPLES
         else:
             risk_flags.append("missing_examples")
         
         if "safety" in readme_lower or "bias" in readme_lower:
             summary_parts.append("Safety considerations")
-            score += 0.1
+            score += SCORE_BONUS_SAFETY
         else:
             risk_flags.append("safety_review_needed")
         
         if "model card" in readme_lower or "modelcard" in readme_lower:
             summary_parts.append("Model card documentation")
-            score += 0.1
+            score += SCORE_BONUS_MODEL_CARD
         
         # Generate summary
         if summary_parts:
@@ -131,11 +159,11 @@ class LLMClient:
             summary = "Basic package documentation available."
         
         # Clamp score
-        score = max(0.0, min(1.0, score))
+        score = max(MIN_SCORE, min(MAX_SCORE, score))
         
         return {
-            "summary": summary[:200],  # Max 200 chars
-            "risk_flags": risk_flags[:5],  # Max 5 flags
+            "summary": summary[:MAX_SUMMARY_LENGTH],
+            "risk_flags": risk_flags[:MAX_RISK_FLAGS],
             "score": round(score, 2)
         }
     
@@ -149,7 +177,7 @@ class LLMClient:
         """
         import json
         
-        if not readme_text or len(readme_text.strip()) < 50:
+        if not readme_text or len(readme_text.strip()) < MIN_README_LENGTH_BEDROCK:
             return {
                 "summary": "README too short for LLM analysis.",
                 "risk_flags": ["insufficient_documentation"],
@@ -157,8 +185,8 @@ class LLMClient:
             }
         
         # Truncate README to avoid token limits (~3000 chars = ~750 tokens)
-        truncated_readme = readme_text[:3000]
-        if len(readme_text) > 3000:
+        truncated_readme = readme_text[:MAX_README_LENGTH_BEDROCK]
+        if len(readme_text) > MAX_README_LENGTH_BEDROCK:
             truncated_readme += "\n\n[... README truncated for analysis ...]"
         
         # Construct prompt for Claude
@@ -219,12 +247,12 @@ Be specific with risk flags. Examples: "missing_license", "no_installation_guide
                 logger.warning("LLM returned invalid summary, using fallback")
                 summary = "Package documentation available but summary generation failed."
             
-            # Truncate summary to 200 chars
-            if len(summary) > 200:
-                summary = summary[:197] + "..."
+            # Truncate summary to max length
+            if len(summary) > MAX_SUMMARY_LENGTH:
+                summary = summary[:MAX_SUMMARY_LENGTH - 3] + "..."
             
             # Calculate score based on analysis
-            score = 0.5  # Base score
+            score = DEFAULT_SCORE  # Base score
             
             # Reward good summary
             if len(summary) > 20 and "failed" not in summary.lower():
@@ -239,18 +267,30 @@ Be specific with risk flags. Examples: "missing_license", "no_installation_guide
                 score -= 0.1 * (len(risk_flags) - 2)
             
             # Clamp score
-            score = max(0.0, min(1.0, score))
+            score = max(MIN_SCORE, min(MAX_SCORE, score))
             
             logger.info(f"✅ Bedrock analysis complete: score={score:.2f}, flags={len(risk_flags)}")
             
             return {
                 "summary": summary,
-                "risk_flags": risk_flags[:5],  # Max 5 flags
+                "risk_flags": risk_flags[:MAX_RISK_FLAGS],
                 "score": round(score, 2)
             }
             
         except Exception as e:
-            logger.error(f"Bedrock API call failed: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            # Handle specific AWS/Bedrock errors
+            if "AccessDenied" in error_msg or "ModelAccessDeniedException" in error_msg:
+                logger.warning("Bedrock model access denied. Please enable Claude access in AWS Bedrock console.")
+            elif "ValidationException" in error_msg:
+                logger.warning(f"Bedrock validation error: {e}")
+            elif "ThrottlingException" in error_msg or "TooManyRequestsException" in error_msg:
+                logger.warning(f"Bedrock rate limit exceeded: {e}")
+            else:
+                logger.error(f"Bedrock API call failed ({error_type}): {e}", exc_info=True)
+            
             # Fall back to stub on error
             return self._stub_analyze(readme_text)
 
