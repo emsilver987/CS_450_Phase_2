@@ -59,27 +59,36 @@ class TestHomePage:
     def test_home_page_loads(self, driver, base_url):
         """Test that home page loads successfully"""
         driver.get(f"{base_url}/")
-        
+
         # Wait for page to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Check that page loaded
-        assert driver.title is not None or driver.page_source is not None
+
+        # Validate page loaded with specific checks
+        assert driver.title is not None, "Page should have a title"
+        assert len(driver.title) > 0, "Page title should not be empty"
+        assert driver.page_source is not None, "Page should have source"
+        assert len(driver.page_source) > 0, "Page source should not be empty"
+        assert driver.current_url == f"{base_url}/" or base_url in driver.current_url, (
+            f"Should be on home page, got {driver.current_url}"
+        )
     
     def test_home_page_has_content(self, driver, base_url):
         """Test that home page has some content"""
         driver.get(f"{base_url}/")
-        
+
         # Wait for body
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Check that page has some content
-        body_text = driver.find_element(By.TAG_NAME, "body").text
-        assert len(body_text) > 0
+
+        # Validate page content
+        body = driver.find_element(By.TAG_NAME, "body")
+        assert body is not None, "Body element should exist"
+        body_text = body.text
+        assert len(body_text) > 0, "Body should have text content"
+        assert isinstance(body_text, str), "Body text should be a string"
 
 
 class TestUploadPage:
@@ -88,44 +97,49 @@ class TestUploadPage:
     def test_upload_page_loads(self, driver, base_url):
         """Test that upload page loads successfully"""
         driver.get(f"{base_url}/upload")
-        
+
         # Wait for page to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
+
+        # Validate page loaded
+        assert driver.current_url.endswith("/upload") or "upload" in driver.current_url, (
+            f"Should be on upload page, got {driver.current_url}"
+        )
+        assert len(driver.page_source) > 0, "Page should have content"
+
         # Check for upload form elements
-        try:
-            # Look for file input or form
-            file_inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='file']")
-            forms = driver.find_elements(By.TAG_NAME, "form")
-            
-            # At least one should exist
-            assert len(file_inputs) > 0 or len(forms) > 0
-        except NoSuchElementException:
-            # If no form found, at least page should load
-            assert driver.page_source is not None
+        file_inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='file']")
+        forms = driver.find_elements(By.TAG_NAME, "form")
+
+        # At least one should exist
+        assert len(file_inputs) > 0 or len(forms) > 0, (
+            "Upload page should have file input or form element"
+        )
     
     def test_upload_page_has_form(self, driver, base_url):
         """Test that upload page has a form"""
         driver.get(f"{base_url}/upload")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Check for form or file input
-        try:
-            form = driver.find_element(By.TAG_NAME, "form")
-            assert form is not None
-        except NoSuchElementException:
-            # Try file input
-            try:
-                file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-                assert file_input is not None
-            except NoSuchElementException:
-                # If neither found, skip this specific assertion
-                pytest.skip("Upload form not found in page structure")
+
+        # Check for form or file input with specific validation
+        forms = driver.find_elements(By.TAG_NAME, "form")
+        file_inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='file']")
+
+        if len(forms) > 0:
+            form = forms[0]
+            assert form is not None, "Form element should exist"
+            assert form.is_displayed(), "Form should be visible"
+        elif len(file_inputs) > 0:
+            file_input = file_inputs[0]
+            assert file_input is not None, "File input should exist"
+            assert file_input.is_displayed(), "File input should be visible"
+        else:
+            pytest.skip("Upload form not found in page structure")
 
 
 class TestDirectoryPage:
@@ -134,33 +148,41 @@ class TestDirectoryPage:
     def test_directory_page_loads(self, driver, base_url):
         """Test that directory page loads successfully"""
         driver.get(f"{base_url}/directory")
-        
+
         # Wait for page to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Check that page loaded
-        assert driver.page_source is not None
+
+        # Validate page loaded
+        assert driver.current_url.endswith("/directory") or "directory" in driver.current_url, (
+            f"Should be on directory page, got {driver.current_url}"
+        )
+        assert driver.page_source is not None, "Page should have source"
+        assert len(driver.page_source) > 0, "Page source should not be empty"
+        body = driver.find_element(By.TAG_NAME, "body")
+        assert body is not None, "Body element should exist"
     
     def test_directory_page_has_search(self, driver, base_url):
         """Test that directory page has search functionality"""
         driver.get(f"{base_url}/directory")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
+
         # Look for search input or form
-        try:
-            search_inputs = driver.find_elements(
-                By.CSS_SELECTOR, "input[type='text'], input[type='search']"
-            )
-            # At least page should load
-            assert len(search_inputs) >= 0  # Search may or may not be present
-        except Exception:
-            # If search not found, that's okay - page should still load
-            assert driver.page_source is not None
+        search_inputs = driver.find_elements(
+            By.CSS_SELECTOR, "input[type='text'], input[type='search']"
+        )
+        # Search may or may not be present, but page should load
+        assert driver.page_source is not None, "Page should have source"
+        assert len(driver.page_source) > 0, "Page source should not be empty"
+        # If search exists, validate it
+        if len(search_inputs) > 0:
+            search_input = search_inputs[0]
+            assert search_input is not None, "Search input should exist"
+            assert search_input.is_displayed(), "Search input should be visible"
 
 
 class TestRatePage:
@@ -169,25 +191,38 @@ class TestRatePage:
     def test_rate_page_loads(self, driver, base_url):
         """Test that rate page loads successfully"""
         driver.get(f"{base_url}/rate")
-        
+
         # Wait for page to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Check that page loaded
-        assert driver.page_source is not None
+
+        # Validate page loaded
+        assert driver.current_url.endswith("/rate") or "rate" in driver.current_url, (
+            f"Should be on rate page, got {driver.current_url}"
+        )
+        assert driver.page_source is not None, "Page should have source"
+        assert len(driver.page_source) > 0, "Page source should not be empty"
+        body = driver.find_element(By.TAG_NAME, "body")
+        assert body is not None, "Body element should exist"
     
     def test_rate_page_with_name(self, driver, base_url):
         """Test rate page with model name parameter"""
         driver.get(f"{base_url}/rate?name=test-model")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Page should load (may show error if model doesn't exist, but page should load)
-        assert driver.page_source is not None
+
+        # Validate page loaded with query parameter
+        assert "rate" in driver.current_url, (
+            f"Should be on rate page, got {driver.current_url}"
+        )
+        assert "name=test-model" in driver.current_url, (
+            "URL should contain name parameter"
+        )
+        assert driver.page_source is not None, "Page should have source"
+        assert len(driver.page_source) > 0, "Page source should not be empty"
 
 
 class TestNavigation:
@@ -196,38 +231,49 @@ class TestNavigation:
     def test_navigate_home_to_upload(self, driver, base_url):
         """Test navigating from home to upload page"""
         driver.get(f"{base_url}/")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
+
+        # Validate we're on home page
+        assert driver.current_url == f"{base_url}/" or base_url in driver.current_url, (
+            f"Should start on home page, got {driver.current_url}"
+        )
+
         # Navigate to upload
         driver.get(f"{base_url}/upload")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Should be on upload page
-        assert "upload" in driver.current_url.lower() or driver.page_source is not None
+
+        # Validate navigation to upload page
+        assert "upload" in driver.current_url.lower(), (
+            f"Should be on upload page, got {driver.current_url}"
+        )
+        assert driver.page_source is not None, "Page should have source"
     
     def test_navigate_to_directory(self, driver, base_url):
         """Test navigating to directory page"""
         driver.get(f"{base_url}/")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
+
         # Navigate to directory
         driver.get(f"{base_url}/directory")
-        
+
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        
-        # Should be on directory page
-        assert "directory" in driver.current_url.lower() or driver.page_source is not None
+
+        # Validate navigation to directory page
+        assert "directory" in driver.current_url.lower(), (
+            f"Should be on directory page, got {driver.current_url}"
+        )
+        assert driver.page_source is not None, "Page should have source"
 
 
 class TestUploadAction:
@@ -236,17 +282,37 @@ class TestUploadAction:
     def test_invalid_upload_no_file(self, driver, base_url):
         """Test upload without selecting a file"""
         driver.get(f"{base_url}/upload")
-        
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
         # Find submit button (assuming there is one)
-        try:
-            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+        submit_buttons = driver.find_elements(
+            By.CSS_SELECTOR, "button[type='submit'], input[type='submit']"
+        )
+
+        if len(submit_buttons) > 0:
+            submit_btn = submit_buttons[0]
+            assert submit_btn is not None, "Submit button should exist"
+            assert submit_btn.is_displayed(), "Submit button should be visible"
+
+            # Store current URL before submit
+            url_before = driver.current_url
+
             submit_btn.click()
-            
+
+            # Wait a moment for any response
+            time.sleep(1)
+
             # Should see some error or stay on page
-            # This depends on implementation, but usually an alert or error message
-            # For now, just ensure we didn't crash
-            assert driver.page_source is not None
-        except NoSuchElementException:
+            assert driver.page_source is not None, "Page should still exist"
+            assert len(driver.page_source) > 0, "Page should have content"
+            # Page may stay on upload or show error - both are valid
+            assert "upload" in driver.current_url.lower() or url_before == driver.current_url, (
+                "Should stay on upload page or show error"
+            )
+        else:
             pytest.skip("Upload submit button not found")
 
     def test_valid_upload_simulation(self, driver, base_url, tmp_path):
@@ -282,10 +348,20 @@ class TestUploadAction:
             submit_btn.click()
             
             # Wait for result - either success message or redirect
-            # This is hard to assert generically without knowing exact UI behavior
-            # But we can check if we are still alive
-            time.sleep(1)
-            assert driver.page_source is not None
+            time.sleep(2)  # Wait for upload to process
+
+            # Validate page state after upload attempt
+            assert driver.page_source is not None, "Page should still exist"
+            assert len(driver.page_source) > 0, "Page should have content"
+
+            # Check for success/error indicators
+            page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+            # Page may show success, error, or stay on upload page
+            # All are valid outcomes depending on implementation
+            assert (
+                "success" in page_text or "error" in page_text or
+                "upload" in driver.current_url.lower()
+            ), "Page should show result or stay on upload page"
             
         except NoSuchElementException:
             pytest.skip("Upload form elements not found")
@@ -310,8 +386,19 @@ class TestSearchAction:
                 search_input.submit()
             
             # Wait for results or page update
-            time.sleep(1)
-            assert driver.page_source is not None
+            time.sleep(2)
+
+            # Validate search executed
+            assert driver.page_source is not None, "Page should still exist"
+            assert len(driver.page_source) > 0, "Page should have content"
+
+            # Verify search input still has the value
+            search_input_after = driver.find_element(
+                By.CSS_SELECTOR, "input[type='text'], input[type='search']"
+            )
+            assert search_input_after.get_attribute("value") == "test", (
+                "Search input should retain the search term"
+            )
             
         except NoSuchElementException:
             pytest.skip("Search input not found")

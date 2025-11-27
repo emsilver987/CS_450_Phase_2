@@ -8,27 +8,32 @@ import pytest
 
 def test_directory_page():
     """Test that the directory page shows packages"""
-    
     base_url = "http://localhost:3000"
-    
+
     try:
-        print("Testing directory page...")
         response = requests.get(f"{base_url}/directory", timeout=5)
-        
-        assert response.status_code == 200, f"Directory page failed with status {response.status_code}"
-        
+
+        assert response.status_code == 200, (
+            f"Directory page failed with status {response.status_code}"
+        )
+
         content = response.text
-        
-        # Check if the package name appears in the HTML
-        if "sample-bert-model" in content:
-            print("[SUCCESS] Directory page shows the test package!")
-            print("Package 'sample-bert-model' found in directory page")
-        else:
-            print("[INFO] Directory page loaded but package not visible")
-            print("This might be because the server needs to be restarted")
-            # This is informational, not a failure for pytest
-            pass
-            
+
+        # Validate HTML structure
+        assert len(content) > 0, "Directory page should have content"
+        assert "<html" in content.lower() or "<!doctype" in content.lower(), (
+            "Directory page should be valid HTML"
+        )
+        assert "<body" in content.lower(), (
+            "Directory page should have a body element"
+        )
+
+        # Check for common HTML elements that should be present
+        # (These are basic checks - actual structure depends on implementation)
+        assert "<title" in content.lower() or "<h1" in content.lower() or (
+            "directory" in content.lower()
+        ), "Directory page should have title or heading"
+
     except requests.exceptions.ConnectionError:
         pytest.skip("Server not available - skipping integration test")
     except Exception as e:
@@ -36,27 +41,39 @@ def test_directory_page():
 
 def test_api_packages():
     """Test that the API still shows packages"""
-    
     base_url = "http://localhost:3000"
-    
+
     try:
-        print("\nTesting API packages endpoint...")
         response = requests.get(f"{base_url}/api/packages", timeout=5)
-        
-        assert response.status_code == 200, f"API failed with status {response.status_code}"
-        
+
+        assert response.status_code == 200, (
+            f"API failed with status {response.status_code}"
+        )
+
         result = response.json()
+        assert isinstance(result, dict), "API response should be a JSON object"
+
+        # Validate packages structure
+        assert "packages" in result, "Response should contain 'packages' field"
         packages = result.get("packages", [])
-        
-        if packages:
-            print(f"[SUCCESS] API shows {len(packages)} package(s):")
+
+        assert isinstance(packages, list), "packages should be a list"
+
+        # Validate package structure if packages exist
+        if len(packages) > 0:
             for pkg in packages:
-                print(f"  - {pkg['name']} version {pkg['version']}")
-        else:
-            print("[INFO] API shows no packages")
-            # This is informational, not a failure for pytest
-            pass
-            
+                assert isinstance(pkg, dict), "Each package should be a dict"
+                assert "name" in pkg, "Package missing required field: name"
+                assert "version" in pkg, "Package missing required field: version"
+                assert isinstance(pkg["name"], str), "Package name should be a string"
+                assert len(pkg["name"]) > 0, "Package name should not be empty"
+                assert isinstance(
+                    pkg["version"], str
+                ), "Package version should be a string"
+                assert len(pkg["version"]) > 0, (
+                    "Package version should not be empty"
+                )
+
     except requests.exceptions.ConnectionError:
         pytest.skip("Server not available - skipping integration test")
     except Exception as e:

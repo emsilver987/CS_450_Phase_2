@@ -39,17 +39,65 @@ class TestRateEndpoint:
         headers = {"Content-Type": "application/json"}
         
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=5)
-            
-            # Allow enforce logic differences and Python errors
-            assert response.status_code in [200, 422, 502], f"Unexpected status code: {response.status_code}"
-            
-            response_data = response.json()
-            
-            # Check that the response has the expected structure
-            assert "data" in response_data, "Response missing 'data' field"
-            assert "netScore" in response_data["data"], "Response missing 'data.netScore' field"
-            assert "subscores" in response_data["data"], "Response missing 'data.subscores' field"
+            response = requests.post(
+                url, json=payload, headers=headers, timeout=5
+            )
+
+            # Expect 200 for successful rating, handle errors explicitly
+            if response.status_code == 200:
+                response_data = response.json()
+
+                # Check that the response has the expected structure
+                assert "data" in response_data, "Response missing 'data' field"
+                assert isinstance(
+                    response_data["data"], dict
+                ), "data should be a dict"
+
+                # Validate netScore
+                assert "netScore" in response_data["data"], (
+                    "Response missing 'data.netScore' field"
+                )
+                net_score = response_data["data"]["netScore"]
+                assert isinstance(
+                    net_score, (int, float)
+                ), "netScore should be numeric"
+                assert 0.0 <= net_score <= 1.0, (
+                    f"netScore {net_score} out of range [0.0, 1.0]"
+                )
+
+                # Validate subscores structure
+                assert "subscores" in response_data["data"], (
+                    "Response missing 'data.subscores' field"
+                )
+                subscores = response_data["data"]["subscores"]
+                assert isinstance(
+                    subscores, dict
+                ), "subscores should be a dict"
+
+                # Validate subscore values are in valid range
+                for key, value in subscores.items():
+                    if isinstance(value, (int, float)):
+                        assert 0.0 <= value <= 1.0, (
+                            f"Subscore {key}={value} out of range [0.0, 1.0]"
+                        )
+
+            elif response.status_code == 422:
+                # Validation error - validate error structure
+                try:
+                    error_data = response.json()
+                    assert isinstance(
+                        error_data, dict
+                    ), "Error response should be a JSON object"
+                except ValueError:
+                    pass  # Plain text error is acceptable
+            elif response.status_code == 502:
+                # Server error - acceptable for integration test
+                pass
+            else:
+                pytest.fail(
+                    f"Unexpected status code: {response.status_code}, "
+                    f"response: {response.text[:200]}"
+                )
             
         except requests.exceptions.ConnectionError:
             # Skip if server is not running (this is expected in CI/unit test environments)
