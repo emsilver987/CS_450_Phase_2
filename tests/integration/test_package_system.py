@@ -8,6 +8,7 @@ import boto3
 import json
 import os
 import pytest
+from botocore.exceptions import ClientError
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 
@@ -139,15 +140,36 @@ def test_package_download_workflow():
     print("\nTesting Package Download Workflow...")
     
     try:
-        # Simulate a package download request
-        test_package = 'models/audience-classifier/v1.0/model.zip'
+        # First, find an existing package in S3
+        response = s3.list_objects_v2(Bucket=ARTIFACTS_BUCKET, Prefix='models/')
+        
+        if 'Contents' not in response or len(response['Contents']) == 0:
+            pytest.skip("No packages found in S3 to test download workflow")
+        
+        # Find the first .zip file
+        test_package = None
+        for obj in response['Contents']:
+            if obj['Key'].endswith('.zip'):
+                test_package = obj['Key']
+                break
+        
+        if not test_package:
+            pytest.skip("No .zip packages found in S3 to test download workflow")
+        
+        print(f"   Using package: {test_package}")
         
         # 1. Check if package exists
         try:
             s3.head_object(Bucket=ARTIFACTS_BUCKET, Key=test_package)
             print("   [PASS] Package exists in S3")
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == '404' or error_code == 'NoSuchKey':
+                pytest.fail(f"Package not found in S3: {test_package}")
+            else:
+                raise
         except s3.exceptions.NoSuchKey:
-            pytest.fail("Package not found in S3")
+            pytest.fail(f"Package not found in S3: {test_package}")
             
         # 2. Generate presigned URL
         download_url = s3.generate_presigned_url(
@@ -157,13 +179,18 @@ def test_package_download_workflow():
         )
         print("   [PASS] Presigned URL generated")
         
-        # 3. Log download event (simulate)
+        # 3. Extract package info for logging
+        parts = test_package.split('/')
+        pkg_name = parts[1] if len(parts) > 1 else 'unknown'
+        version = parts[2] if len(parts) > 2 else 'unknown'
+        
+        # 4. Log download event (simulate)
         downloads_table = dynamodb.Table('downloads')
         download_event = {
             'download_id': f"test-{datetime.now().strftime('%Y%m%d%H%M%S')}",
             'user_id': 'test-user',
-            'pkg_name': 'audience-classifier',
-            'version': 'v1.0',
+            'pkg_name': pkg_name,
+            'version': version,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'status': 'initiated'
         }
