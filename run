@@ -70,8 +70,12 @@ install_deps() {
         }
     fi
     if [[ -f "pyproject.toml" ]]; then
-        # Install in development mode so tests can import acmecli
-        $PYTHON_CMD -m pip install --quiet -e . || true
+        # Install in development mode so tests can import the package.
+        # Fail immediately if installation fails so we don't hide import errors.
+        $PYTHON_CMD -m pip install --quiet -e . || {
+            echo "{\"error\": \"Failed to pip install -e .\"}"
+            exit 1
+        }
     fi
     echo "✅ Installation completed successfully!"
     exit 0
@@ -85,26 +89,41 @@ run_tests() {
     
     # Ensure package is installed in development mode for coverage
     if [[ -f "pyproject.toml" ]]; then
-        $PYTHON_CMD -m pip install --quiet -e . || true
+        # Install in development mode so tests can import the package.
+        # Fail immediately if installation fails so we don't hide import errors.
+        $PYTHON_CMD -m pip install --quiet -e . || {
+            echo "{\"error\": \"Failed to pip install -e .\"}"
+            exit 1
+        }
     fi
     
-    if ! SKIP_PROCESSPOOL_TESTS=1 $PYTHON_CMD -m coverage run --source=acmecli -m pytest tests/unit -q --disable-warnings > pytest_output.log 2>&1; then
-        coverage_report=$($PYTHON_CMD -m coverage report -m 2>&1 || true)
-        passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-        failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-        total=$((passed + failed))
-        percent=$(echo "$coverage_report" | grep -E '^TOTAL' | awk '{print $NF}' | tr -d '%' || echo 0)
-        echo "${passed}/${total} test cases passed. ${percent}% line coverage achieved."
-        echo "❌ Tests failed!"
-        exit 1
-    fi
-
+    # Run pytest with coverage; capture output to a file but always show it so logs are useful.
+    SKIP_PROCESSPOOL_TESTS=1 $PYTHON_CMD -m coverage run --source=src -m pytest tests/unit --disable-warnings > pytest_output.log 2>&1 || true
+    
+    # Always print pytest output so CI logs contain test tracebacks and collection messages.
+    echo "----- pytest output -----"
+    cat pytest_output.log || true
+    echo "----- end pytest output -----"
+    
     coverage_report=$($PYTHON_CMD -m coverage report -m 2>&1 || true)
-    passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-    failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-    total=$((passed + failed))
+    passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
+    failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
+    error=$(grep -Eo '[0-9]+ error' pytest_output.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
+    
+    # If pytest collected zero items, display that explicitly
+    if grep -q "collected 0 items" pytest_output.log >/dev/null 2>&1; then
+        echo "ERROR: No tests were collected (collected 0 items). Check test file names and pytest.ini testpaths."
+    fi
+    
+    total=$((passed + failed + error))
     percent=$(echo "$coverage_report" | grep -E '^TOTAL' | awk '{print $NF}' | tr -d '%' || echo 0)
     echo "${passed}/${total} test cases passed. ${percent}% line coverage achieved."
+    
+    if [[ "$failed" -ne 0 || "$total" -eq 0 ]]; then
+        echo "❌ Tests failed or no tests collected!"
+        exit 1
+    fi
+    
     echo "✅ Tests completed successfully!"
 }
 

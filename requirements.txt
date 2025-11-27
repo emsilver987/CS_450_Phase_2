@@ -1,5 +1,6 @@
 pytest
 pytest-cov
+coverage>=7.0
 fastapi==0.114.2
 starlette
 uvicorn==0.30.6
