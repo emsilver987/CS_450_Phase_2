@@ -1,5 +1,6 @@
 pytest
 pytest-cov
+pytest-asyncio
 coverage>=7.0
 fastapi==0.114.2
 starlette
