@@ -67,9 +67,16 @@ class AWSTestSuite:
                     "Encryption configuration should be present"
                 )
                 self.log_test("S3 Bucket Encryption", True, "Bucket has encryption enabled")
+            except AssertionError:
+                # Re-raise assertion errors - these are test failures, not configuration issues
+                raise
             except Exception:
+                # Catch other exceptions (e.g., AWS API errors when encryption not configured)
                 self.log_test("S3 Bucket Encryption", False, "Bucket encryption not configured")
 
+        except AssertionError:
+            # Re-raise assertion errors - let pytest handle them naturally
+            raise
         except Exception as e:
             self.log_test("S3 Bucket Access", False, str(e))
             pytest.fail(f"S3 bucket access failed: {e}")
@@ -226,7 +233,11 @@ class AWSTestSuite:
                                 "Load Balancer Health", True,
                                 "Health endpoint responding"
                             )
+                        except AssertionError:
+                            # Re-raise assertion errors - these are test failures
+                            raise
                         except Exception as e:
+                            # Catch other exceptions (e.g., connection errors)
                             self.log_test(
                                 "Load Balancer Health", False,
                                 f"Health endpoint error: {str(e)}"
