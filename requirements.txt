@@ -3,6 +3,7 @@ pytest-cov
 coverage>=7.0
 fastapi==0.114.2
 starlette
+httpx
 uvicorn==0.30.6
 pydantic==2.9.2
 jinja2==3.1.4

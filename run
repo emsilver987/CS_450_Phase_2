@@ -105,6 +105,20 @@ run_tests() {
     cat pytest_output.log || true
     echo "----- end pytest output -----"
     
+    # Check for collection errors first (these are fatal)
+    if grep -q "errors during collection" pytest_output.log >/dev/null 2>&1; then
+        error_count=$(grep -oE '[0-9]+ errors? during collection' pytest_output.log | grep -oE '[0-9]+' | head -1 || echo "unknown")
+        echo "ERROR: ${error_count} errors during test collection. Fix import errors before tests can run."
+        exit 1
+    fi
+    
+    # Check for "ERROR collecting" lines
+    if grep -q "^ERROR collecting" pytest_output.log >/dev/null 2>&1; then
+        error_count=$(grep -c "^ERROR collecting" pytest_output.log || echo "unknown")
+        echo "ERROR: ${error_count} test files had collection errors. Check the output above."
+        exit 1
+    fi
+    
     coverage_report=$($PYTHON_CMD -m coverage report -m 2>&1 || true)
     passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
     failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
@@ -113,6 +127,7 @@ run_tests() {
     # If pytest collected zero items, display that explicitly
     if grep -q "collected 0 items" pytest_output.log >/dev/null 2>&1; then
         echo "ERROR: No tests were collected (collected 0 items). Check test file names and pytest.ini testpaths."
+        exit 1
     fi
     
     total=$((passed + failed + error))
