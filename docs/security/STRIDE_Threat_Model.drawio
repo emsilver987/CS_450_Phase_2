@@ -1,0 +1,274 @@
+<mxfile host="65bd71144e">
+    <diagram name="STRIDE Threat Model" id="stride-threat-model">
+        <mxGraphModel dx="854" dy="423" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3300" pageHeight="2339" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="ACME Model Registry - STRIDE Threat Model" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="900" y="20" width="500" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb1" value="Trust Boundary 1: External Clients" style="swimlane;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="50" y="100" width="300" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="user" value="User/Client&#xa;(Browser/CLI)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12" parent="tb1" vertex="1">
+                    <mxGeometry x="50" y="50" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb2" value="Trust Boundary 2: API Edge" style="swimlane;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="450" y="100" width="350" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="waf" value="AWS WAF&#xa;DoS Protection&#xa;Rate Limiting" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11" parent="tb2" vertex="1">
+                    <mxGeometry x="30" y="40" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="apigw" value="API Gateway&#xa;REST Endpoints&#xa;Throttling (100 req/s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11" parent="tb2" vertex="1">
+                    <mxGeometry x="180" y="40" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="rate-limit" value="Rate Limit Middleware&#xa;(120 req/60s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11" parent="tb2" vertex="1">
+                    <mxGeometry x="100" y="120" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb3" value="Trust Boundary 3: Compute Layer" style="swimlane;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="900" y="100" width="500" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="ecs" value="ECS Fargate&#xa;FastAPI Application&#xa;JWT Auth Middleware&#xa;Security Headers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb3" vertex="1">
+                    <mxGeometry x="50" y="40" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="routes" value="API Routes&#xa;packages.py&#xa;artifacts.py&#xa;frontend.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb3" vertex="1">
+                    <mxGeometry x="270" y="40" width="180" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="services" value="Services Layer&#xa;s3_service.py&#xa;auth_service.py&#xa;validator_service.py&#xa;package_service.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb3" vertex="1">
+                    <mxGeometry x="50" y="160" width="400" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb4" value="Trust Boundary 4: Data Storage" style="swimlane;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="1500" y="100" width="400" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="S3 Bucket&#xa;pkg-artifacts&#xa;SSE-KMS Encryption&#xa;Versioning Enabled&#xa;Presigned URLs (300s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb4" vertex="1">
+                    <mxGeometry x="50" y="40" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="dynamodb" value="DynamoDB Tables&#xa;users, tokens, packages&#xa;uploads, downloads&#xa;Conditional Writes&#xa;SHA-256 Hash Verification" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb4" vertex="1">
+                    <mxGeometry x="50" y="160" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb5" value="Trust Boundary 5: Security Services" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="2000" y="100" width="400" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="kms" value="AWS KMS&#xa;Encryption Keys&#xa;alias/acme-main-key&#xa;alias/s3-artifacts-encryption" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb5" vertex="1">
+                    <mxGeometry x="50" y="40" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="secrets" value="Secrets Manager&#xa;JWT Secret&#xa;Admin Password&#xa;KMS Encrypted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb5" vertex="1">
+                    <mxGeometry x="50" y="140" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="iam" value="IAM Roles &amp; Policies&#xa;Least-Privilege Access&#xa;Group_106 Isolation&#xa;GitHub OIDC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb5" vertex="1">
+                    <mxGeometry x="50" y="240" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="tb6" value="Trust Boundary 6: Monitoring &amp; Auditing" style="swimlane;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=14" parent="1" vertex="1">
+                    <mxGeometry x="2500" y="100" width="400" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="cloudwatch" value="CloudWatch&#xa;Logs, Metrics, Alarms&#xa;Auto-scaling Triggers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb6" vertex="1">
+                    <mxGeometry x="50" y="40" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="cloudtrail" value="CloudTrail&#xa;Audit Logging&#xa;Multi-region&#xa;S3/DynamoDB Events&#xa;Glacier Archiving (90d)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb6" vertex="1">
+                    <mxGeometry x="50" y="140" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="config" value="AWS Config&#xa;Compliance Monitoring" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="tb6" vertex="1">
+                    <mxGeometry x="50" y="260" width="300" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow1" value="HTTPS + JWT" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2;fontSize=11" parent="1" source="user" target="waf" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2" parent="1" source="waf" target="apigw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2" parent="1" source="apigw" target="ecs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2" parent="1" source="ecs" target="routes" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2" parent="1" source="routes" target="services" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow6" value="Package Data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2;fontSize=11" parent="1" source="services" target="s3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow7" value="Metadata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#1ba1e2;fontSize=11" parent="1" source="services" target="dynamodb" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow8" value="Encryption Keys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;fontSize=11;dashed=1" parent="1" source="kms" target="s3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow9" value="JWT Secret" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;fontSize=11;dashed=1" parent="1" source="secrets" target="ecs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow10" value="Logs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;fontSize=11;dashed=1" parent="1" source="ecs" target="cloudwatch" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow11" value="Audit Events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;fontSize=11;dashed=1" parent="1" source="s3" target="cloudtrail" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow12" value="Audit Events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#82b366;fontSize=11;dashed=1" parent="1" source="dynamodb" target="cloudtrail" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-title" value="🧩 SPOOFING IDENTITY" style="text;html=1;strokeColor=none;fillColor=#f8cecc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="50" y="500" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-threat" value="Threat: Forged/reused JWT tokens, impersonation" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="50" y="540" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-mit1" value="✅ JWT signed with KMS-encrypted secret (Secrets Manager)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="570" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-mit2" value="✅ Token expiration (10h or 1000 uses max)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="590" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-mit3" value="✅ Token use-count tracking in DynamoDB (prevents replay)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="610" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-mit4" value="✅ Token revocation check (is_token_valid)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="630" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="spoofing-mit5" value="✅ IAM Group_106 policy isolation" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="650" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-title" value="🧱 TAMPERING WITH DATA" style="text;html=1;strokeColor=none;fillColor=#fff2cc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="600" y="500" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-threat" value="Threat: Altered packages/metadata in transit or at rest" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="600" y="540" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-mit1" value="✅ S3 SSE-KMS encryption (customer-managed key)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="570" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-mit2" value="✅ S3 versioning enabled (tamper detection)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="590" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-mit3" value="✅ Presigned URLs (300s TTL, HTTPS-only)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="610" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-mit4" value="✅ DynamoDB conditional writes (race condition protection)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="630" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="tampering-mit5" value="✅ SHA-256 hash verification (upload &amp; download)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="650" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-title" value="🧾 REPUDIATION" style="text;html=1;strokeColor=none;fillColor=#d5e8d4;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="1150" y="500" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-threat" value="Threat: User denies upload/validation/deletion actions" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="1150" y="540" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit1" value="✅ CloudTrail (multi-region, S3/DynamoDB data events)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="570" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit2" value="✅ CloudWatch Logs (application-level audit entries)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="590" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit3" value="✅ Download event logging (log_download_event)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="610" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit4" value="✅ Upload event logging (log_upload_event)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="630" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit5" value="✅ User attribution in logs (user_id from JWT)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="650" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="repudiation-mit6" value="✅ S3 Glacier archiving (90-day lifecycle policy)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="670" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-title" value="🔒 INFORMATION DISCLOSURE" style="text;html=1;strokeColor=none;fillColor=#e1d5e7;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="50" y="750" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-threat" value="Threat: Unauthorized access to packages, tokens, user data" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="50" y="790" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit1" value="✅ Least-privilege IAM roles (scoped policies)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="820" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit2" value="✅ Short-lived presigned URLs (300s TTL)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="840" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit3" value="✅ Sensitive fields encrypted (KMS/Secrets Manager)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="860" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit4" value="✅ RBAC checks (group-based access control)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="880" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit5" value="✅ Security headers middleware (CSP, HSTS, etc.)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="900" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit6" value="✅ Log redaction (Authorization, Cookie headers)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="920" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="disclosure-mit7" value="✅ AWS Config (compliance monitoring)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="70" y="940" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-title" value="🧨 DENIAL OF SERVICE" style="text;html=1;strokeColor=none;fillColor=#ffe6cc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="600" y="750" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-threat" value="Threat: Flooding endpoints, resource exhaustion attacks" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="600" y="790" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit1" value="✅ API Gateway throttling (100 req/s, 200 burst)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="820" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit2" value="✅ AWS WAF (DoS pattern blocking)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="840" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit3" value="✅ Rate limiting middleware (120 req/60s)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="860" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit4" value="✅ Validator timeout (5s, asyncio.wait_for)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="880" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit5" value="✅ ECS autoscaling (CPU/memory limits)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="900" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit6" value="✅ Streaming uploads (prevents memory exhaustion)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="920" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit7" value="✅ ReDoS protection (regex timeout mitigation)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="940" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dos-mit8" value="✅ CloudWatch alarms (auto-scaling triggers)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="620" y="960" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-title" value="🧍‍♂️ ELEVATION OF PRIVILEGE" style="text;html=1;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="1150" y="750" width="500" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-threat" value="Threat: Standard user escalates to admin or modifies IAM" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12" parent="1" vertex="1">
+                    <mxGeometry x="1150" y="790" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-mit1" value="✅ Least-privilege IAM policies (scoped access)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="820" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-mit2" value="✅ Group_106 restrictions (project-specific permissions)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="840" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-mit3" value="✅ Validator roles (minimal S3/DynamoDB access)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="860" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-mit4" value="✅ GitHub OIDC (Terraform state protection)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="880" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="eop-mit5" value="✅ Terraform state locking (S3 backend)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="900" width="480" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-title" value="Legend" style="text;html=1;strokeColor=none;fillColor=#d5e8d4;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="500" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-tb" value="Trust Boundaries (colored boxes)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="540" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-flow" value="Data Flow (blue solid lines)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="560" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-sec" value="Security Services (orange dashed)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="580" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-mon" value="Monitoring (green dashed)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="600" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend-implemented" value="✅ = Implemented" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=11" parent="1" vertex="1">
+                    <mxGeometry x="1700" y="620" width="200" height="20" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
