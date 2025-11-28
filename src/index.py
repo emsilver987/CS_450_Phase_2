@@ -933,12 +933,14 @@ async def list_artifacts(request: Request, offset: str = None):
                             artifact_id = artifact.get("id")
                             if artifact_name and artifact_id:
                                 artifact_map[artifact_name] = artifact_id
-                    
+
                     for model in models:
                         if isinstance(model, dict):
                             model_name = model.get("name", "")
                             # Look up artifact_id from database, fallback to model id/name
-                            artifact_id = artifact_map.get(model_name, model.get("id", model_name))
+                            artifact_id = artifact_map.get(
+                                model_name, model.get("id", model_name)
+                            )
                             results.append(
                                 {
                                     "name": model_name,
@@ -1037,24 +1039,35 @@ async def list_artifacts(request: Request, offset: str = None):
                                         artifact_id = artifact.get("id")
                                         if artifact_id:
                                             break
-                                
+
                                 # If not found in database, try to get artifact_id from S3 metadata
                                 if not artifact_id:
                                     try:
                                         # Sanitize model name for S3 path
-                                        sanitized_name = sanitize_model_id_for_s3(model_name)
+                                        sanitized_name = sanitize_model_id_for_s3(
+                                            model_name
+                                        )
                                         version = model.get("version", "main")
-                                        safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
+                                        safe_version = (
+                                            version.replace("/", "_")
+                                            .replace(":", "_")
+                                            .replace("\\", "_")
+                                        )
                                         metadata_key = f"models/{sanitized_name}/{safe_version}/metadata.json"
-                                        
+
                                         # Try to read metadata from S3
                                         from botocore.exceptions import ClientError
+
                                         try:
-                                            response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
-                                            metadata_json = response["Body"].read().decode("utf-8")
+                                            response = s3.get_object(
+                                                Bucket=ap_arn, Key=metadata_key
+                                            )
+                                            metadata_json = (
+                                                response["Body"].read().decode("utf-8")
+                                            )
                                             metadata = json.loads(metadata_json)
                                             artifact_id = metadata.get("artifact_id")
-                                            
+
                                             # If found in S3 metadata, restore to database for future queries
                                             if artifact_id:
                                                 save_artifact(
@@ -1071,18 +1084,26 @@ async def list_artifacts(request: Request, offset: str = None):
                                                     },
                                                 )
                                         except ClientError as e:
-                                            error_code = e.response.get("Error", {}).get("Code", "")
+                                            error_code = e.response.get(
+                                                "Error", {}
+                                            ).get("Code", "")
                                             if error_code != "NoSuchKey":
-                                                logger.debug(f"Error reading S3 metadata {metadata_key}: {error_code}")
+                                                logger.debug(
+                                                    f"Error reading S3 metadata {metadata_key}: {error_code}"
+                                                )
                                         except Exception as e:
-                                            logger.debug(f"Error parsing S3 metadata {metadata_key}: {str(e)}")
+                                            logger.debug(
+                                                f"Error parsing S3 metadata {metadata_key}: {str(e)}"
+                                            )
                                     except Exception as e:
-                                        logger.debug(f"Error accessing S3 metadata for {model_name}: {str(e)}")
-                                
+                                        logger.debug(
+                                            f"Error accessing S3 metadata for {model_name}: {str(e)}"
+                                        )
+
                                 # Final fallback: use model id/name (should rarely happen)
                                 if not artifact_id:
                                     artifact_id = model.get("id", model.get("name", ""))
-                                
+
                                 if artifact_id and artifact_id not in seen_ids:
                                     results.append(
                                         {
@@ -1150,7 +1171,9 @@ async def list_artifacts(request: Request, offset: str = None):
 
 
 def _build_regex_patterns():
-    hf_dataset_regex = r"https?://huggingface\.co/datasets/([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-]+)?)"
+    hf_dataset_regex = (
+        r"https?://huggingface\.co/datasets/([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-]+)?)"
+    )
     github_regex = r"https?://github\.com/([A-Za-z0-9_\-]+/[A-Za-z0-9_\-\.]+)"
     yaml_dataset_regex = r"datasets:\s*\n\s*-\s*([A-Za-z0-9_\-/]+)"
     foundation_model_regexes = [
@@ -1172,69 +1195,91 @@ def _build_regex_patterns():
         "benchmarks": benchmark_regexes,
     }
 
+
 def _apply_text_patterns(text_content: str) -> Dict[str, List[str]]:
     if not text_content:
-        return {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
+        return {
+            "datasets": [],
+            "code_repos": [],
+            "parent_models": [],
+            "evaluation_datasets": [],
+        }
+
     patterns = _build_regex_patterns()
-    findings = {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
+    findings = {
+        "datasets": [],
+        "code_repos": [],
+        "parent_models": [],
+        "evaluation_datasets": [],
+    }
+
     hf_matches = re.findall(patterns["hf_dataset"], text_content)
-    findings["datasets"].extend([f"https://huggingface.co/datasets/{m}" for m in hf_matches])
-    
+    findings["datasets"].extend(
+        [f"https://huggingface.co/datasets/{m}" for m in hf_matches]
+    )
+
     gh_matches = re.findall(patterns["github"], text_content)
     findings["code_repos"].extend([f"https://github.com/{m}" for m in set(gh_matches)])
-    
+
     yaml_matches = re.findall(patterns["yaml_dataset"], text_content, re.MULTILINE)
     for match in yaml_matches:
         url = f"https://huggingface.co/datasets/{match}"
         if url not in findings["datasets"]:
             findings["datasets"].append(url)
-    
+
     for pattern in patterns["foundation_models"]:
         matches = re.findall(pattern, text_content, re.IGNORECASE)
         findings["parent_models"].extend(matches)
-    
+
     for pattern in patterns["benchmarks"]:
         matches = re.findall(pattern, text_content, re.IGNORECASE)
         findings["evaluation_datasets"].extend(matches)
-    
+
     for category in findings:
         findings[category] = list(set(findings[category]))
-    
+
     return findings
 
+
 def _complete_urls(raw_data: Dict[str, List[str]]) -> Dict[str, List[str]]:
-    completed = {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
+    completed = {
+        "datasets": [],
+        "code_repos": [],
+        "parent_models": [],
+        "evaluation_datasets": [],
+    }
+
     for item in raw_data.get("datasets", []):
         if item.startswith("http"):
             completed["datasets"].append(item)
         else:
             completed["datasets"].append(f"https://huggingface.co/datasets/{item}")
-    
+
     for item in raw_data.get("code_repos", []):
         if item.startswith("http"):
             cleaned = item.rstrip("/").replace(".git", "")
             completed["code_repos"].append(cleaned)
         else:
             completed["code_repos"].append(f"https://github.com/{item}")
-    
+
     completed["parent_models"] = raw_data.get("parent_models", [])
     completed["evaluation_datasets"] = raw_data.get("evaluation_datasets", [])
-    
+
     return completed
 
-def _parse_dependencies(documentation_text: str, artifact_identifier: str) -> Dict[str, List[str]]:
+
+def _parse_dependencies(
+    documentation_text: str, artifact_identifier: str
+) -> Dict[str, List[str]]:
     text_length = len(documentation_text.strip()) if documentation_text else 0
     if text_length < 50:
         logger.warning(f"Documentation content too short for {artifact_identifier}")
         raw_findings = _apply_text_patterns(documentation_text)
         return _complete_urls(raw_findings)
-    
+
     if len(documentation_text) > 10000:
         documentation_text = documentation_text[:10000] + "\n...[truncated]"
-    
+
     system_prompt = """You are tasked with analyzing documentation for a machine learning model to comprehensively extract all dependency relationships and artifact connections. Your objective is to carefully examine the provided documentation and identify every relevant reference to datasets, code repositories, foundation models, and evaluation benchmarks that are connected to this model.
 
 The documentation you receive contains information about a machine learning model, and your role is to systematically extract dependency information that reveals how this model relates to other artifacts in the machine learning ecosystem. You must identify training datasets that were used to develop the model, source code repositories where the implementation can be found, base or foundation models that this model was built upon or fine-tuned from, and evaluation datasets that were used to assess the model's performance.
@@ -1255,13 +1300,21 @@ Your response must be formatted as a single, valid JSON object with no additiona
     if not api_key:
         raw_findings = _apply_text_patterns(documentation_text)
         return _complete_urls(raw_findings)
-    
+
     try:
         logger.info("Attempting to use LLM service for dependency analysis")
-        http_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        http_headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
         request_payload = {
             "model": "llama4:latest",
-            "messages": [{"role": "user", "content": f"{system_prompt}\n\nDocumentation Content:\n{documentation_text}"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"{system_prompt}\n\nDocumentation Content:\n{documentation_text}",
+                }
+            ],
             "temperature": 0.0,
         }
         http_response = requests.post(
@@ -1270,15 +1323,17 @@ Your response must be formatted as a single, valid JSON object with no additiona
             json=request_payload,
             timeout=30,
         )
-        
+
         if http_response.status_code == 200:
-            raw_output = http_response.json()["choices"][0]["message"]["content"].strip()
+            raw_output = http_response.json()["choices"][0]["message"][
+                "content"
+            ].strip()
             cleaned_output = raw_output
             if "```json" in cleaned_output:
                 cleaned_output = cleaned_output.split("```json")[1].split("```")[0]
             elif "```" in cleaned_output:
                 cleaned_output = cleaned_output.split("```")[1].split("```")[0]
-            
+
             try:
                 json_data = json.loads(cleaned_output.strip())
                 if isinstance(json_data, dict):
@@ -1292,22 +1347,30 @@ Your response must be formatted as a single, valid JSON object with no additiona
             except json.JSONDecodeError as parse_error:
                 logger.warning(f"Could not parse LLM response as JSON: {parse_error}")
                 logger.debug(f"Raw output: {raw_output}")
-        
+
         logger.warning(f"LLM service returned status {http_response.status_code}")
     except requests.exceptions.Timeout:
         logger.error("LLM service request timed out")
     except Exception as error:
         logger.error(f"Error during LLM service call: {error}", exc_info=True)
-    
+
     raw_findings = _apply_text_patterns(documentation_text)
     return _complete_urls(raw_findings)
 
-def _extract_dataset_code_names_from_readme(readme_text: str, model_name: str = None) -> Dict[str, Any]:
+
+def _extract_dataset_code_names_from_readme(
+    readme_text: str, model_name: str = None
+) -> Dict[str, Any]:
     if not readme_text:
-        return {"dataset_name": None, "code_name": None, "parent_models": [], "lineage": {}}
-    
+        return {
+            "dataset_name": None,
+            "code_name": None,
+            "parent_models": [],
+            "lineage": {},
+        }
+
     dependency_info = _parse_dependencies(readme_text, model_name or "unknown")
-    
+
     dataset_name = None
     if dependency_info.get("datasets"):
         dataset_url = dependency_info["datasets"][0]
@@ -1315,22 +1378,26 @@ def _extract_dataset_code_names_from_readme(readme_text: str, model_name: str = 
             dataset_name = dataset_url.replace("https://huggingface.co/datasets/", "")
         else:
             dataset_name = dataset_url
-    
+
     code_name = None
     if dependency_info.get("code_repos"):
         code_url = dependency_info["code_repos"][0]
         if code_url.startswith("https://github.com/"):
-            code_name = code_url.replace("https://github.com/", "").rstrip("/").replace(".git", "")
+            code_name = (
+                code_url.replace("https://github.com/", "")
+                .rstrip("/")
+                .replace(".git", "")
+            )
         else:
             code_name = code_url
-    
+
     parent_models = dependency_info.get("parent_models", [])
-    
+
     return {
         "dataset_name": dataset_name,
         "code_name": code_name,
         "parent_models": parent_models,
-        "lineage": dependency_info
+        "lineage": dependency_info,
     }
 
 
@@ -4319,14 +4386,18 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2
         ),
         "net_score_latency": round(
-            float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "ramp_up_time": round(
             float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0),
             2,
         ),
         "ramp_up_time_latency": round(
-            float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "bus_factor": round(
             float(
@@ -4338,7 +4409,9 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "bus_factor_latency": round(
-            float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "performance_claims": round(
             float(
@@ -4356,7 +4429,8 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(
                 alias(rating, "performance_claims_latency", "PerformanceClaimsLatency")
                 or 0.0
-            ) / 1000.0,
+            )
+            / 1000.0,
             2,
         ),
         "license": round(
@@ -4385,7 +4459,8 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "DatasetAndCodeScoreLatency",
                 )
                 or 0.0
-            ) / 1000.0,
+            )
+            / 1000.0,
             2,
         ),
         "dataset_quality": round(
@@ -4400,7 +4475,8 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "dataset_quality_latency": round(
             float(
                 alias(rating, "dataset_quality_latency", "DatasetQualityLatency") or 0.0
-            ) / 1000.0,
+            )
+            / 1000.0,
             2,
         ),
         "code_quality": round(
@@ -4411,7 +4487,9 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "code_quality_latency": round(
-            float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "reproducibility": round(
             float(
@@ -4429,7 +4507,8 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(
                 alias(rating, "reproducibility_latency", "ReproducibilityLatency")
                 or 0.0
-            ) / 1000.0,
+            )
+            / 1000.0,
             2,
         ),
         "reviewedness": round(
@@ -4440,17 +4519,23 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "reviewedness_latency": round(
-            float(alias(rating, "reviewedness_latency", "ReviewednessLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "reviewedness_latency", "ReviewednessLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "tree_score": round(
             float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2
         ),
         "tree_score_latency": round(
-            float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
         "size_score": _extract_size_scores(rating),
         "size_score_latency": round(
-            float(alias(rating, "size_score_latency", "SizeScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "size_score_latency", "SizeScoreLatency") or 0.0)
+            / 1000.0,
+            2,
         ),
     }
 
@@ -4543,8 +4628,12 @@ def get_model_rate(id: str, request: Request):
                     found = True
                     # Extract actual model name from S3 result
                     first_model = models_found[0]
-                    model_name = first_model.get("name", id)  # Use actual model name from S3, fallback to id
-                    logger.info(f"DEBUG: Model found via list_models: name='{model_name}'")
+                    model_name = first_model.get(
+                        "name", id
+                    )  # Use actual model name from S3, fallback to id
+                    logger.info(
+                        f"DEBUG: Model found via list_models: name='{model_name}'"
+                    )
                 else:
                     logger.info(f"DEBUG: No models found, trying common versions")
                     common_versions = ["1.0.0", "main", "latest"]
@@ -4659,7 +4748,7 @@ def get_model_rate(id: str, request: Request):
                 raise
             except Exception as e:
                 logger.error(
-                    f"DEBUG: Error analyzing model content for {analysis_id}: {str(e)}",
+                    f"DEBUG: Error analyzing model content for {id}: {str(e)}",
                     exc_info=True,
                 )
                 logger.error(

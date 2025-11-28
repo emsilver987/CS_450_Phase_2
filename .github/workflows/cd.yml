@@ -26,7 +26,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -305,10 +305,137 @@ jobs:
             echo "S3 access point already in state, skipping import"
           fi
 
+      - name: Check and clean stale Terraform locks
+        shell: bash
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+        run: |
+          echo "Checking for stale Terraform locks..."
+          LOCK_TABLE="terraform-state-lock"
+          
+          # Get all locks from DynamoDB
+          LOCK_JSON=$(aws dynamodb scan \
+            --table-name "$LOCK_TABLE" \
+            --region "${{ env.AWS_REGION }}" \
+            --output json 2>/dev/null || echo "{}")
+          
+          # Check if there's a lock for our state file
+          LOCK_EXISTS=$(echo "$LOCK_JSON" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              items = data.get('Items', [])
+              for item in items:
+                  lock_id = item.get('LockID', {}).get('S', '')
+                  if lock_id == 'pkg-artifacts/terraform/state':
+                      info = item.get('Info', {}).get('S', '')
+                      if info:
+                          import json as json2
+                          lock_info = json2.loads(info)
+                          lock_id_val = lock_info.get('ID', '')
+                          created = lock_info.get('Created', '')
+                          print(f'{lock_id_val}|{created}')
+                          sys.exit(0)
+              print('')
+          except Exception as e:
+              print('')
+          " || echo "")
+          
+          if [ ! -z "$LOCK_EXISTS" ]; then
+            LOCK_ID=$(echo "$LOCK_EXISTS" | cut -d'|' -f1)
+            CREATED_TIME=$(echo "$LOCK_EXISTS" | cut -d'|' -f2)
+            
+            if [ ! -z "$LOCK_ID" ] && [ ! -z "$CREATED_TIME" ]; then
+              # Check if lock is older than 30 minutes using Python
+              IS_STALE=$(python3 -c "
+          import sys
+          from datetime import datetime, timezone
+          try:
+              created = datetime.fromisoformat('$CREATED_TIME'.replace('Z', '+00:00'))
+              now = datetime.now(timezone.utc)
+              age_seconds = (now - created).total_seconds()
+              if age_seconds > 1800:  # 30 minutes
+                  print('stale')
+              else:
+                  print('recent')
+          except:
+              print('stale')  # If we can't parse, assume stale
+          " || echo "stale")
+              
+              if [ "$IS_STALE" = "stale" ]; then
+                echo "Found stale lock (ID: $LOCK_ID). Attempting to remove..."
+                terraform force-unlock -force "$LOCK_ID" || echo "Failed to force-unlock, will try during plan"
+              else
+                echo "Lock is recent, not removing"
+              fi
+            fi
+          else
+            echo "No locks found in DynamoDB"
+          fi
+
       - name: Terraform plan
         shell: bash
         working-directory: ${{ env.TF_DIR }}
-        run: terraform plan -out=tfplan -input=false -lock-timeout=5m -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" -var="image_tag=${{ steps.build-image.outputs.image_tag }}"
+        timeout-minutes: 15
+        run: |
+          set +e
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Terraform plan attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
+            
+            # Try plan with normal refresh first
+            if terraform plan -out=tfplan -input=false -lock-timeout=5m \
+              -var="aws_region=us-east-1" \
+              -var="artifacts_bucket=pkg-artifacts" \
+              -var="image_tag=${{ steps.build-image.outputs.image_tag }}" 2>&1 | tee /tmp/plan-output.log; then
+              echo "Terraform plan succeeded"
+              exit 0
+            fi
+            
+            PLAN_ERROR=$(cat /tmp/plan-output.log)
+            
+            # Check for lock errors
+            if echo "$PLAN_ERROR" | grep -q "Error acquiring the state lock\|ConditionalCheckFailedException"; then
+              echo "Lock error detected. Attempting to clean stale locks..."
+              
+              # Extract lock ID from error if possible
+              LOCK_ID=$(echo "$PLAN_ERROR" | grep -oP 'ID:\s+\K[^\s]+' | head -n1 || echo "")
+              
+              if [ ! -z "$LOCK_ID" ]; then
+                echo "Force-unlocking lock ID: $LOCK_ID"
+                terraform force-unlock -force "$LOCK_ID" || echo "Force-unlock failed, continuing..."
+              fi
+              
+              # Wait a bit before retry
+              sleep 5
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              
+            # Check for timeout or long-running issues
+            elif echo "$PLAN_ERROR" | grep -q "timeout\|context deadline exceeded"; then
+              echo "Plan timeout detected. Retrying with -refresh=false..."
+              if terraform plan -refresh=false -out=tfplan -input=false -lock-timeout=5m \
+                -var="aws_region=us-east-1" \
+                -var="artifacts_bucket=pkg-artifacts" \
+                -var="image_tag=${{ steps.build-image.outputs.image_tag }}"; then
+                echo "Terraform plan succeeded with -refresh=false"
+                exit 0
+              else
+                echo "Plan failed even with -refresh=false"
+                cat /tmp/plan-output.log
+                exit 1
+              fi
+            else
+              echo "Terraform plan failed with different error:"
+              cat /tmp/plan-output.log
+              exit 1
+            fi
+          done
+          
+          echo "Terraform plan failed after $MAX_RETRIES attempts"
+          cat /tmp/plan-output.log
+          exit 1
 
       - name: Terraform apply
         shell: bash
