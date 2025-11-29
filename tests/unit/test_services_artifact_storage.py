@@ -187,3 +187,96 @@ class TestArtifactStorage:
         assert result is True
         assert mock_table_instance.delete_item.call_count == 2
 
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_save_artifact_client_error(self, mock_table):
+        """Test save_artifact with ClientError"""
+        from src.services.artifact_storage import save_artifact
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.put_item.side_effect = ClientError(
+            {"Error": {"Code": "ResourceNotFoundException"}},
+            "PutItem"
+        )
+        
+        result = save_artifact("test-id", {"name": "test"})
+        assert result is False
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_save_artifact_generic_exception(self, mock_table):
+        """Test save_artifact with generic exception"""
+        from src.services.artifact_storage import save_artifact
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.put_item.side_effect = Exception("Unexpected error")
+        
+        result = save_artifact("test-id", {"name": "test"})
+        assert result is False
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_get_artifact_client_error(self, mock_table):
+        """Test get_artifact with ClientError"""
+        from src.services.artifact_storage import get_artifact
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.get_item.side_effect = ClientError(
+            {"Error": {"Code": "ResourceNotFoundException"}},
+            "GetItem"
+        )
+        
+        result = get_artifact("test-id")
+        assert result is None
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_update_artifact_not_found(self, mock_table):
+        """Test update_artifact when artifact not found"""
+        from src.services.artifact_storage import update_artifact
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.get_item.return_value = {}  # No Item key
+        
+        result = update_artifact("test-id", {"name": "updated"})
+        assert result is False
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_delete_artifact_client_error(self, mock_table):
+        """Test delete_artifact with ClientError"""
+        from src.services.artifact_storage import delete_artifact
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.delete_item.side_effect = ClientError(
+            {"Error": {"Code": "ResourceNotFoundException"}},
+            "DeleteItem"
+        )
+        
+        result = delete_artifact("test-id")
+        assert result is False
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_find_artifacts_by_type_empty(self, mock_table):
+        """Test find_artifacts_by_type with no results"""
+        from src.services.artifact_storage import find_artifacts_by_type
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.scan.return_value = {"Items": []}
+        
+        result = find_artifacts_by_type("model")
+        assert result == []
+
+    @patch('src.services.artifact_storage.get_artifacts_table')
+    def test_find_models_with_null_link(self, mock_table):
+        """Test find_models_with_null_link"""
+        from src.services.artifact_storage import find_models_with_null_link
+        
+        mock_table_instance = MagicMock()
+        mock_table.return_value = mock_table_instance
+        mock_table_instance.scan.return_value = {"Items": []}
+        
+        result = find_models_with_null_link("dataset_id")
+        assert isinstance(result, list)
+

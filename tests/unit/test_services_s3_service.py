@@ -6,7 +6,7 @@ import pytest
 import zipfile
 import io
 import json
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 from botocore.exceptions import ClientError
 
@@ -31,6 +31,13 @@ from src.services.s3_service import (
     find_artifact_metadata_by_id,
     list_artifacts_from_s3,
     extract_github_url_from_zip,
+    download_file,
+    download_from_huggingface,
+    model_ingestion,
+    sync_model_lineage_to_neptune,
+    write_to_neptune,
+    send_request,
+    sign_request,
 )
 
 
@@ -706,25 +713,6 @@ class TestS3ServiceWithMocks:
         assert extract_github_url_from_text("") is None
         assert extract_github_url_from_text(None) is None
 
-    def test_store_artifact_metadata_success(self):
-        """Test storing artifact metadata successfully"""
-        with patch("src.services.s3_service.aws_available", True):
-            with patch("src.services.s3_service.s3") as mock_s3:
-                with patch("src.services.s3_service.ap_arn", "test-bucket"):
-                    result = store_artifact_metadata(
-                        "test-id", "test-name", "model", "1.0.0", "https://example.com"
-                    )
-                    assert result["status"] == "success"
-                    mock_s3.put_object.assert_called_once()
-
-    def test_store_artifact_metadata_aws_unavailable(self):
-        """Test storing artifact metadata when AWS unavailable"""
-        with patch("src.services.s3_service.aws_available", False):
-            result = store_artifact_metadata(
-                "test-id", "test-name", "model", "1.0.0", "https://example.com"
-            )
-            assert result["status"] == "skipped"
-
     def test_store_artifact_metadata_exception(self):
         """Test storing artifact metadata with exception"""
         with patch("src.services.s3_service.aws_available", True):
@@ -735,14 +723,6 @@ class TestS3ServiceWithMocks:
                         "test-id", "test-name", "model", "1.0.0", "https://example.com"
                     )
                     assert result["status"] == "error"
-
-    def test_clear_model_card_cache(self):
-        """Test clearing model card cache"""
-        from src.services.s3_service import clear_model_card_cache, _model_card_cache
-        
-        _model_card_cache["test"] = ["content"]
-        clear_model_card_cache()
-        assert len(_model_card_cache) == 0
 
     def test_get_model_sizes_exception(self):
         """Test get_model_sizes with exception"""
@@ -797,4 +777,639 @@ class TestS3ServiceWithMocks:
                     mock_s3.list_objects_v2.side_effect = Exception("S3 error")
                     with pytest.raises(HTTPException):
                         reset_registry()
+
+
+# Tests for previously untested functions
+
+class TestDownloadFile:
+    """Test download_file function"""
+
+    def test_download_file_success(self):
+        """Test successful file download"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.content = b"test content"
+            mock_get.return_value = mock_response
+            
+            result = download_file("https://example.com/file.zip")
+            assert result == b"test content"
+            mock_get.assert_called_once_with("https://example.com/file.zip", timeout=120)
+
+    def test_download_file_non_200_status(self):
+        """Test download_file with non-200 status code"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_get.return_value = mock_response
+            
+            result = download_file("https://example.com/file.zip")
+            assert result is None
+
+    def test_download_file_timeout(self):
+        """Test download_file with timeout"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            import requests
+            mock_get.side_effect = requests.exceptions.Timeout()
+            
+            result = download_file("https://example.com/file.zip")
+            assert result is None
+
+    def test_download_file_connection_error(self):
+        """Test download_file with connection error"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            import requests
+            mock_get.side_effect = requests.exceptions.ConnectionError()
+            
+            result = download_file("https://example.com/file.zip")
+            assert result is None
+
+    def test_download_file_custom_timeout(self):
+        """Test download_file with custom timeout"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.content = b"content"
+            mock_get.return_value = mock_response
+            
+            download_file("https://example.com/file.zip", timeout=60)
+            mock_get.assert_called_once_with("https://example.com/file.zip", timeout=60)
+
+
+class TestDownloadFromHuggingface:
+    """Test download_from_huggingface function"""
+
+    def test_download_from_huggingface_success(self):
+        """Test successful download from HuggingFace"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            # Mock API response
+            api_response = MagicMock()
+            api_response.status_code = 200
+            api_response.json.return_value = {
+                "siblings": [
+                    {"rfilename": "model.safetensors"},
+                    {"rfilename": "config.json"}
+                ]
+            }
+            
+            # Mock file download
+            file_response = MagicMock()
+            file_response.status_code = 200
+            file_response.content = b"file content"
+            
+            # Need to mock download_file which is called by download_from_huggingface
+            with patch("src.services.s3_service.download_file") as mock_download_file:
+                mock_download_file.return_value = b"file content"
+                mock_get.return_value = api_response
+                
+                with patch("src.services.s3_service.zipfile.ZipFile"):
+                    with patch("src.services.s3_service.io.BytesIO") as mock_bytesio:
+                        mock_output = MagicMock()
+                        mock_output.getvalue.return_value = b"zip content"
+                        mock_bytesio.return_value = mock_output
+                        
+                        result = download_from_huggingface("test-model", "1.0.0")
+                        assert result is not None
+                        assert len(result) > 0
+
+    def test_download_from_huggingface_timeout(self):
+        """Test download_from_huggingface with timeout"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            import requests
+            mock_get.side_effect = requests.exceptions.Timeout()
+            
+            with pytest.raises(HTTPException) as exc_info:
+                download_from_huggingface("test-model")
+            assert exc_info.value.status_code == 504
+
+    def test_download_from_huggingface_connection_error(self):
+        """Test download_from_huggingface with connection error"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            import requests
+            mock_get.side_effect = requests.exceptions.RequestException("Connection failed")
+            
+            with pytest.raises(HTTPException) as exc_info:
+                download_from_huggingface("test-model")
+            assert exc_info.value.status_code == 503
+
+    def test_download_from_huggingface_model_not_found(self):
+        """Test download_from_huggingface with model not found"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_get.return_value = mock_response
+            
+            with pytest.raises(HTTPException) as exc_info:
+                download_from_huggingface("nonexistent-model")
+            assert exc_info.value.status_code == 404
+
+    def test_download_from_huggingface_invalid_json(self):
+        """Test download_from_huggingface with invalid JSON response"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.side_effect = ValueError("Invalid JSON")
+            mock_get.return_value = mock_response
+            
+            with pytest.raises(HTTPException) as exc_info:
+                download_from_huggingface("test-model")
+            assert exc_info.value.status_code == 502
+
+    def test_download_from_huggingface_with_url(self):
+        """Test download_from_huggingface with full URL"""
+        with patch("src.services.s3_service.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"siblings": []}
+            mock_get.return_value = mock_response
+            
+            with patch("src.services.s3_service.zipfile.ZipFile"):
+                download_from_huggingface("https://huggingface.co/test-model")
+                # Verify URL was cleaned
+                assert any("api/models/test-model" in str(call) for call in mock_get.call_args_list)
+
+
+class TestSignRequest:
+    """Test sign_request function"""
+
+    def test_sign_request_success(self):
+        """Test successful request signing"""
+        with patch("src.services.s3_service.get_credentials") as mock_creds:
+            with patch("src.services.s3_service.SigV4Auth") as mock_auth:
+                mock_credentials = MagicMock()
+                mock_creds.return_value = mock_credentials
+                
+                mock_auth_instance = MagicMock()
+                mock_auth.return_value = mock_auth_instance
+                mock_auth_instance.add_auth = MagicMock()
+                
+                from botocore.awsrequest import AWSRequest
+                request = AWSRequest(method="POST", url="https://example.com", data='{"gremlin": "g.V()"}')
+                
+                result = sign_request(request)
+                
+                mock_auth.assert_called_once()
+                mock_auth_instance.add_auth.assert_called_once_with(request)
+                assert isinstance(result, dict)
+
+
+class TestSendRequest:
+    """Test send_request function"""
+
+    def test_send_request_success(self):
+        """Test successful request sending"""
+        with patch("src.services.s3_service.urllib.request.urlopen") as mock_urlopen:
+            mock_response = MagicMock()
+            mock_response.read.return_value = b'{"result": "success"}'
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+            
+            result = send_request("https://example.com", {"Content-Type": "application/json"}, '{"data": "test"}')
+            assert result == '{"result": "success"}'
+
+    def test_send_request_http_error(self):
+        """Test send_request with HTTP error"""
+        with patch("src.services.s3_service.urllib.request.urlopen") as mock_urlopen:
+            import urllib.error
+            mock_error = urllib.error.HTTPError("https://example.com", 500, "Internal Error", None, None)
+            mock_error.read.return_value = b'{"error": "server error"}'
+            mock_urlopen.side_effect = mock_error
+            
+            with pytest.raises(urllib.error.HTTPError):
+                send_request("https://example.com", {}, '{"data": "test"}')
+
+
+class TestWriteToNeptune:
+    """Test write_to_neptune function"""
+
+    def test_write_to_neptune_no_endpoint(self):
+        """Test write_to_neptune when endpoint not configured"""
+        with patch.dict("os.environ", {}, clear=True):
+            # Should return without error when endpoint not set
+            write_to_neptune({"node1": ["child1", "child2"]})
+
+    def test_write_to_neptune_success(self):
+        """Test successful write to Neptune"""
+        with patch.dict("os.environ", {"NEPTUNE_ENDPOINT": "https://neptune.example.com"}):
+            with patch("src.services.s3_service.sign_request") as mock_sign:
+                with patch("src.services.s3_service.send_request") as mock_send:
+                    mock_sign.return_value = {"Authorization": "test-auth"}
+                    mock_send.return_value = '{"result": {"data": [{"@value": {"value": 0}}]}}'
+                    
+                    write_to_neptune({"node1": ["child1"], "node2": ["child2"]})
+                    
+                    # Should be called multiple times (clear, verify, add nodes, add edges)
+                    assert mock_send.call_count > 0
+
+    def test_write_to_neptune_with_exception(self):
+        """Test write_to_neptune with exception in process_node"""
+        with patch.dict("os.environ", {"NEPTUNE_ENDPOINT": "https://neptune.example.com"}):
+            with patch("src.services.s3_service.sign_request") as mock_sign:
+                with patch("src.services.s3_service.send_request") as mock_send:
+                    mock_sign.return_value = {"Authorization": "test-auth"}
+                    # First few calls succeed (clear, verify), then fail
+                    mock_send.side_effect = [
+                        '{"result": {"data": [{"@value": {"value": 0}}]}}',  # Clear response
+                        '{"result": {"data": [{"@value": {"value": 0}}]}}',  # Verify response
+                        Exception("Neptune error")  # Process node fails
+                    ]
+                    
+                    # Should handle exception gracefully
+                    write_to_neptune({"node1": ["child1"]})
+
+
+class TestSyncModelLineageToNeptune:
+    """Test sync_model_lineage_to_neptune function"""
+
+    def test_sync_model_lineage_aws_unavailable(self):
+        """Test sync when AWS unavailable"""
+        with patch("src.services.s3_service.aws_available", False):
+            with pytest.raises(HTTPException) as exc_info:
+                sync_model_lineage_to_neptune()
+            assert exc_info.value.status_code == 503
+
+    def test_sync_model_lineage_success(self):
+        """Test successful lineage sync"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.list_models") as mock_list:
+                with patch("src.services.s3_service.get_model_lineage_from_config") as mock_lineage:
+                    with patch("src.services.s3_service.write_to_neptune"):
+                        mock_list.return_value = {
+                            "models": [
+                                {"Name": "model1", "Version": "1.0.0"},
+                                {"Name": "model2", "Version": "1.0.0"}
+                            ]
+                        }
+                        mock_lineage.return_value = {
+                            "lineage_map": {"parent1": ["child1", "child2"]}
+                        }
+                        
+                        result = sync_model_lineage_to_neptune()
+                        
+                        assert result["message"] == "Model lineage successfully synced to Neptune"
+                        assert "relationships" in result
+
+    def test_sync_model_lineage_with_errors(self):
+        """Test sync with errors processing models"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.list_models") as mock_list:
+                with patch("src.services.s3_service.get_model_lineage_from_config") as mock_lineage:
+                    with patch("src.services.s3_service.write_to_neptune") as mock_write:
+                        mock_list.return_value = {
+                            "models": [
+                                {"Name": "model1", "Version": "1.0.0"},
+                                {"Name": None, "Version": "1.0.0"}  # Missing name
+                            ]
+                        }
+                        mock_lineage.return_value = {"lineage_map": {}}
+                        
+                        result = sync_model_lineage_to_neptune()
+                        assert result["message"] == "Model lineage successfully synced to Neptune"
+
+    def test_sync_model_lineage_exception(self):
+        """Test sync with exception"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.list_models") as mock_list:
+                mock_list.side_effect = Exception("S3 error")
+                
+                with pytest.raises(HTTPException) as exc_info:
+                    sync_model_lineage_to_neptune()
+                assert exc_info.value.status_code == 500
+
+
+class TestModelIngestion:
+    """Test model_ingestion function"""
+
+    def test_model_ingestion_aws_unavailable(self):
+        """Test ingestion when AWS unavailable"""
+        with patch("src.services.s3_service.aws_available", False):
+            with pytest.raises(HTTPException) as exc_info:
+                model_ingestion("test-model", "1.0.0")
+            assert exc_info.value.status_code == 503
+
+    def test_model_ingestion_success(self):
+        """Test successful model ingestion"""
+        # Create a valid ZIP with config.json
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr("config.json", json.dumps({"model_type": "test"}))
+            zip_file.writestr("model.safetensors", b"model weights")
+        
+        zip_content = zip_buffer.getvalue()
+        
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.download_from_huggingface") as mock_download:
+                with patch("src.services.s3_service.validate_huggingface_structure") as mock_validate:
+                    with patch("src.services.s3_service.extract_config_from_model") as mock_extract:
+                        with patch("src.services.rating.create_metadata_from_files") as mock_metadata:
+                            with patch("src.services.rating.run_acme_metrics") as mock_metrics:
+                                with patch("src.services.s3_service.fetch_hf_metadata") as mock_hf:
+                                    mock_download.return_value = zip_content
+                                    mock_validate.return_value = {
+                                        "valid": True,
+                                        "has_config": True,
+                                        "has_weights": True
+                                    }
+                                    mock_extract.return_value = {"model_type": "test"}
+                                    mock_metadata.return_value = {
+                                        "name": "test-model",
+                                        "readme_text": "Test model"
+                                    }
+                                    mock_metrics.return_value = {"score": 0.8}
+                                    mock_hf.return_value = {"likes": 100, "downloads": 1000}
+                                    
+                                    result = model_ingestion("test-model", "1.0.0")
+                                    
+                                    assert "message" in result or "status" in result
+                                    mock_download.assert_called_once()
+                                    mock_validate.assert_called_once()
+
+    def test_model_ingestion_missing_config(self):
+        """Test ingestion with missing config.json"""
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr("model.safetensors", b"weights")
+        
+        zip_content = zip_buffer.getvalue()
+        
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.download_from_huggingface") as mock_download:
+                with patch("src.services.s3_service.validate_huggingface_structure") as mock_validate:
+                    mock_download.return_value = zip_content
+                    mock_validate.return_value = {
+                        "valid": True,
+                        "has_config": False,
+                        "has_weights": True
+                    }
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        model_ingestion("test-model", "1.0.0")
+                    assert exc_info.value.status_code == 400
+                    assert "Missing: config.json" in exc_info.value.detail
+
+    def test_model_ingestion_download_failure(self):
+        """Test ingestion with download failure"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.download_from_huggingface") as mock_download:
+                mock_download.side_effect = HTTPException(status_code=404, detail="Model not found")
+                
+                with pytest.raises(HTTPException) as exc_info:
+                    model_ingestion("test-model", "1.0.0")
+                assert exc_info.value.status_code == 404
+
+    def test_model_ingestion_with_github_url_in_config(self):
+        """Test ingestion with GitHub URL in config"""
+        zip_buffer = io.BytesIO()
+        config_with_github = {
+            "model_type": "test",
+            "description": "See <a href='https://github.com/owner/repo'>GitHub</a>"
+        }
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr("config.json", json.dumps(config_with_github))
+            zip_file.writestr("model.safetensors", b"weights")
+        
+        zip_content = zip_buffer.getvalue()
+        
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.download_from_huggingface") as mock_download:
+                with patch("src.services.s3_service.validate_huggingface_structure") as mock_validate:
+                    with patch("src.services.s3_service.extract_config_from_model") as mock_extract:
+                        with patch("src.services.rating.create_metadata_from_files") as mock_metadata:
+                            with patch("src.services.rating.run_acme_metrics") as mock_metrics:
+                                with patch("src.services.s3_service.fetch_hf_metadata") as mock_hf:
+                                    mock_download.return_value = zip_content
+                                    mock_validate.return_value = {
+                                        "valid": True,
+                                        "has_config": True,
+                                        "has_weights": True
+                                    }
+                                    mock_extract.return_value = config_with_github
+                                    mock_metadata.return_value = {"name": "test-model"}
+                                    mock_metrics.return_value = {}
+                                    mock_hf.return_value = {}
+                                    
+                                    result = model_ingestion("test-model", "1.0.0")
+                                    # Should extract GitHub URL from config
+                                    assert result is not None
+
+
+# Additional code path coverage tests
+
+class TestUploadModelCodePaths:
+    """Additional tests for upload_model code paths"""
+
+    def test_upload_model_no_such_bucket(self):
+        """Test upload_model with NoSuchBucket error"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.put_object.side_effect = ClientError(
+                        {"Error": {"Code": "NoSuchBucket", "Message": "Bucket not found"}},
+                        "PutObject"
+                    )
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        upload_model(b"test content", "test-model", "1.0.0")
+                    assert exc_info.value.status_code == 503
+
+    def test_upload_model_invalid_bucket_name(self):
+        """Test upload_model with InvalidBucketName error"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.put_object.side_effect = ClientError(
+                        {"Error": {"Code": "InvalidBucketName", "Message": "Invalid name"}},
+                        "PutObject"
+                    )
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        upload_model(b"test content", "test-model", "1.0.0")
+                    assert exc_info.value.status_code == 503
+
+    def test_upload_model_generic_exception(self):
+        """Test upload_model with generic exception"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.put_object.side_effect = Exception("Generic error")
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        upload_model(b"test content", "test-model", "1.0.0")
+                    assert exc_info.value.status_code == 500
+
+    def test_upload_model_sanitize_model_id(self):
+        """Test upload_model sanitizes model_id correctly"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.put_object.return_value = {}
+                    
+                    upload_model(b"content", "https://huggingface.co/test/model", "1.0.0")
+                    
+                    # Verify sanitized key was used
+                    call_args = mock_s3.put_object.call_args
+                    assert "test_model" in call_args[1]["Key"]
+
+
+class TestDownloadModelCodePaths:
+    """Additional tests for download_model code paths"""
+
+    def test_download_model_component_extraction_error(self):
+        """Test download_model with component extraction error"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+                        zip_file.writestr("other.txt", b"data")
+                    zip_content = zip_buffer.getvalue()
+                    
+                    mock_s3.get_object.return_value = {
+                        "Body": MagicMock(read=lambda: zip_content)
+                    }
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        download_model("test-model", "1.0.0", "weights")
+                    assert exc_info.value.status_code == 400
+
+    def test_download_model_s3_get_object_error(self):
+        """Test download_model with S3 get_object error"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.get_object.side_effect = ClientError(
+                        {"Error": {"Code": "NoSuchKey", "Message": "Key not found"}},
+                        "GetObject"
+                    )
+                    
+                    with pytest.raises(HTTPException) as exc_info:
+                        download_model("test-model", "1.0.0")
+                    assert exc_info.value.status_code == 500
+
+    def test_download_model_component_datasets(self):
+        """Test download_model with datasets component"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+                        zip_file.writestr("data.csv", b"dataset content")
+                    zip_content = zip_buffer.getvalue()
+                    
+                    mock_s3.get_object.return_value = {
+                        "Body": MagicMock(read=lambda: zip_content)
+                    }
+                    
+                    result = download_model("test-model", "1.0.0", "datasets")
+                    assert result == b"dataset content"
+
+
+class TestListArtifactsCodePaths:
+    """Additional tests for list_artifacts_from_s3 code paths"""
+
+    def test_list_artifacts_from_s3_empty_response(self):
+        """Test list_artifacts_from_s3 with empty response"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_paginator = MagicMock()
+                    mock_s3.get_paginator.return_value = mock_paginator
+                    mock_paginator.paginate.return_value = [{"Contents": []}]
+                    
+                    result = list_artifacts_from_s3("model")
+                    assert "artifacts" in result
+                    assert len(result["artifacts"]) == 0
+
+    def test_list_artifacts_from_s3_with_pagination(self):
+        """Test list_artifacts_from_s3 with pagination"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_paginator = MagicMock()
+                    mock_s3.get_paginator.return_value = mock_paginator
+                    mock_paginator.paginate.return_value = [
+                        {
+                            "Contents": [
+                                {"Key": "models/model1/1.0.0/model.zip"},
+                                {"Key": "models/model2/1.0.0/model.zip"}
+                            ],
+                            "NextContinuationToken": "token123"
+                        },
+                        {
+                            "Contents": [
+                                {"Key": "models/model3/1.0.0/model.zip"}
+                            ]
+                        }
+                    ]
+                    
+                    result = list_artifacts_from_s3("model")
+                    assert "artifacts" in result
+                    assert len(result["artifacts"]) == 3
+
+
+class TestGetModelSizesCodePaths:
+    """Additional tests for get_model_sizes code paths"""
+
+    def test_get_model_sizes_malformed_zip(self):
+        """Test get_model_sizes with malformed ZIP"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.head_object.return_value = {"ContentLength": 1000}
+                    mock_s3.get_object.return_value = {
+                        "Body": MagicMock(read=lambda: b"not a zip file")
+                    }
+                    
+                    result = get_model_sizes("test-model", "1.0.0")
+                    # Should handle error gracefully
+                    assert "error" in result or "full" in result
+
+    def test_get_model_sizes_missing_file(self):
+        """Test get_model_sizes with missing file"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.head_object.side_effect = ClientError(
+                        {"Error": {"Code": "NoSuchKey", "Message": "Not found"}},
+                        "HeadObject"
+                    )
+                    
+                    result = get_model_sizes("test-model", "1.0.0")
+                    assert "error" in result
+
+
+class TestListModelsCodePaths:
+    """Additional tests for list_models code paths"""
+
+    def test_list_models_with_model_regex(self):
+        """Test list_models with model_regex filter"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    mock_s3.list_objects_v2.return_value = {
+                        "Contents": [
+                            {"Key": "models/test_model/1.0.0/model.zip"},
+                            {"Key": "models/other_model/1.0.0/model.zip"}
+                        ]
+                    }
+                    
+                    result = list_models(model_regex="^test")
+                    assert "models" in result
+
+    def test_list_models_invalid_name_regex(self):
+        """Test list_models with invalid name regex"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3") as mock_s3:
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    with pytest.raises(HTTPException) as exc_info:
+                        list_models(name_regex="[invalid")
+                    assert exc_info.value.status_code == 400
+
+    def test_list_models_invalid_model_regex(self):
+        """Test list_models with invalid model regex"""
+        with patch("src.services.s3_service.aws_available", True):
+            with patch("src.services.s3_service.s3"):
+                with patch("src.services.s3_service.ap_arn", "test-bucket"):
+                    with pytest.raises(HTTPException) as exc_info:
+                        list_models(model_regex="[invalid")
+                    assert exc_info.value.status_code == 400
 

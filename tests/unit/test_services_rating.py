@@ -5,8 +5,7 @@ Focusing on core functions to improve coverage from 20% to ~50%
 import pytest
 import os
 import tempfile
-import json
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 
 from src.services.rating import (
@@ -364,11 +363,68 @@ class TestRateModel:
     def test_rate_model_invalid_target_type(self):
         """Test rate_model with invalid target type"""
         # RateRequest will validate, so we need to create it differently
-        body = RateRequest(target="")  # Empty string should fail validation
         # Actually, let's test with a mock that has None
         with patch("src.services.rating.RateRequest") as mock_request:
             mock_request.return_value.target = None
             mock_request.return_value.__class__ = RateRequest
             with pytest.raises((HTTPException, ValueError)):
                 rate_model("model-123", mock_request.return_value, enforce=False)
+
+    def test_create_metadata_from_files_empty_dir(self):
+        """Test create_metadata_from_files with empty directory"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = create_metadata_from_files(temp_dir, "test-model")
+            assert result["repo_name"] == "test-model"
+            assert len(result["repo_files"]) == 0
+
+    def test_create_metadata_from_files_with_license(self):
+        """Test create_metadata_from_files with license file"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            license_file = os.path.join(temp_dir, "LICENSE")
+            with open(license_file, "w") as f:
+                f.write("MIT License")
+            result = create_metadata_from_files(temp_dir, "test-model")
+            assert "license_text" in result
+            assert "MIT" in result["license_text"]
+
+    def test_run_acme_metrics_partial_failure(self):
+        """Test run_acme_metrics with partial metric failures"""
+        meta = {"repo_name": "test"}
+        metric_functions = {
+            "test_metric": lambda m: MetricValue("test_metric", 0.5, 0),
+            "failing_metric": lambda m: (_ for _ in ()).throw(Exception("Fail"))
+        }
+        result = run_acme_metrics(meta, metric_functions)
+        # Should handle failure gracefully
+        assert "test_metric" in result
+
+    def test_analyze_model_content_large_file(self):
+        """Test analyze_model_content with large file"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            large_file = os.path.join(temp_dir, "large.bin")
+            with open(large_file, "wb") as f:
+                f.write(b"x" * 1000000)  # 1MB file
+            result = analyze_model_content(temp_dir, suppress_errors=True)
+            # Should handle large files
+            assert result is not None
+
+    def test_run_scorer_different_metric_combinations(self):
+        """Test run_scorer with different metric combinations"""
+        with patch("src.services.rating.analyze_model_content") as mock_analyze:
+            with patch("src.services.rating.run_acme_metrics") as mock_metrics:
+                with patch("subprocess.run") as mock_subprocess:
+                    mock_analyze.return_value = {"repo_name": "test"}
+                    mock_metrics.return_value = {
+                        "ramp_up": MetricValue("ramp_up", 0.8, 0),
+                        "license": MetricValue("license", 0.9, 0)
+                    }
+                    mock_subprocess.return_value = MagicMock(
+                        stdout='{"net_score": 0.85}',
+                        returncode=0
+                    )
+                    result = run_scorer("test-target")
+                    assert "net_score" in result or "scores" in result
 
