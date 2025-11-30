@@ -46,129 +46,122 @@ jobs:
         run: ./run install
       - name: Run tests
         run: ./run test
+        selenium-test:
+          runs-on: ubuntu-latest
+          timeout-minutes: 15
+          needs: test
+          env:
+            AWS_REGION: us-east-1
+            ARTIFACTS_BUCKET: pkg-artifacts
+            PORT: 3000
+            PYTHON_ENV: test
+            AWS_ACCESS_KEY_ID: test
+            AWS_SECRET_ACCESS_KEY: test
+            AWS_DEFAULT_REGION: us-east-1
+          steps:
+            - uses: actions/checkout@v4
 
-  selenium-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: test
-    env:
-      AWS_REGION: us-east-1
-      ARTIFACTS_BUCKET: pkg-artifacts
-      PORT: 3000
-      PYTHON_ENV: test
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
-      AWS_DEFAULT_REGION: us-east-1
-    steps:
-      - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                python-version: "3.12"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+            - name: Install system dependencies
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y chromium-browser chromium-chromedriver
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
+            - name: Verify ChromeDriver
+              run: |
+                CHROMEDRIVER_PATH=$(find /usr -name chromedriver 2>/dev/null | head -1)
+                if [ -z "$CHROMEDRIVER_PATH" ]; then
+                  CHROMEDRIVER_PATH=$(which chromedriver)
+                fi
+                if [ -n "$CHROMEDRIVER_PATH" ]; then
+                  echo "Found chromedriver at: $CHROMEDRIVER_PATH"
+                  echo "CHROMEDRIVER_PATH=$CHROMEDRIVER_PATH" >> $GITHUB_ENV
+                  echo "$(dirname $CHROMEDRIVER_PATH)" >> $GITHUB_PATH
+                else
+                  echo "ERROR: chromedriver not found"
+                  exit 1
+                fi
+                chromedriver --version
 
-      - name: Verify ChromeDriver
-        run: |
-          # Find chromedriver and add to PATH
-          CHROMEDRIVER_PATH=$(find /usr -name chromedriver 2>/dev/null | head -1)
-          if [ -z "$CHROMEDRIVER_PATH" ]; then
-            CHROMEDRIVER_PATH=$(which chromedriver)
-          fi
-          if [ -n "$CHROMEDRIVER_PATH" ]; then
-            echo "Found chromedriver at: $CHROMEDRIVER_PATH"
-            echo "CHROMEDRIVER_PATH=$CHROMEDRIVER_PATH" >> $GITHUB_ENV
-            echo "$(dirname $CHROMEDRIVER_PATH)" >> $GITHUB_PATH
-          else
-            echo "ERROR: chromedriver not found"
-            exit 1
-          fi
-          chromedriver --version
+            - name: Install Python dependencies
+              run: ./run install
 
-      - name: Install Python dependencies
-        run: ./run install
+            - name: Start server
+              env:
+                AWS_REGION: us-east-1
+                ARTIFACTS_BUCKET: pkg-artifacts
+                PORT: 3000
+                PYTHON_ENV: test
+                AWS_ACCESS_KEY_ID: test
+                AWS_SECRET_ACCESS_KEY: test
+                AWS_DEFAULT_REGION: us-east-1
+              run: |
+                nohup uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000 > server.log 2>&1 &
+                SERVER_PID=$!
+                echo $SERVER_PID > server.pid
+                echo "Server started with PID: $SERVER_PID"
 
-      - name: Start server
-        env:
-          AWS_REGION: us-east-1
-          ARTIFACTS_BUCKET: pkg-artifacts
-          PORT: 3000
-          PYTHON_ENV: test
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          AWS_DEFAULT_REGION: us-east-1
-        run: |
-          # Start server in background and capture output
-          nohup uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000 > server.log 2>&1 &
-          SERVER_PID=$!
-          echo $SERVER_PID > server.pid
-          echo "Server started with PID: $SERVER_PID"
+                sleep 2
+                if ! kill -0 $SERVER_PID 2>/dev/null; then
+                  echo "ERROR: Server process died immediately. Logs:"
+                  cat server.log || true
+                  exit 1
+                fi
 
-          # Wait a moment and check if process is still alive
-          sleep 2
-          if ! kill -0 $SERVER_PID 2>/dev/null; then
-            echo "ERROR: Server process died immediately. Logs:"
-            cat server.log || true
-            exit 1
-          fi
+                echo "--- Initial server logs ---"
+                tail -20 server.log || true
+                echo "--- End initial logs ---"
 
-          # Show initial logs for debugging
-          echo "--- Initial server logs ---"
-          tail -20 server.log || true
-          echo "--- End initial logs ---"
+            - name: Wait for server
+              run: |
+                if [ ! -f server.pid ]; then
+                  echo "ERROR: server.pid file not found"
+                  exit 1
+                fi
 
-      - name: Wait for server
-        run: |
-          # Check if process is still running
-          if [ ! -f server.pid ]; then
-            echo "ERROR: server.pid file not found"
-            exit 1
-          fi
+                SERVER_PID=$(cat server.pid)
+                if ! kill -0 $SERVER_PID 2>/dev/null; then
+                  echo "Server process died. Logs:"
+                  cat server.log || true
+                  exit 1
+                fi
 
-          SERVER_PID=$(cat server.pid)
-          if ! kill -0 $SERVER_PID 2>/dev/null; then
-            echo "Server process died. Logs:"
-            cat server.log || true
-            exit 1
-          fi
+                for i in {1..30}; do
+                  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    echo "Server is ready (HTTP $HTTP_CODE)"
+                    curl -s http://localhost:3000/health | jq . || curl -s http://localhost:3000/health
+                    exit 0
+                  fi
+                  echo "Waiting for server... ($i/30) - HTTP $HTTP_CODE"
+                  if [ "$i" -eq 10 ] || [ "$i" -eq 20 ]; then
+                    echo "--- Server logs at attempt $i ---"
+                    tail -30 server.log || true
+                    echo "--- End server logs ---"
+                  fi
+                  sleep 1
+                done
 
-          # Wait for health endpoint with better error messages
-          for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "Server is ready (HTTP $HTTP_CODE)"
-              curl -s http://localhost:3000/health | jq . || curl -s http://localhost:3000/health
-              exit 0
-            fi
-            echo "Waiting for server... ($i/30) - HTTP $HTTP_CODE"
-            if [ "$i" -eq 10 ] || [ "$i" -eq 20 ]; then
-              echo "--- Server logs at attempt $i ---"
-              tail -30 server.log || true
-              echo "--- End server logs ---"
-            fi
-            sleep 1
-          done
+                echo "Server failed to start after 30 attempts. Final logs:"
+                cat server.log || true
+                echo "--- Process status ---"
+                ps aux | grep uvicorn || true
+                exit 1
 
-          echo "Server failed to start after 30 attempts. Final logs:"
-          cat server.log || true
-          echo "--- Process status ---"
-          ps aux | grep uvicorn || true
-          exit 1
+            - name: Run Selenium tests
+              env:
+                TEST_BASE_URL: http://localhost:3000
+              run: |
+                pytest tests/integration/test_selenium_frontend.py -v
 
-      - name: Run Selenium tests
-        env:
-          TEST_BASE_URL: http://localhost:3000
-        run: |
-          pytest tests/integration/test_selenium_frontend.py -v
-
-      - name: Stop server
-        if: always
-        run: |
-          if [ -f server.pid ]; then
-            kill $(cat server.pid) || true
-            rm server.pid
-          fi
-          pkill -f "uvicorn src.entrypoint:app" || true
+            - name: Stop server
+              if: always()
+              run: |
+                if [ -f server.pid ]; then
+                  kill "$(cat server.pid)" || true
+                  rm server.pid
+                fi
+                pkill -f "uvicorn src.entrypoint:app" || true
