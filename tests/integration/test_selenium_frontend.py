@@ -413,20 +413,58 @@ class TestUploadAction:
         Test valid upload flow.
         Creates a dummy zip file and attempts to upload it.
         """
+        # tmp_path already exists as pytest fixture, no need to create
+        import zipfile
+
         # Create dummy zip file before navigating to page
         dummy_zip = tmp_path / "test_package.zip"
-        import zipfile
-        with zipfile.ZipFile(dummy_zip, 'w') as zf:
-            zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
 
-        # Ensure file exists and get absolute path
-        assert dummy_zip.exists(), f"Test file should exist at {dummy_zip}"
-        file_path = str(dummy_zip.resolve())  # Get absolute path
+        # Create the zip file with content
+        with zipfile.ZipFile(dummy_zip, 'w') as zf:
+            zf.writestr(
+                'package.json',
+                '{"name": "test-pkg", "version": "1.0.0"}'
+            )
+
+        # Get absolute path - use os.path.abspath for cross-platform compatibility
+        # Selenium on macOS/Windows requires absolute paths
+        file_path = os.path.abspath(str(dummy_zip.resolve()))
+
+        # Ensure file exists and has content
+        assert os.path.exists(file_path), (
+            f"Test file should exist at {file_path}"
+        )
+        assert os.path.isfile(file_path), (
+            f"Path must be a file: {file_path}"
+        )
+        assert os.path.getsize(file_path) > 0, (
+            f"Test file should not be empty at {file_path}"
+        )
+
+        # Verify it's a valid zip file (after closing the write context)
+        with zipfile.ZipFile(dummy_zip, 'r') as zf:
+            assert len(zf.namelist()) > 0, "Zip file should contain files"
 
         driver.get(f"{base_url}/upload")
 
+        # Wait for page to load before interacting
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
         try:
-            file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
+            # Verify file still exists (in case tmp_path was cleaned up)
+            assert os.path.exists(file_path), (
+                f"File must exist before upload: {file_path}"
+            )
+
+            # Wait for file input to be present and interactable
+            file_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
+            )
+            assert file_input.is_displayed(), "File input should be visible"
+
+            # Use absolute path - Selenium requires this on macOS/Windows
             file_input.send_keys(file_path)
 
             # Fill other fields if they exist
@@ -465,8 +503,14 @@ class TestUploadAction:
                 "upload" in driver.current_url.lower()
             ), "Page should show result or stay on upload page"
 
-        except NoSuchElementException:
-            pytest.skip("Upload form elements not found")
+        except NoSuchElementException as e:
+            pytest.skip(f"Upload form elements not found: {e}")
+        except Exception as e:
+            # Re-raise other exceptions to see actual failures
+            raise AssertionError(
+                f"Upload test failed with error: {e}. "
+                f"File path used: {file_path}"
+            ) from e
 
 
 class TestSearchAction:
