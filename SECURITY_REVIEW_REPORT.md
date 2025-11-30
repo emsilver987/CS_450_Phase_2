@@ -1,449 +1,257 @@
 # Security Review Report
-**Branch:** `tests_p`  
-**Base Branch:** `main`  
-**Date:** 2025-01-27
+**Branch:** `security_branch`  
+**Date:** 2025-01-27  
+**Reviewer:** AI Security Review
 
 ## Executive Summary
 
-This security review examines changes on the `tests_p` branch, which includes significant security enhancements:
-- JWT authentication middleware with token use-count tracking
-- Rate limiting middleware
-- Security headers middleware
-- AWS Secrets Manager integration for secrets
-- WAF (Web Application Firewall) integration
-- Enhanced logging and audit capabilities
+This security review examines changes on `security_branch` compared to `main`. Overall, the branch implements significant security improvements including secrets management, encryption upgrades, and token use tracking. However, several critical and high-priority issues were identified that require immediate attention.
 
-**Overall Assessment:** ✅ **Mostly Secure** with some recommendations
+**Risk Level:** Medium-High  
+**Critical Issues:** 2  
+**High Priority Issues:** 3  
+**Medium Priority Issues:** 2
 
 ---
 
 ## 1. Authentication & Sessions
 
-### ✅ **Strengths:**
-1. **JWT Implementation** (`src/middleware/jwt_auth.py`):
-   - Uses HS256 algorithm with secret from AWS Secrets Manager
-   - Enforces `exp` claim requirement
-   - Validates issuer/audience when configured
-   - Implements token use-count tracking via DynamoDB
+### ✅ Strengths
+- **JWT secrets moved to AWS Secrets Manager**: `src/utils/jwt_secret.py` properly retrieves secrets from Secrets Manager with production/development fallback logic
+- **Admin passwords moved to Secrets Manager**: `src/utils/admin_password.py` removes hardcoded credentials from code
+- **Token use-count enforcement**: Middleware (`src/middleware/jwt_auth.py:107-120`) enforces token consumption tracking via DynamoDB
+- **Token expiration validation**: JWT tokens properly validated with expiration checks
 
-2. **Token Use-Count Enforcement**:
-   - Tokens tracked in DynamoDB with `remaining_uses` counter
-   - Token consumption checked on each request
-   - Prevents token replay attacks
+### ⚠️ Issues
 
-3. **Secret Management**:
-   - JWT secrets stored in AWS Secrets Manager (KMS-encrypted)
-   - Production mode fails fast if Secrets Manager unavailable
-   - Development fallback to env vars (acceptable for local dev)
+**CRITICAL: Auth middleware has disabled code path**
+- **Location**: `src/middleware/jwt_auth.py:61-62`
+- **Issue**: There's an empty line after `async def dispatch` that suggests commented-out code. The middleware appears functional, but verify no auth bypass exists.
+- **Recommendation**: Review git history to ensure no auth bypass was accidentally left in code
 
-### ⚠️ **Issues & Recommendations:**
-
-1. **CRITICAL: Token Storage in DynamoDB** (`src/services/auth_service.py:122`):
-   ```python
-   "token": token,  # Full JWT stored in DynamoDB
-   ```
-   - **Issue:** Full JWT tokens stored in DynamoDB table
-   - **Risk:** If DynamoDB is compromised, attackers get valid tokens
-   - **Recommendation:** Store only `jti` (token ID) and metadata, not the full token
-   - **Priority:** HIGH
-
-2. **Static Token in Code** (`src/services/auth_public.py:31-35`):
-   ```python
-   STATIC_TOKEN = (
-       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-       "eyJzdWIiOiJlY2UzMDg2MWRlZmF1bHRhZG1pbnVzZXIiLCJpc19hZG1pbiI6dHJ1ZX0."
-       "example"
-   )
-   ```
-   - **Issue:** Hardcoded static token for autograder compatibility
-   - **Risk:** If this token is valid, it bypasses normal auth
-   - **Recommendation:** Verify this token is actually invalid (signature is "example")
-   - **Priority:** MEDIUM
-
-3. **Session Storage:**
-   - **Status:** No session storage (stateless JWT)
-   - **Note:** This is fine, but ensure token revocation works via DynamoDB deletion
+**MEDIUM: Token consumption happens twice**
+- **Location**: `src/middleware/jwt_auth.py:113` and `src/services/auth_service.py:327-333`
+- **Issue**: Token use is consumed in middleware, then `get_current_user` checks token again without consuming (good), but the pattern could be clearer
+- **Status**: Actually safe - middleware consumes, endpoint just verifies existence
+- **Recommendation**: Add comment clarifying the two-stage verification pattern
 
 ---
 
 ## 2. Authorization & Access Control
 
-### ✅ **Strengths:**
-1. **Middleware-Based Auth**:
-   - JWT middleware runs before routes
-   - Exempt paths clearly defined
-   - Consistent auth enforcement
+### ✅ Strengths
+- **Token use tracking**: DynamoDB tracks remaining uses per token
+- **Token exhaustion handling**: Tokens are deleted when exhausted (`src/services/auth_service.py:138-144`)
+- **Role-based access**: User roles stored in JWT claims
 
-2. **Role-Based Access**:
-   - User roles stored in JWT claims
-   - Roles accessible via `request.state.user`
+### ⚠️ Issues
 
-### ⚠️ **Issues & Recommendations:**
-
-1. **Artifact Endpoints Exempt** (`src/middleware/jwt_auth.py:29`):
-   ```python
-   "/artifact/",  # Temporarily exempt all artifact endpoints
-   ```
-   - **Issue:** All artifact endpoints bypass authentication
-   - **Risk:** Unauthorized access to artifacts
-   - **Recommendation:** Remove this exemption or make it conditional
-   - **Priority:** HIGH
-
-2. **Server-Side Authorization Checks**:
-   - **Status:** Need to verify all sensitive endpoints check `request.state.user` roles
-   - **Recommendation:** Audit all routes to ensure server-side role checks
-   - **Priority:** MEDIUM
-
-3. **Admin Password Hardcoded Fallback** (`src/utils/admin_password.py:24-25`):
-   ```python
-   _DEFAULT_PRIMARY = "correcthorsebatterystaple123(!__+@**(A;DROP TABLE packages"
-   _DEFAULT_ALTERNATE = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-   ```
-   - **Issue:** Hardcoded passwords in code (development fallback)
-   - **Risk:** If code is leaked, passwords are exposed
-   - **Recommendation:** Use environment variables even for dev fallback
-   - **Priority:** LOW (only affects dev mode)
+**HIGH: All artifact endpoints exempt from auth**
+- **Location**: `src/middleware/jwt_auth.py:29`
+- **Issue**: Comment says "Temporarily exempt all artifact endpoints" - this is a security risk
+- **Impact**: All `/artifact/*` endpoints bypass authentication
+- **Recommendation**: Remove this exemption or document why it's necessary. If temporary, add a TODO with expiration date
 
 ---
 
 ## 3. Data Protection
 
-### ✅ **Strengths:**
-1. **Secrets Management**:
-   - JWT secrets in AWS Secrets Manager (KMS-encrypted)
-   - Admin passwords in Secrets Manager
-   - Production mode enforces Secrets Manager usage
+### ✅ Strengths
+- **S3 encryption upgraded to KMS**: `infra/modules/s3/main.tf:17-25` uses `aws:kms` instead of `AES256`
+- **S3 versioning enabled**: `infra/modules/s3/main.tf:10-15` enables versioning for recovery
+- **SHA-256 hash on uploads**: `src/services/s3_service.py:265-266` computes and stores hash
+- **Hash verification on downloads**: `src/services/s3_service.py:315-323` verifies hash if provided
+- **KMS key properly referenced**: S3 module receives KMS key ARN from monitoring module
 
-2. **Encryption in Transit**:
-   - HTTPS enforced via security headers (HSTS)
-   - API Gateway should enforce HTTPS
+### ⚠️ Issues
 
-3. **Encryption at Rest**:
-   - S3 buckets use SSE-KMS encryption
-   - DynamoDB encryption at rest (verify in Terraform)
-
-### ⚠️ **Issues & Recommendations:**
-
-1. **Password Storage** (`src/services/auth_service.py:192`):
-   ```python
-   "password_hash": hash_password(user_data.password),
-   ```
-   - **Status:** ✅ Using bcrypt (good)
-   - **Note:** Ensure bcrypt cost factor is appropriate (default is usually fine)
-
-2. **Sensitive Data in Logs**:
-   - **Status:** Logging redaction tests exist (`tests/unit/test_logging_redaction.py`)
-   - **Recommendation:** Verify redaction is actually implemented in production logging
-   - **Priority:** MEDIUM
-
-3. **Token in DynamoDB**:
-   - **Issue:** Full JWT stored in DynamoDB (see Section 1)
-   - **Recommendation:** Remove token storage, keep only metadata
+**MEDIUM: Hash stored in metadata, not verified automatically**
+- **Location**: `src/services/s3_service.py:273`
+- **Issue**: Hash is stored in S3 metadata but download verification is optional (`expected_hash` parameter)
+- **Recommendation**: Consider making hash verification mandatory for critical downloads, or add integrity checks at API level
 
 ---
 
 ## 4. Input Validation & Output Encoding
 
-### ✅ **Strengths:**
-1. **File Upload Validation**:
-   - ZIP structure validation (`src/services/package_service.py:78`)
-   - HuggingFace structure validation (`src/services/s3_service.py:104`)
-   - File size limits in WAF (10MB body, 8KB URI/query)
+### ✅ Strengths
+- **File upload validation**: Empty file content checked (`src/services/s3_service.py:245`)
+- **Model ID sanitization**: Proper sanitization for S3 keys (`src/services/s3_service.py:249-261`)
+- **Version sanitization**: Version strings sanitized for S3 keys
+- **Test coverage**: New tests added for upload streaming, auth validation, regex timeout
 
-2. **Query Parameter Validation**:
-   - Pydantic models for request validation
-   - Type checking on query parameters
+### ⚠️ Issues
 
-3. **Security Headers**:
-   - CSP (Content Security Policy) implemented
-   - XSS protection headers
-   - Frame options (clickjacking protection)
-
-### ⚠️ **Issues & Recommendations:**
-
-1. **CSP Permissive Default** (`src/middleware/security_headers.py:69-77`):
-   ```python
-   "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-   "style-src 'self' 'unsafe-inline'; "
-   ```
-   - **Issue:** `unsafe-inline` and `unsafe-eval` weaken XSS protection
-   - **Recommendation:** Tighten CSP for production (remove unsafe-* if possible)
-   - **Priority:** MEDIUM
-
-2. **Regex Injection Risk** (`src/routes/packages.py:82`):
-   ```python
-   escaped_query = re.escape(q)
-   name_regex = f".*{escaped_query}.*"
-   ```
-   - **Status:** ✅ Properly escaped
-   - **Note:** Good practice
-
-3. **File Upload Size Limits**:
-   - **Status:** WAF enforces 10MB body limit
-   - **Recommendation:** Verify application-level limits match WAF limits
-   - **Priority:** LOW
-
-4. **SQL Injection** (if using SQL):
-   - **Status:** Using DynamoDB (NoSQL), so SQL injection not applicable
-   - **Note:** DynamoDB queries use parameterized expressions (good)
+None identified in this category.
 
 ---
 
 ## 5. Dependencies & Third Parties
 
-### ✅ **Changes in `requirements.txt`:**
-- `jinja2`: 3.1.4 → 3.1.6 (patch update)
-- `python-multipart`: 0.0.6 → >=0.0.18 (major update)
-- `requests`: 2.32.3 → 2.32.4 (patch update)
-- `httpx`: NEW dependency
+### ✅ Strengths
+- **Minor version upgrades**: `jinja2` (3.1.4 → 3.1.6), `requests` (2.32.3 → 2.32.4)
+- **Security fix**: `python-multipart` changed from `0.0.6` to `>=0.0.18` (likely addresses vulnerabilities)
+- **New dependency**: `httpx` added (modern HTTP client, well-maintained)
 
-### ⚠️ **Issues & Recommendations:**
+### ⚠️ Issues
 
-1. **python-multipart Major Update**:
-   - **Issue:** Jump from 0.0.6 to >=0.0.18 (major version change)
-   - **Risk:** Potential breaking changes or new vulnerabilities
-   - **Recommendation:** 
-     - Pin to specific version (e.g., `0.0.18`)
-     - Test file upload functionality thoroughly
-     - Review changelog for security fixes
-   - **Priority:** MEDIUM
-
-2. **New Dependency: httpx**:
-   - **Issue:** New dependency added
-   - **Recommendation:** 
-     - Verify it's from trusted source (it is - maintained by encode)
-     - Check for known vulnerabilities
-     - Document why it's needed
-   - **Priority:** LOW
-
-3. **Dependency Audit**:
-   - **Recommendation:** Run `pip-audit` or `safety check` regularly
-   - **Priority:** LOW (maintenance)
+None identified. All upgrades appear safe.
 
 ---
 
 ## 6. API & Endpoints
 
-### ✅ **Strengths:**
-1. **Rate Limiting**:
-   - In-memory rate limiter (120 req/min default)
-   - Configurable via environment variables
-   - IP-based limiting
+### ✅ Strengths
+- **API Gateway throttling**: `infra/modules/api-gateway/main.tf:3406-3428` adds rate limiting (100 req/s, burst 200)
+- **Upload event logging**: `src/services/validator_service.py:195-237` logs upload events for audit
+- **Download event logging**: Already existed, now complemented by upload logging
 
-2. **WAF Integration**:
-   - AWS WAF with managed rules (OWASP Top 10)
-   - Rate-based rules for DoS protection
-   - Size restrictions
+### ⚠️ Issues
 
-3. **Error Messages**:
-   - Generic error messages (don't leak internal details)
-   - No stack traces in production responses
-
-### ⚠️ **Issues & Recommendations:**
-
-1. **Rate Limiter In-Memory** (`src/middleware/rate_limit.py`):
-   - **Issue:** In-memory rate limiter doesn't work across multiple instances
-   - **Risk:** Rate limits can be bypassed with multiple servers
-   - **Recommendation:** 
-     - Use Redis/DynamoDB for distributed rate limiting
-     - Or rely on API Gateway/WAF rate limiting
-   - **Priority:** MEDIUM
-
-2. **New Endpoints**:
-   - `/auth/register` - Public (acceptable)
-   - `/auth/login` - Public (acceptable)
-   - `/auth/me` - Protected (good)
-   - `/auth/logout` - Protected (good)
-   - `/authenticate` - Public (autograder compatibility)
-
-3. **Rate Limit Configuration**:
-   - **Status:** Configurable via env vars with validation
-   - **Note:** Good bounds checking (max 10000 requests, max 3600s window)
+**HIGH: CORS allows all origins**
+- **Location**: `src/index.py:124-130`
+- **Issue**: `allow_origins=["*"]` allows any origin to make requests
+- **Impact**: Potential for CSRF attacks, credential leakage
+- **Recommendation**: Restrict to known frontend domains in production. Use environment variable for allowed origins.
 
 ---
 
 ## 7. Configuration & Secrets
 
-### ✅ **Strengths:**
-1. **Secrets in Secrets Manager**:
-   - JWT secrets: `acme-jwt-secret`
-   - Admin passwords: `ece30861defaultadminuser`
-   - KMS-encrypted storage
+### ✅ Strengths
+- **Secrets in Secrets Manager**: JWT secrets and admin passwords retrieved from AWS Secrets Manager
+- **Production/development separation**: Production fails fast if Secrets Manager unavailable; dev falls back to env vars
+- **Secret caching**: Secrets cached to reduce API calls (`src/utils/jwt_secret.py:19, 44-45`)
+- **No hardcoded secrets**: Admin passwords removed from code (`src/services/auth_public.py:18-20`)
 
-2. **Environment Variables**:
-   - Sensitive config via env vars (not hardcoded)
-   - Production/development mode detection
+### ⚠️ Issues
 
-### ⚠️ **Issues & Recommendations:**
-
-1. **Secret Caching** (`src/utils/jwt_secret.py:19`):
-   ```python
-   _JWT_SECRET_CACHE: Optional[str] = None
-   ```
-   - **Issue:** Secret cached in memory for lifetime of process
-   - **Risk:** If secret is rotated, app won't pick it up until restart
-   - **Recommendation:** 
-     - Add TTL to cache (e.g., 1 hour)
-     - Or implement secret rotation handling
-   - **Priority:** LOW (acceptable for now)
-
-2. **Default Secret Generation** (`src/utils/jwt_secret.py:167-174`):
-   ```python
-   fallback_secret = secrets_module.token_urlsafe(32)
-   ```
-   - **Issue:** Generates temporary secret in dev mode
-   - **Risk:** If used in production, tokens won't be valid across restarts
-   - **Status:** ✅ Only in development mode (acceptable)
-   - **Priority:** LOW
-
-3. **Configuration Validation**:
-   - **Status:** Rate limit config has validation
-   - **Recommendation:** Add validation for other critical configs
-   - **Priority:** LOW
+**HIGH: Development fallback may leak to production**
+- **Location**: `src/utils/jwt_secret.py:49-55, 159-174`
+- **Issue**: Development mode falls back to environment variables or generates temporary secrets
+- **Risk**: If `PYTHON_ENV` is misconfigured in production, system may use weak secrets
+- **Recommendation**: 
+  - Add explicit check that production environment variable is set correctly
+  - Log warning if production mode detected but Secrets Manager unavailable
+  - Consider failing hard in production if secret source is not Secrets Manager
 
 ---
 
 ## 8. Infrastructure & Networking
 
-### ✅ **Strengths:**
-1. **WAF Configuration** (`infra/modules/waf/main.tf`):
-   - AWS Managed Rules (OWASP Top 10)
-   - Rate-based rules
-   - Size restrictions
-   - CloudWatch metrics enabled
+### ✅ Strengths
+- **S3 KMS encryption**: Properly configured with KMS key
+- **S3 versioning**: Enabled for data recovery
+- **S3 access point**: Uses access point for secure access (`infra/modules/s3/main.tf:28-45`)
+- **Public access blocked**: S3 access point blocks all public access
+- **WAF module**: New WAF module added (`infra/modules/waf/`)
+- **CloudFront WAF association**: CloudFront can associate with WAF (`infra/modules/cloudfront/main.tf:253`)
+- **API Gateway throttling**: Rate limiting configured
+- **IAM policies**: KMS policies properly scoped with `kms:ViaService` condition
 
-2. **S3 Security**:
-   - Private buckets
-   - SSE-KMS encryption
-   - Public access blocked
-   - Versioning enabled
+### ⚠️ Issues
 
-3. **IAM Policies**:
-   - Least privilege principle (verify in Terraform)
-   - Service-specific roles
-
-### ⚠️ **Issues & Recommendations:**
-
-1. **WAF Logging Disabled** (`infra/modules/waf/main.tf:314-320`):
-   ```terraform
-   # resource "aws_wafv2_web_acl_logging_configuration" "main" {
-   #   ...
-   # }
-   ```
-   - **Issue:** WAF logging commented out
-   - **Risk:** Can't investigate WAF blocks/attacks
-   - **Recommendation:** Enable WAF logging via Kinesis Firehose
-   - **Priority:** MEDIUM
-
-2. **API Gateway Throttling**:
-   - **Status:** Need to verify API Gateway has throttling configured
-   - **Recommendation:** Check `infra/modules/api-gateway/main.tf` for throttling
-   - **Priority:** MEDIUM
-
-3. **Network Security**:
-   - **Status:** Need to verify security groups restrict access
-   - **Recommendation:** Audit security group rules
-   - **Priority:** MEDIUM
+**MEDIUM: S3 force_destroy disabled**
+- **Location**: `infra/modules/s3/main.tf:6`
+- **Issue**: Changed from `force_destroy = true` to `false`
+- **Impact**: Prevents accidental bucket deletion (good for production, may block cleanup in dev)
+- **Status**: Likely intentional for production safety
+- **Recommendation**: Use variable to control this per environment
 
 ---
 
 ## 9. Logging, Monitoring & Alerts
 
-### ✅ **Strengths:**
-1. **Audit Logging**:
-   - Upload events logged (`src/services/validator_service.py:195`)
-   - Download events logged
-   - User ID extraction for audit trail
+### ✅ Strengths
+- **Upload event logging**: New function logs upload events to DynamoDB
+- **Download event logging**: Already existed
+- **Audit trail**: User actions tracked with timestamps
+- **Test coverage**: Tests added for logging redaction and audit logging
 
-2. **CloudWatch Integration**:
-   - WAF metrics to CloudWatch
-   - Application logs (verify configuration)
+### ⚠️ Issues
 
-3. **Logging Redaction**:
-   - Tests for redaction exist
-   - Need to verify implementation in production
+**CRITICAL: Sensitive data logged in plain text**
+- **Location**: `src/index.py:142`
+- **Issue**: `LoggingMiddleware` logs all headers including `Authorization` and `Cookie` headers without redaction
+- **Impact**: JWT tokens, session cookies, and other sensitive headers logged in plain text
+- **Evidence**: Test file `tests/unit/test_logging_redaction.py` exists but actual implementation doesn't redact
+- **Recommendation**: 
+  - Implement header redaction in `LoggingMiddleware`
+  - Redact: `Authorization`, `Cookie`, `X-Authorization`, any header containing "token", "secret", "password"
+  - Replace sensitive values with `[REDACTED]` in logs
 
-### ⚠️ **Issues & Recommendations:**
-
-1. **Logging Redaction Implementation**:
-   - **Status:** Tests exist, but need to verify actual middleware
-   - **Recommendation:** Check if `LoggingMiddleware` in `src/index.py` implements redaction
-   - **Priority:** MEDIUM
-
-2. **Sensitive Data in Logs**:
-   - **Recommendation:** Audit all log statements to ensure no secrets/tokens logged
-   - **Priority:** MEDIUM
-
-3. **CloudTrail Configuration**:
-   - **Status:** Need to verify CloudTrail is enabled for API calls
-   - **Recommendation:** Check Terraform for CloudTrail configuration
-   - **Priority:** LOW
+**HIGH: Exception handler logs full headers**
+- **Location**: `src/index.py:117`
+- **Issue**: Exception handler logs `dict(request.headers)` which includes sensitive data
+- **Recommendation**: Apply same redaction logic to exception handler
 
 ---
 
 ## 10. Privacy & Compliance
 
-### ✅ **Status:**
-- No new privacy-impacting features identified
-- No additional data collection
-- Existing user data handling unchanged
+### ✅ Strengths
+- **No new PII collection**: No new personal data collection identified
+- **Audit logging**: User actions logged for compliance
 
-### ⚠️ **Recommendations:**
-1. **Privacy Policy**:
-   - **Recommendation:** Ensure privacy policy covers JWT token storage and use
-   - **Priority:** LOW
+### ⚠️ Issues
+
+None identified in this category.
 
 ---
 
-## Summary of Critical Issues
+## Summary of Required Actions
 
-### 🔴 **HIGH PRIORITY:**
-1. **Token Storage in DynamoDB** - Remove full JWT from DynamoDB, store only metadata
-2. **Artifact Endpoints Exempt** - Remove or conditionally apply auth exemption
+### Immediate (Before Merge)
+1. **CRITICAL**: Implement header redaction in `LoggingMiddleware` to prevent logging sensitive data
+2. **CRITICAL**: Remove or document the `/artifact/*` auth exemption with expiration date
+3. **HIGH**: Restrict CORS origins in production (use environment variable)
+4. **HIGH**: Add production environment validation to prevent secret fallback in production
+5. **HIGH**: Redact sensitive headers in exception handler
 
-### 🟡 **MEDIUM PRIORITY:**
-1. **Rate Limiter Distribution** - Use distributed rate limiting (Redis/DynamoDB)
-2. **CSP Configuration** - Tighten Content Security Policy
-3. **WAF Logging** - Enable WAF logging for security monitoring
-4. **Logging Redaction** - Verify redaction is implemented in production
+### Short-term (Next Sprint)
+1. **MEDIUM**: Make hash verification mandatory for critical downloads
+2. **MEDIUM**: Use variable for S3 `force_destroy` per environment
+3. **MEDIUM**: Add comment clarifying token consumption pattern
 
-### 🟢 **LOW PRIORITY:**
-1. **Secret Cache TTL** - Add TTL to secret cache for rotation support
-2. **Dependency Pinning** - Pin `python-multipart` to specific version
-3. **Configuration Validation** - Add validation for more configs
-
----
-
-## Recommendations for Next Steps
-
-1. **Immediate Actions:**
-   - Remove full JWT token from DynamoDB storage
-   - Review and fix artifact endpoint authentication exemption
-   - Verify logging redaction is implemented
-
-2. **Short-term (1-2 weeks):**
-   - Implement distributed rate limiting
-   - Enable WAF logging
-   - Tighten CSP configuration
-
-3. **Long-term (1+ month):**
-   - Add secret rotation support
-   - Implement comprehensive dependency scanning
-   - Add security monitoring and alerting
+### Documentation
+1. Document why `/artifact/*` endpoints are exempt (if intentional)
+2. Document CORS configuration requirements for production
+3. Document secret rotation procedures for Secrets Manager
 
 ---
 
-## Conclusion
+## Positive Security Improvements
 
-The `tests_p` branch introduces significant security improvements:
-- ✅ Strong authentication with JWT and token use-count tracking
-- ✅ Secrets management via AWS Secrets Manager
-- ✅ Rate limiting and WAF protection
-- ✅ Security headers implementation
+The following changes significantly improve security posture:
 
-However, there are **2 high-priority issues** that should be addressed before merging:
-1. Storing full JWT tokens in DynamoDB
-2. Artifact endpoints bypassing authentication
+1. ✅ **Secrets Management**: Moving secrets to AWS Secrets Manager eliminates hardcoded credentials
+2. ✅ **Encryption Upgrade**: S3 KMS encryption provides better key management than AES256
+3. ✅ **Token Use Tracking**: Prevents token replay attacks
+4. ✅ **S3 Versioning**: Enables recovery from accidental overwrites
+5. ✅ **Hash Verification**: Provides integrity checking for uploads/downloads
+6. ✅ **API Gateway Throttling**: Protects against DoS attacks
+7. ✅ **Upload Event Logging**: Improves audit trail for compliance
 
-Once these are fixed, the branch should be ready for merge from a security perspective.
+---
 
+## Testing Recommendations
+
+1. Test secret rotation: Verify system handles Secrets Manager secret updates
+2. Test token exhaustion: Verify tokens are properly deleted when exhausted
+3. Test hash verification: Verify downloads fail when hash mismatch occurs
+4. Test CORS restrictions: Verify CORS works with restricted origins
+5. Test logging redaction: Verify sensitive headers are not logged
+
+---
+
+## Sign-off
+
+**Review Status**: ⚠️ **APPROVED WITH CONDITIONS**
+
+This branch contains significant security improvements but requires fixes for critical logging issues before production deployment. The identified issues are fixable and do not block merge if addressed promptly.
+
+**Next Steps**:
+1. Address critical logging issues
+2. Document auth exemption rationale
+3. Configure CORS for production
+4. Re-review after fixes
