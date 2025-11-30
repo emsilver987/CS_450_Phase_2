@@ -1,5 +1,4 @@
 import boto3
-from botocore.config import Config
 import zipfile
 import io
 import re
@@ -13,7 +12,6 @@ import shutil
 import tempfile
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
-from botocore.exceptions import ClientError
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import get_credentials
@@ -35,14 +33,8 @@ try:
     account_id = sts.get_caller_identity()["Account"]
     # Use the correct access point ARN format
     ap_arn = f"arn:aws:s3:{region}:{account_id}:accesspoint/{access_point_name}"
-    # Configure S3 client with larger connection pool for high concurrency
-    # Default is 10 connections, increase to 100+ to handle concurrent load testing
-    s3_config = Config(
-        max_pool_connections=150,  # Allow up to 150 concurrent connections
-        retries={'max_attempts': 3, 'mode': 'standard'}
-    )
     # Use regular S3 client - boto3 handles access points automatically
-    s3 = boto3.client("s3", region_name=region, config=s3_config)
+    s3 = boto3.client("s3", region_name=region)
     # Test if S3 client actually works with access point
     s3.list_objects_v2(Bucket=ap_arn, Prefix="models/", MaxKeys=1)
     aws_available = True
@@ -299,59 +291,30 @@ def upload_model(
             )
 
 
-def download_model(model_id: str, version: str, component: str = "full", use_performance_path: bool = False) -> bytes:
+def download_model(model_id: str, version: str, component: str = "full") -> bytes:
     if not aws_available:
         raise HTTPException(
             status_code=503,
             detail="AWS services not available. Please check your AWS configuration.",
         )
-
-    # Import instrumentation here to avoid circular imports
-    from .performance.instrumentation import measure_operation, publish_metric
-
     try:
-        # Use performance/ path if specified, otherwise models/
-        path_prefix = "performance" if use_performance_path else "models"
-        # Models are stored in S3 with sanitized IDs (slashes replaced with underscores)
-        # The endpoint receives the sanitized ID directly, so use it as-is
-        s3_key = f"{path_prefix}/{model_id}/{version}/model.zip"
-
-        # Measure S3 download latency
-        with measure_operation("S3DownloadLatency", {"Component": "S3"}):
-            response = s3.get_object(Bucket=ap_arn, Key=s3_key)
-            zip_content = response["Body"].read()
-
-        # Publish bytes transferred metric
-        bytes_transferred = len(zip_content)
-        publish_metric(
-            "S3DownloadBytes",
-            value=float(bytes_transferred),
-            unit="Bytes",
-            dimensions={"Component": "S3"},
-        )
-
+        s3_key = f"models/{model_id}/{version}/model.zip"
+        response = s3.get_object(Bucket=ap_arn, Key=s3_key)
+        zip_content = response["Body"].read()
         if component != "full":
             try:
                 result = extract_model_component(zip_content, component)
                 print(
-                    f"AWS S3 download successful: {model_id} v{version} ({component}) from {path_prefix}/"
+                    f"AWS S3 download successful: {model_id} v{version} ({component})"
                 )
                 return result
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        print(f"AWS S3 download successful: {model_id} v{version} (full) from {path_prefix}/")
+        print(f"AWS S3 download successful: {model_id} v{version} (full)")
         return zip_content
-    except ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code == "NoSuchKey":
-            print(f"AWS S3 download failed: Model {model_id} v{version} not found at {path_prefix}/{model_id}/{version}/model.zip")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Model {model_id} version {version} not found in {path_prefix}/ path"
-            )
-        else:
-            print(f"AWS S3 download failed: {e}")
-            raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
+    except HTTPException:
+        # Re-raise HTTPException without wrapping
+        raise
     except Exception as e:
         print(f"AWS S3 download failed: {e}")
         raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
@@ -486,44 +449,37 @@ def list_models(
         )
     limit = min(limit, 1000)
     try:
+        # Validate regex patterns early
+        name_pattern = None
+        if name_regex:
+            try:
+                name_pattern = re.compile(name_regex, re.IGNORECASE)
+            except re.error as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid name regex: {str(e)}"
+                )
+        
+        model_pattern = None
+        if model_regex:
+            try:
+                model_pattern = re.compile(model_regex, re.IGNORECASE)
+            except re.error as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid model regex: {str(e)}"
+                )
+        
         params = {"Bucket": ap_arn, "Prefix": "models/", "MaxKeys": limit}
         if continuation_token:
             params["ContinuationToken"] = continuation_token
         response = s3.list_objects_v2(**params)
         results = []
         if "Contents" in response:
-            name_pattern = None
-            if name_regex:
-                try:
-                    name_pattern = re.compile(name_regex, re.IGNORECASE)
-                except re.error as e:
-                    raise HTTPException(
-                        status_code=400, detail=f"Invalid name regex: {str(e)}"
-                    )
             for item in response["Contents"]:
                 key = item["Key"]
                 if key.endswith("/model.zip"):
                     if len(key.split("/")) >= 3:
-                        sanitized_model_name = key.split("/")[1]
+                        model_name = key.split("/")[1]
                         model_version = key.split("/")[2]
-                        
-                        # Try to get original name from metadata.json
-                        # Metadata is stored at: models/{sanitized_name}/{version}/metadata.json
-                        metadata_key = f"models/{sanitized_model_name}/{model_version}/metadata.json"
-                        model_name = sanitized_model_name  # Fallback to sanitized name
-                        
-                        try:
-                            metadata_response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
-                            metadata_json = metadata_response["Body"].read().decode("utf-8")
-                            metadata = json.loads(metadata_json)
-                            # Use original name from metadata if available
-                            if metadata.get("name"):
-                                model_name = metadata.get("name")
-                        except Exception:
-                            # If metadata doesn't exist or can't be read, use sanitized name
-                            # This handles legacy models that don't have metadata.json
-                            pass
-                        
                         if name_pattern and not name_pattern.search(model_name):
                             continue
                         if version_range:
@@ -532,18 +488,11 @@ def list_models(
                                 normalized_version, version_range
                             ):
                                 continue
-                        if model_regex:
-                            try:
-                                # Use sanitized name for searching model card content (S3 path)
-                                if not search_model_card_content(
-                                    sanitized_model_name, model_version, model_regex
-                                ):
-                                    continue
-                            except re.error as e:
-                                raise HTTPException(
-                                    status_code=400,
-                                    detail=f"Invalid model regex: {str(e)}",
-                                )
+                        if model_pattern:
+                            if not search_model_card_content(
+                                model_name, model_version, model_regex
+                            ):
+                                continue
                         results.append({"name": model_name, "version": model_version})
         return {"models": results, "next_token": response.get("NextContinuationToken")}
     except HTTPException:
@@ -559,24 +508,12 @@ def reset_registry() -> Dict[str, str]:
             detail="AWS services not available. Please check your AWS configuration.",
         )
     try:
-        deleted_count = 0
-
-        # Use paginator to handle all objects, not just first 1000
-        # Delete ALL artifact types: models, datasets, codes, and packages
-        paginator = s3.get_paginator("list_objects_v2")
-
-        # Delete all artifact types
-        prefixes = ["models/", "datasets/", "codes/", "packages/"]
-
-        for prefix in prefixes:
-            pages = paginator.paginate(Bucket=ap_arn, Prefix=prefix)
-            for page in pages:
-                if "Contents" in page:
-                    for item in page["Contents"]:
-                        s3.delete_object(Bucket=ap_arn, Key=item["Key"])
-                        deleted_count += 1
-
-        if deleted_count > 0:
+        response = s3.list_objects_v2(Bucket=ap_arn, Prefix="models/")
+        if "Contents" in response:
+            deleted_count = 0
+            for item in response["Contents"]:
+                s3.delete_object(Bucket=ap_arn, Key=item["Key"])
+                deleted_count += 1
             print(f"AWS S3 reset successful: Deleted {deleted_count} objects")
         else:
             print("AWS S3 reset successful: No objects found to delete")
@@ -585,46 +522,6 @@ def reset_registry() -> Dict[str, str]:
         print(f"AWS S3 reset failed: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to reset registry: {str(e)}"
-        )
-
-
-def reset_performance_path() -> Dict[str, Any]:
-    """
-    Reset the performance/ S3 path by deleting all objects.
-    Only affects the performance/ path, not models/ or other paths.
-    
-    Returns:
-        Dictionary with deletion count and status
-    """
-    if not aws_available:
-        raise HTTPException(
-            status_code=503,
-            detail="AWS services not available. Please check your AWS configuration.",
-        )
-    try:
-        deleted_count = 0
-
-        # Use paginator to handle all objects, not just first 1000
-        paginator = s3.get_paginator("list_objects_v2")
-
-        # Delete only performance/ path
-        pages = paginator.paginate(Bucket=ap_arn, Prefix="performance/")
-        for page in pages:
-            if "Contents" in page:
-                for item in page["Contents"]:
-                    s3.delete_object(Bucket=ap_arn, Key=item["Key"])
-                    deleted_count += 1
-
-        logger.info(f"Performance path reset: Deleted {deleted_count} objects from performance/")
-        return {
-            "message": "Performance path reset successful",
-            "deleted_count": deleted_count,
-            "path": "performance/"
-        }
-    except Exception as e:
-        logger.error(f"Performance path reset failed: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to reset performance path: {str(e)}"
         )
 
 
@@ -638,11 +535,11 @@ def store_artifact_metadata(
     """
     if not aws_available:
         return {"status": "skipped", "reason": "AWS not available"}
-
+    
     try:
         from datetime import datetime, timezone
         from botocore.exceptions import ClientError
-
+        
         # Sanitize artifact name for S3 key
         sanitized_name = (
             artifact_name.replace("https://huggingface.co/", "")
@@ -658,7 +555,7 @@ def store_artifact_metadata(
             .replace("|", "_")
         )
         safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
-
+        
         # Store metadata.json file
         metadata = {
             "artifact_id": artifact_id,
@@ -668,24 +565,20 @@ def store_artifact_metadata(
             "url": url,
             "stored_at": datetime.now(timezone.utc).isoformat(),
         }
-
+        
         s3_key = f"{artifact_type}s/{sanitized_name}/{safe_version}/metadata.json"
         logger.info(f"DEBUG: Storing metadata to S3 key: {s3_key}")
         logger.info(f"DEBUG: Metadata content: {json.dumps(metadata, indent=2)}")
-
+        
         s3.put_object(
             Bucket=ap_arn,
             Key=s3_key,
             Body=json.dumps(metadata, indent=2).encode("utf-8"),
             ContentType="application/json",
         )
-
-        logger.info(
-            f"DEBUG: ✅✅✅ Successfully stored artifact metadata to S3: {s3_key} ✅✅✅"
-        )
-        logger.info(
-            f"DEBUG: Metadata includes: artifact_id='{artifact_id}', name='{artifact_name}', type='{artifact_type}'"
-        )
+        
+        logger.info(f"DEBUG: ✅✅✅ Successfully stored artifact metadata to S3: {s3_key} ✅✅✅")
+        logger.info(f"DEBUG: Metadata includes: artifact_id='{artifact_id}', name='{artifact_name}', type='{artifact_type}'")
         return {"status": "success", "s3_key": s3_key}
     except Exception as e:
         logger.error(f"Failed to store artifact metadata: {str(e)}", exc_info=True)
@@ -698,23 +591,23 @@ def find_artifact_metadata_by_id(artifact_id: str) -> Optional[Dict[str, Any]]:
     Searches all artifact types (models, datasets, code).
     Uses pagination to search through all metadata files.
     For models, also tries to find by listing recent models first (faster).
-
+    
     Args:
         artifact_id: The artifact ID to search for
-
+    
     Returns:
         Dict with artifact metadata if found, None otherwise
     """
     logger.info(f"DEBUG: ===== FIND_ARTIFACT_METADATA_BY_ID START =====")
     logger.info(f"DEBUG: Searching for artifact_id: '{artifact_id}'")
-
+    
     if not aws_available:
         logger.warning(f"DEBUG: AWS not available, returning None")
         return None
-
+    
     try:
         from botocore.exceptions import ClientError
-
+        
         # First, try to find in models by listing recent models and checking their metadata
         # This is faster than searching all metadata files
         logger.info(f"DEBUG: Step 1: Fast lookup - checking recent models")
@@ -722,16 +615,14 @@ def find_artifact_metadata_by_id(artifact_id: str) -> Optional[Dict[str, Any]]:
             recent_models = list_models(limit=100)  # Get recent models
             model_count = len(recent_models.get("models", []))
             logger.info(f"DEBUG: Found {model_count} recent models to check")
-
+            
             checked_count = 0
             for model in recent_models.get("models", []):
                 model_name = model.get("name", "")
                 version = model.get("version", "main")
                 checked_count += 1
-                logger.debug(
-                    f"DEBUG: Checking model {checked_count}/{model_count}: name='{model_name}', version='{version}'"
-                )
-
+                logger.debug(f"DEBUG: Checking model {checked_count}/{model_count}: name='{model_name}', version='{version}'")
+                
                 # Construct the metadata key
                 sanitized_name = (
                     model_name.replace("https://huggingface.co/", "")
@@ -746,65 +637,49 @@ def find_artifact_metadata_by_id(artifact_id: str) -> Optional[Dict[str, Any]]:
                     .replace(">", "_")
                     .replace("|", "_")
                 )
-                safe_version = (
-                    version.replace("/", "_").replace(":", "_").replace("\\", "_")
-                )
+                safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
                 metadata_key = f"models/{sanitized_name}/{safe_version}/metadata.json"
                 logger.debug(f"DEBUG: Checking metadata key: {metadata_key}")
-
+                
                 try:
                     response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
                     metadata_json = response["Body"].read().decode("utf-8")
                     metadata = json.loads(metadata_json)
                     found_artifact_id = metadata.get("artifact_id")
-                    logger.debug(
-                        f"DEBUG: Metadata file found, artifact_id in file: '{found_artifact_id}'"
-                    )
-
+                    logger.debug(f"DEBUG: Metadata file found, artifact_id in file: '{found_artifact_id}'")
+                    
                     if found_artifact_id == artifact_id:
                         logger.info(f"DEBUG: ✅✅✅ MATCH FOUND in fast lookup! ✅✅✅")
-                        logger.info(
-                            f"DEBUG: Found artifact metadata by ID: {artifact_id} in {metadata_key}"
-                        )
+                        logger.info(f"DEBUG: Found artifact metadata by ID: {artifact_id} in {metadata_key}")
                         result = {
                             "artifact_id": artifact_id,
                             "name": metadata.get("name"),
                             "type": "model",
                             "version": metadata.get("version", version),
                             "url": metadata.get("url"),
-                            "s3_key": metadata_key,
+                            "s3_key": metadata_key
                         }
                         logger.info(f"DEBUG: Returning: {result}")
                         return result
                 except ClientError as e:
                     error_code = e.response.get("Error", {}).get("Code", "")
-                    logger.debug(
-                        f"DEBUG: Metadata file {metadata_key} not found: {error_code}"
-                    )
+                    logger.debug(f"DEBUG: Metadata file {metadata_key} not found: {error_code}")
                     continue
                 except Exception as e:
-                    logger.debug(
-                        f"DEBUG: Error reading metadata from {metadata_key}: {str(e)}"
-                    )
+                    logger.debug(f"DEBUG: Error reading metadata from {metadata_key}: {str(e)}")
                     continue
-
-            logger.info(
-                f"DEBUG: Fast lookup checked {checked_count} models, no match found"
-            )
+            
+            logger.info(f"DEBUG: Fast lookup checked {checked_count} models, no match found")
         except Exception as e:
-            logger.warning(
-                f"DEBUG: Error in fast lookup for models: {str(e)}", exc_info=True
-            )
-
+            logger.warning(f"DEBUG: Error in fast lookup for models: {str(e)}", exc_info=True)
+        
         # If not found in recent models, search all metadata files (slower but comprehensive)
-        logger.info(
-            f"DEBUG: Step 2: Comprehensive search - checking all metadata files"
-        )
+        logger.info(f"DEBUG: Step 2: Comprehensive search - checking all metadata files")
         for artifact_type in ["model", "dataset", "code"]:
             logger.info(f"DEBUG: Searching {artifact_type} artifacts...")
             prefix = f"{artifact_type}s/"
             params = {"Bucket": ap_arn, "Prefix": prefix, "MaxKeys": 1000}
-
+            
             try:
                 paginator = s3.get_paginator("list_objects_v2")
                 page_count = 0
@@ -814,75 +689,53 @@ def find_artifact_metadata_by_id(artifact_id: str) -> Optional[Dict[str, Any]]:
                     if "Contents" not in page:
                         logger.debug(f"DEBUG: Page {page_count} has no contents")
                         continue
-
-                    logger.debug(
-                        f"DEBUG: Page {page_count} has {len(page['Contents'])} items"
-                    )
+                    
+                    logger.debug(f"DEBUG: Page {page_count} has {len(page['Contents'])} items")
                     for item in page["Contents"]:
                         key = item["Key"]
                         # Check metadata.json files for all types
                         if key.endswith("/metadata.json"):
                             file_count += 1
                             if file_count % 10 == 0:
-                                logger.debug(
-                                    f"DEBUG: Checked {file_count} metadata files so far..."
-                                )
+                                logger.debug(f"DEBUG: Checked {file_count} metadata files so far...")
                             try:
                                 # Download and parse metadata
                                 response = s3.get_object(Bucket=ap_arn, Key=key)
                                 metadata_json = response["Body"].read().decode("utf-8")
                                 metadata = json.loads(metadata_json)
-
+                                
                                 found_artifact_id = metadata.get("artifact_id")
                                 # Check if artifact_id matches
                                 if found_artifact_id == artifact_id:
-                                    logger.info(
-                                        f"DEBUG: ✅✅✅ MATCH FOUND in comprehensive search! ✅✅✅"
-                                    )
-                                    logger.info(
-                                        f"DEBUG: Found artifact metadata by ID: {artifact_id} in {key}"
-                                    )
+                                    logger.info(f"DEBUG: ✅✅✅ MATCH FOUND in comprehensive search! ✅✅✅")
+                                    logger.info(f"DEBUG: Found artifact metadata by ID: {artifact_id} in {key}")
                                     result = {
                                         "artifact_id": artifact_id,
                                         "name": metadata.get("name"),
                                         "type": metadata.get("type", artifact_type),
                                         "version": metadata.get("version", "main"),
                                         "url": metadata.get("url"),
-                                        "s3_key": key,
+                                        "s3_key": key
                                     }
                                     logger.info(f"DEBUG: Returning: {result}")
                                     return result
                             except json.JSONDecodeError as e:
-                                logger.debug(
-                                    f"DEBUG: Invalid JSON in metadata file {key}: {str(e)}"
-                                )
+                                logger.debug(f"DEBUG: Invalid JSON in metadata file {key}: {str(e)}")
                                 continue
                             except Exception as e:
-                                logger.debug(
-                                    f"DEBUG: Error reading metadata from {key}: {str(e)}"
-                                )
+                                logger.debug(f"DEBUG: Error reading metadata from {key}: {str(e)}")
                                 continue
-
-                logger.info(
-                    f"DEBUG: Searched {file_count} {artifact_type} metadata files, no match"
-                )
+                
+                logger.info(f"DEBUG: Searched {file_count} {artifact_type} metadata files, no match")
             except Exception as e:
-                logger.warning(
-                    f"DEBUG: Error listing objects for {artifact_type}: {str(e)}",
-                    exc_info=True,
-                )
+                logger.warning(f"DEBUG: Error listing objects for {artifact_type}: {str(e)}", exc_info=True)
                 continue
-
-        logger.warning(
-            f"DEBUG: ❌❌❌ Artifact metadata NOT FOUND for ID: {artifact_id} ❌❌❌"
-        )
+        
+        logger.warning(f"DEBUG: ❌❌❌ Artifact metadata NOT FOUND for ID: {artifact_id} ❌❌❌")
         logger.warning(f"DEBUG: Searched all artifact types (model, dataset, code)")
         return None
     except Exception as e:
-        logger.error(
-            f"DEBUG: ❌ Exception in find_artifact_metadata_by_id: {str(e)}",
-            exc_info=True,
-        )
+        logger.error(f"DEBUG: ❌ Exception in find_artifact_metadata_by_id: {str(e)}", exc_info=True)
         return None
 
 
@@ -898,22 +751,22 @@ def list_artifacts_from_s3(
     """
     if not aws_available:
         return {"artifacts": []}
-
+    
     try:
         from botocore.exceptions import ClientError
-
+        
         artifacts = []
         prefix = f"{artifact_type}s/"
         params = {"Bucket": ap_arn, "Prefix": prefix, "MaxKeys": limit}
-
+        
         paginator = s3.get_paginator("list_objects_v2")
         for page in paginator.paginate(**params):
             if "Contents" not in page:
                 continue
-
+            
             for item in page["Contents"]:
                 key = item["Key"]
-
+                
                 if artifact_type == "model":
                     # For models, look for model.zip files
                     if key.endswith("/model.zip"):
@@ -923,13 +776,11 @@ def list_artifacts_from_s3(
                         if len(parts) >= 2:
                             model_name = parts[0].replace("_", "/")
                             version = parts[1]
-                            artifacts.append(
-                                {
-                                    "name": model_name,
-                                    "version": version,
-                                    "type": artifact_type,
-                                }
-                            )
+                            artifacts.append({
+                                "name": model_name,
+                                "version": version,
+                                "type": artifact_type,
+                            })
                 else:
                     # For datasets and code, look for metadata.json files
                     if key.endswith("/metadata.json"):
@@ -937,25 +788,22 @@ def list_artifacts_from_s3(
                             response = s3.get_object(Bucket=ap_arn, Key=key)
                             metadata_json = response["Body"].read().decode("utf-8")
                             metadata = json.loads(metadata_json)
-                            artifacts.append(
-                                {
-                                    "name": metadata.get("name"),
-                                    "version": metadata.get("version", "main"),
-                                    "type": artifact_type,
-                                    "artifact_id": metadata.get("artifact_id"),
-                                }
-                            )
+                            artifacts.append({
+                                "name": metadata.get("name"),
+                                "version": metadata.get("version", "main"),
+                                "type": artifact_type,
+                                "artifact_id": metadata.get("artifact_id"),
+                            })
                         except Exception as e:
                             logger.debug(f"Error reading metadata from {key}: {str(e)}")
                             continue
-
+        
         # Apply regex filter if provided
         if name_regex:
             import re
-
             pattern = re.compile(name_regex)
             artifacts = [a for a in artifacts if pattern.match(a.get("name", ""))]
-
+        
         return {"artifacts": artifacts[:limit]}
     except Exception as e:
         logger.error(f"Failed to list artifacts from S3: {str(e)}", exc_info=True)
@@ -986,44 +834,25 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
     """
     if not zip_content:
         return None
-
+    
     import zipfile
     import io
-
+    
     try:
         with zipfile.ZipFile(io.BytesIO(zip_content), "r") as zip_file:
             file_list = zip_file.namelist()
-
+            
             # Text file extensions to search
             text_extensions = (
-                ".md",
-                ".txt",
-                ".rst",
-                ".org",
-                ".py",
-                ".js",
-                ".ts",
-                ".json",
-                ".yaml",
-                ".yml",
-                ".toml",
-                ".ini",
-                ".cfg",
-                ".conf",
-                ".sh",
-                ".bat",
-                ".cmd",
-                ".ps1",
-                ".html",
-                ".htm",
-                ".xml",
-                ".csv",
+                ".md", ".txt", ".rst", ".org", ".py", ".js", ".ts", ".json", 
+                ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".sh", 
+                ".bat", ".cmd", ".ps1", ".html", ".htm", ".xml", ".csv"
             )
-
+            
             # Priority files (README files first)
             priority_files = []
             other_text_files = []
-
+            
             for filename in file_list:
                 filename_lower = filename.lower()
                 # Skip binary files and very large files
@@ -1032,7 +861,7 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
                         priority_files.append(filename)
                     else:
                         other_text_files.append(filename)
-
+            
             # Search priority files first (README files)
             for filename in priority_files:
                 try:
@@ -1045,18 +874,16 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
                             text = content.decode("latin-1", errors="ignore")
                         except:
                             continue
-
+                    
                     if text:
                         github_url = extract_github_url_from_text(text)
                         if github_url:
-                            print(
-                                f"[INGEST] Found GitHub URL in {filename}: {github_url}"
-                            )
+                            print(f"[INGEST] Found GitHub URL in {filename}: {github_url}")
                             return github_url
                 except Exception as e:
                     print(f"[INGEST] Warning: Could not read {filename}: {e}")
                     continue
-
+            
             # Search other text files
             for filename in other_text_files:
                 try:
@@ -1064,7 +891,7 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
                     # Limit file size to avoid memory issues (max 1MB)
                     if len(content) > 1024 * 1024:
                         continue
-
+                    
                     # Try to decode as text
                     try:
                         text = content.decode("utf-8", errors="ignore")
@@ -1073,18 +900,16 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
                             text = content.decode("latin-1", errors="ignore")
                         except:
                             continue
-
+                    
                     if text:
                         github_url = extract_github_url_from_text(text)
                         if github_url:
-                            print(
-                                f"[INGEST] Found GitHub URL in {filename}: {github_url}"
-                            )
+                            print(f"[INGEST] Found GitHub URL in {filename}: {github_url}")
                             return github_url
                 except Exception as e:
                     print(f"[INGEST] Warning: Could not read {filename}: {e}")
                     continue
-
+            
             # Also check config.json specifically (it's often a string, not a file)
             try:
                 config = extract_config_from_model(zip_content)
@@ -1095,13 +920,11 @@ def extract_github_url_from_zip(zip_content: bytes) -> Optional[str]:
                         print(f"[INGEST] Found GitHub URL in config.json: {github_url}")
                         return github_url
             except Exception as e:
-                print(
-                    f"[INGEST] Warning: Could not extract GitHub URL from config.json: {e}"
-                )
-
+                print(f"[INGEST] Warning: Could not extract GitHub URL from config.json: {e}")
+            
     except Exception as e:
         print(f"[INGEST] Error searching zip for GitHub URL: {e}")
-
+    
     return None
 
 
@@ -1117,54 +940,48 @@ def extract_github_url_from_text(text: str) -> Optional[str]:
 
     # Normalize text - handle markdown code blocks and HTML
     text_normalized = text
-
+    
     # Try multiple patterns in order of specificity
-
+    
     # 1. HTML hyperlink (e.g., <a href="https://github.com/owner/repo">Click here</a>)
     # Using pattern: href=["'](.*?)["']
     html_href_pattern = r'href=["\'](.*?)["\']'
     html_matches = re.finditer(html_href_pattern, text_normalized, re.IGNORECASE)
     for match in html_matches:
         url = match.group(1).strip()
-        if url.startswith(("http://", "https://")) and "github.com" in url.lower():
+        if url.startswith(('http://', 'https://')) and 'github.com' in url.lower():
             # Extract owner/repo from GitHub URL
-            github_match = re.search(
-                r"github\.com/([\w\-\.]+)/([\w\-\.]+)", url, re.IGNORECASE
-            )
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
             if github_match:
                 owner, repo = github_match.groups()
                 owner = owner.rstrip(".").strip().rstrip("/")
                 repo = repo.rstrip(".").strip().rstrip("/")
                 if owner and repo:
                     return f"https://github.com/{owner}/{repo}"
-
+    
     # 2. Markdown hyperlink (e.g., [Click here](https://github.com/owner/repo))
     # Using pattern: \]\((https?://[^\s)]+)\)
-    markdown_pattern = r"\]\((https?://[^\s)]+)\)"
+    markdown_pattern = r'\]\((https?://[^\s)]+)\)'
     markdown_matches = re.finditer(markdown_pattern, text_normalized, re.IGNORECASE)
     for match in markdown_matches:
         url = match.group(1).strip()
-        if "github.com" in url.lower():
-            github_match = re.search(
-                r"github\.com/([\w\-\.]+)/([\w\-\.]+)", url, re.IGNORECASE
-            )
+        if 'github.com' in url.lower():
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
             if github_match:
                 owner, repo = github_match.groups()
                 owner = owner.rstrip(".").strip().rstrip("/")
                 repo = repo.rstrip(".").strip().rstrip("/")
                 if owner and repo:
                     return f"https://github.com/{owner}/{repo}"
-
+    
     # 3. Generic URL finder (any URL in plain text)
     # Using pattern: https?://[^\s"'>)]+
     generic_url_pattern = r'https?://[^\s"\'>)]+'
     generic_matches = re.finditer(generic_url_pattern, text_normalized, re.IGNORECASE)
     for match in generic_matches:
         url = match.group(0).strip()
-        if "github.com" in url.lower():
-            github_match = re.search(
-                r"github\.com/([\w\-\.]+)/([\w\-\.]+)", url, re.IGNORECASE
-            )
+        if 'github.com' in url.lower():
+            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
             if github_match:
                 owner, repo = github_match.groups()
                 owner = owner.rstrip(".").strip().rstrip("/")
@@ -1251,10 +1068,6 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
             "lineage_map": lineage_map,
             "config": config,
         }
-    except HTTPException as e:
-        # Extract detail from HTTPException for better error handling
-        error_detail = e.detail if hasattr(e, "detail") else str(e)
-        return {"model_id": model_id, "error": error_detail}
     except Exception as e:
         print(f"Error getting lineage from config: {e}")
         return {"model_id": model_id, "error": str(e)}
@@ -1579,65 +1392,48 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
 
             if config:
                 config_str = json.dumps(config)
-
+                
                 # Pattern 1: HTML hyperlink in config.json (e.g., <a href="https://github.com/owner/repo">)
                 # Using pattern: href=["'](.*?)["']
                 html_href_pattern = r'href=["\'](.*?)["\']'
                 html_matches = re.finditer(html_href_pattern, config_str, re.IGNORECASE)
                 for match in html_matches:
                     url = match.group(1).strip()
-                    if (
-                        url.startswith(("http://", "https://"))
-                        and "github.com" in url.lower()
-                    ):
-                        github_match = re.search(
-                            r"github\.com/([\w\-\.]+)/([\w\-\.]+)", url, re.IGNORECASE
-                        )
+                    if url.startswith(('http://', 'https://')) and 'github.com' in url.lower():
+                        github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
                         if github_match:
                             owner, repo = github_match.groups()
                             repo_url = f"https://github.com/{owner}/{repo}"
                             break
-
+                
                 # Pattern 2: Markdown hyperlink in config.json (e.g., [text](https://github.com/owner/repo))
                 # Using pattern: \]\((https?://[^\s)]+)\)
                 if not repo_url:
-                    markdown_pattern = r"\]\((https?://[^\s)]+)\)"
-                    markdown_matches = re.finditer(
-                        markdown_pattern, config_str, re.IGNORECASE
-                    )
+                    markdown_pattern = r'\]\((https?://[^\s)]+)\)'
+                    markdown_matches = re.finditer(markdown_pattern, config_str, re.IGNORECASE)
                     for match in markdown_matches:
                         url = match.group(1).strip()
-                        if "github.com" in url.lower():
-                            github_match = re.search(
-                                r"github\.com/([\w\-\.]+)/([\w\-\.]+)",
-                                url,
-                                re.IGNORECASE,
-                            )
+                        if 'github.com' in url.lower():
+                            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
                             if github_match:
                                 owner, repo = github_match.groups()
                                 repo_url = f"https://github.com/{owner}/{repo}"
                                 break
-
+                
                 # Pattern 3: Generic URL finder in config.json
                 # Using pattern: https?://[^\s"'>)]+
                 if not repo_url:
                     generic_url_pattern = r'https?://[^\s"\'>)]+'
-                    generic_matches = re.finditer(
-                        generic_url_pattern, config_str, re.IGNORECASE
-                    )
+                    generic_matches = re.finditer(generic_url_pattern, config_str, re.IGNORECASE)
                     for match in generic_matches:
                         url = match.group(0).strip()
-                        if "github.com" in url.lower():
-                            github_match = re.search(
-                                r"github\.com/([\w\-\.]+)/([\w\-\.]+)",
-                                url,
-                                re.IGNORECASE,
-                            )
+                        if 'github.com' in url.lower():
+                            github_match = re.search(r'github\.com/([\w\-\.]+)/([\w\-\.]+)', url, re.IGNORECASE)
                             if github_match:
                                 owner, repo = github_match.groups()
                                 repo_url = f"https://github.com/{owner}/{repo}"
                                 break
-
+                
                 # Fallback: Legacy patterns for JSON fields
                 if not repo_url:
                     github_patterns = [
@@ -1659,20 +1455,18 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                                 url_match = matches[0]
                                 if url_match.startswith("http"):
                                     repo_url = url_match
-                                elif (
-                                    "/" in url_match and len(url_match.split("/")) >= 2
-                                ):
+                                elif "/" in url_match and len(url_match.split("/")) >= 2:
                                     parts = url_match.split("/")
                                     if "github.com" in parts:
                                         idx = parts.index("github.com")
                                         if idx + 2 < len(parts):
                                             owner = parts[idx + 1]
                                             repo = (
-                                                parts[idx + 2]
-                                                .split("/")[0]
-                                                .split("?")[0]
-                                                .split("#")[0]
-                                            )
+                                            parts[idx + 2]
+                                            .split("/")[0]
+                                            .split("?")[0]
+                                            .split("#")[0]
+                                        )
                                         repo_url = f"https://github.com/{owner}/{repo}"
                                 else:
                                     # Assume it's owner/repo format
@@ -1719,39 +1513,31 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                     ).get("license", "")
                     if hf_license and not meta.get("license"):
                         meta["license"] = hf_license.lower()
-
+                    
                     # Check description for GitHub URL early
                     if description and not repo_url:
                         repo_url = extract_github_url_from_text(description)
                         if repo_url:
-                            print(
-                                f"[INGEST] Found GitHub URL in description: {repo_url}"
-                            )
+                            print(f"[INGEST] Found GitHub URL in description: {repo_url}")
 
                     if not repo_url:
                         if isinstance(hf_meta, dict):
                             github_field = hf_meta.get("github", "")
                             if github_field:
-                                print(
-                                    f"[INGEST] Found github field in hf_meta: {github_field} (type: {type(github_field)})"
-                                )
+                                print(f"[INGEST] Found github field in hf_meta: {github_field} (type: {type(github_field)})")
                                 if isinstance(github_field, str):
                                     if github_field.startswith("http"):
                                         repo_url = github_field
                                     else:
                                         repo_url = f"https://github.com/{github_field}"
-                                    print(
-                                        f"[INGEST] Extracted GitHub URL from github field: {repo_url}"
-                                    )
+                                    print(f"[INGEST] Extracted GitHub URL from github field: {repo_url}")
                                 elif isinstance(github_field, dict):
                                     repo_url = github_field.get(
                                         "url"
                                     ) or github_field.get("repo")
                                     if repo_url:
-                                        print(
-                                            f"[INGEST] Extracted GitHub URL from github dict: {repo_url}"
-                                        )
-
+                                        print(f"[INGEST] Extracted GitHub URL from github dict: {repo_url}")
+                            
                             if not repo_url:
                                 card_data = hf_meta.get("cardData", {})
                                 if isinstance(card_data, dict):
@@ -1776,31 +1562,23 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                                                 repo_url = github_match.group(0)
                                                 break
                                             elif (
-                                                "/" in value
-                                                and len(value.split("/")) == 2
+                                                "/" in value and len(value.split("/")) == 2
                                             ):
                                                 potential_repo = value.strip()
-                                                if not potential_repo.startswith(
-                                                    "http"
-                                                ):
+                                                if not potential_repo.startswith("http"):
                                                     repo_url = f"https://github.com/{potential_repo}"
                                                 break
-
+                            
                             if not repo_url:
                                 hf_meta_str = json.dumps(hf_meta)
                                 repo_url = extract_github_url_from_text(hf_meta_str)
                                 if repo_url:
-                                    print(
-                                        f"[INGEST] Found GitHub URL in HuggingFace metadata: {repo_url}"
-                                    )
-
+                                    print(f"[INGEST] Found GitHub URL in HuggingFace metadata: {repo_url}")
+                            
                             if not repo_url:
                                 tags = hf_meta.get("tags", []) or []
                                 for tag in tags:
-                                    if (
-                                        isinstance(tag, str)
-                                        and "github.com" in tag.lower()
-                                    ):
+                                    if isinstance(tag, str) and "github.com" in tag.lower():
                                         github_match = re.search(
                                             r"https?://github\.com/[\w\-\.]+/[\w\-\.]+",
                                             tag,
@@ -1808,15 +1586,13 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                                         if github_match:
                                             repo_url = github_match.group(0)
                                             break
-
+                            
                             if not repo_url:
                                 model_index = hf_meta.get("model_index", "")
                                 if isinstance(model_index, str):
                                     repo_url = extract_github_url_from_text(model_index)
                                     if repo_url:
-                                        print(
-                                            f"[INGEST] Found GitHub URL in model_index: {repo_url}"
-                                        )
+                                        print(f"[INGEST] Found GitHub URL in model_index: {repo_url}")
 
                     if not repo_url:
                         print(f"[INGEST] Searching entire zip file for GitHub URL...")
@@ -1825,30 +1601,22 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                             print(f"[INGEST] Found GitHub URL in zip file: {repo_url}")
                         else:
                             print(f"[INGEST] No GitHub URL found in zip file")
-
+                    
                     if not repo_url and meta.get("readme_text"):
                         readme = meta.get("readme_text", "")
-                        print(
-                            f"[INGEST] Extracting GitHub URL from README text (length: {len(readme)})"
-                        )
+                        print(f"[INGEST] Extracting GitHub URL from README text (length: {len(readme)})")
                         repo_url = extract_github_url_from_text(readme)
                         if repo_url:
                             print(f"[INGEST] Found GitHub URL in README: {repo_url}")
                         else:
                             print(f"[INGEST] No GitHub URL found in README text")
-
+                    
                     if not repo_url:
-                        print(
-                            f"[INGEST] WARNING: No GitHub URL found after all extraction attempts"
-                        )
-                        print(
-                            f"[INGEST] hf_meta keys: {list(hf_meta.keys()) if isinstance(hf_meta, dict) else 'N/A'}"
-                        )
+                        print(f"[INGEST] WARNING: No GitHub URL found after all extraction attempts")
+                        print(f"[INGEST] hf_meta keys: {list(hf_meta.keys()) if isinstance(hf_meta, dict) else 'N/A'}")
                         if isinstance(hf_meta, dict):
-                            print(
-                                f"[INGEST] hf_meta.get('github'): {hf_meta.get('github')}"
-                            )
-
+                            print(f"[INGEST] hf_meta.get('github'): {hf_meta.get('github')}")
+                    
                     if repo_url:
                         meta["github_url"] = repo_url
                         print(f"[INGEST] Successfully set github_url: {repo_url}")
@@ -1981,37 +1749,25 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
         failures = []
         metric_scores_dict = {}
         for metric_name in REQUIRED_NON_LATENCY_METRICS:
-            from ..services.rating_config import DEFAULT_SCORE
-
             result = metric_results.get(metric_name)
-            score = DEFAULT_SCORE
+            score = 0.0
             if result is None:
-                print(
-                    f"[INGEST] WARNING: {metric_name} not found in metric_results. Available keys: {list(metric_results.keys())}"
-                )
+                print(f"[INGEST] WARNING: {metric_name} not found in metric_results. Available keys: {list(metric_results.keys())}")
                 failures.append(f"{metric_name}=MISSING")
-                metric_scores_dict[metric_name] = DEFAULT_SCORE
+                metric_scores_dict[metric_name] = 0.0
                 continue
             elif hasattr(result, "value"):
-                score = (
-                    float(result.value) if result.value is not None else DEFAULT_SCORE
-                )
+                score = float(result.value) if result.value is not None else 0.0
             elif isinstance(result, (int, float)):
                 score = float(result)
             else:
-                print(
-                    f"[INGEST] WARNING: {metric_name} has unexpected type: {type(result)}, value: {result}"
-                )
-                score = DEFAULT_SCORE
+                print(f"[INGEST] WARNING: {metric_name} has unexpected type: {type(result)}, value: {result}")
+                score = 0.0
             metric_scores_dict[metric_name] = score
             print(f"[INGEST] {metric_name} = {score:.2f}")
-            from ..services.rating_config import INGESTIBILITY_THRESHOLD
-
-            if score < INGESTIBILITY_THRESHOLD:
+            if score < 0.5:
                 failures.append(f"{metric_name}={score:.2f}")
         if failures:
-            from ..services.rating_config import INGESTIBILITY_THRESHOLD
-
             print(f"[INGEST] Failed: {', '.join(failures)}")
             msg = f"Model failed ingestibility requirements. Failed metrics: {', '.join(failures)}"
             raise HTTPException(
@@ -2020,13 +1776,11 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                     "error": "INGESTIBILITY_FAILURE",
                     "message": msg,
                     "metric_scores": metric_scores_dict,
-                    "required_threshold": INGESTIBILITY_THRESHOLD,
+                    "required_threshold": 0.5,
                 },
             )
 
-        # Use storage service abstraction to support both S3 and RDS backends
-        from ..services.storage_service import upload_model as storage_upload_model
-        storage_upload_model(zip_content, model_id, version, use_performance_path=False)
+        upload_model(zip_content, model_id, version)
         total_time = time.time() - start_time
         print(f"[INGEST] Success in {total_time:.2f}s")
         return {

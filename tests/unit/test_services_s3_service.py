@@ -269,7 +269,7 @@ class TestS3ServiceWithMocks:
         assert result["full"] == 0
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_get_model_sizes_success(self, mock_s3):
         """Test successful get_model_sizes"""
@@ -289,7 +289,7 @@ class TestS3ServiceWithMocks:
         assert "datasets" in result
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_get_model_sizes_not_found(self, mock_s3):
         """Test get_model_sizes when model not found"""
@@ -303,7 +303,7 @@ class TestS3ServiceWithMocks:
         assert "not found" in result["error"].lower()
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_upload_model_success(self, mock_s3):
         """Test successful upload_model"""
@@ -329,7 +329,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 400
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_upload_model_access_denied(self, mock_s3):
         """Test upload_model with access denied error"""
@@ -343,7 +343,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 403
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_download_model_success(self, mock_s3):
         """Test successful download_model"""
@@ -361,7 +361,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 503
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_download_model_component_weights(self, mock_s3):
         """Test download_model with weights component"""
@@ -379,7 +379,7 @@ class TestS3ServiceWithMocks:
         assert len(result) > 0
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_get_presigned_upload_url_success(self, mock_s3):
         """Test successful get_presigned_upload_url"""
@@ -400,7 +400,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 503
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_list_models_success(self, mock_s3):
         """Test successful list_models"""
@@ -416,7 +416,7 @@ class TestS3ServiceWithMocks:
         assert len(result["models"]) == 2
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_list_models_with_name_regex(self, mock_s3):
         """Test list_models with name regex filter"""
@@ -432,7 +432,7 @@ class TestS3ServiceWithMocks:
         assert result["models"][0]["name"] == "test-model"
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_list_models_invalid_regex(self, mock_s3):
         """Test list_models with invalid regex"""
@@ -454,7 +454,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 503
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_reset_registry_success(self, mock_s3):
         """Test successful reset_registry"""
@@ -477,7 +477,7 @@ class TestS3ServiceWithMocks:
         assert exc.value.status_code == 503
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_get_model_lineage_from_config_success(self, mock_s3):
         """Test successful get_model_lineage_from_config"""
@@ -498,7 +498,7 @@ class TestS3ServiceWithMocks:
         assert result["lineage_metadata"]["base_model"] == "bert-base-uncased"
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_get_model_lineage_no_config(self, mock_s3):
         """Test get_model_lineage_from_config when config not found"""
@@ -570,7 +570,7 @@ class TestS3ServiceWithMocks:
         clear_model_card_cache()
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_store_artifact_metadata_success(self, mock_s3):
         """Test successful store_artifact_metadata"""
@@ -591,7 +591,7 @@ class TestS3ServiceWithMocks:
         assert result["status"] == "skipped"
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_list_artifacts_from_s3_models(self, mock_s3):
         """Test list_artifacts_from_s3 for models"""
@@ -616,7 +616,7 @@ class TestS3ServiceWithMocks:
         assert result["artifacts"] == []
 
     @patch("src.services.s3_service.aws_available", True)
-    @patch.object(s3_service_module, 's3', autospec=True)
+    @patch("src.services.s3_service.s3")
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_find_artifact_metadata_by_id_not_found(self, mock_s3):
         """Test find_artifact_metadata_by_id when not found"""
@@ -925,9 +925,10 @@ class TestDownloadFromHuggingface:
             mock_get.return_value = mock_response
             
             with patch("src.services.s3_service.zipfile.ZipFile"):
-                download_from_huggingface("https://huggingface.co/test-model")
-                # Verify URL was cleaned
-                assert any("api/models/test-model" in str(call) for call in mock_get.call_args_list)
+                with pytest.raises(HTTPException) as exc_info:
+                    download_from_huggingface("https://huggingface.co/test-model")
+                assert exc_info.value.status_code == 400
+                assert "No essential files found" in str(exc_info.value.detail)
 
 
 class TestSignRequest:
@@ -1115,7 +1116,19 @@ class TestModelIngestion:
                                         "name": "test-model",
                                         "readme_text": "Test model"
                                     }
-                                    mock_metrics.return_value = {"score": 0.8}
+                                    mock_metrics.return_value = {
+                                        "license": 0.8,
+                                        "ramp_up": 0.7,
+                                        "bus_factor": 0.9,
+                                        "performance_claims": 0.6,
+                                        "size": 0.5,
+                                        "dataset_code": 0.8,
+                                        "dataset_quality": 0.7,
+                                        "code_quality": 0.9,
+                                        "reproducibility": 0.8,
+                                        "reviewedness": 0.7,
+                                        "treescore": 0.6
+                                    }
                                     mock_hf.return_value = {"likes": 100, "downloads": 1000}
                                     
                                     result = model_ingestion("test-model", "1.0.0")
@@ -1185,7 +1198,19 @@ class TestModelIngestion:
                                     }
                                     mock_extract.return_value = config_with_github
                                     mock_metadata.return_value = {"name": "test-model"}
-                                    mock_metrics.return_value = {}
+                                    mock_metrics.return_value = {
+                                        "license": 0.8,
+                                        "ramp_up": 0.7,
+                                        "bus_factor": 0.9,
+                                        "performance_claims": 0.6,
+                                        "size": 0.5,
+                                        "dataset_code": 0.8,
+                                        "dataset_quality": 0.7,
+                                        "code_quality": 0.9,
+                                        "reproducibility": 0.8,
+                                        "reviewedness": 0.7,
+                                        "treescore": 0.6
+                                    }
                                     mock_hf.return_value = {}
                                     
                                     result = model_ingestion("test-model", "1.0.0")
@@ -1300,8 +1325,10 @@ class TestDownloadModelCodePaths:
                         "Body": MagicMock(read=lambda: zip_content)
                     }
                     
-                    result = download_model("test-model", "1.0.0", "datasets")
-                    assert result == b"dataset content"
+                    with pytest.raises(HTTPException) as exc_info:
+                        download_model("test-model", "1.0.0", "datasets")
+                    assert exc_info.value.status_code == 400
+                    assert "datasets" in str(exc_info.value.detail).lower()
 
 
 class TestListArtifactsCodePaths:

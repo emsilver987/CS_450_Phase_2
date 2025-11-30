@@ -46,3 +46,62 @@ jobs:
         run: ./run install
       - name: Run tests
         run: ./run test
+
+  selenium-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+      
+      - name: Verify ChromeDriver
+        run: |
+          which chromedriver || find /usr -name chromedriver 2>/dev/null | head -1
+          chromedriver --version || echo "Warning: chromedriver version check failed"
+      
+      - name: Install Python dependencies
+        run: ./run install
+      
+      - name: Start server
+        run: |
+          uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000 &
+          echo $! > server.pid
+          sleep 5
+      
+      - name: Wait for server
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 1
+          done
+          echo "Server failed to start"
+          exit 1
+      
+      - name: Run Selenium tests
+        env:
+          TEST_BASE_URL: http://localhost:3000
+          PATH: /usr/lib/chromium-browser:/usr/bin:$PATH
+        run: |
+          pytest tests/integration/test_selenium_frontend.py -v
+      
+      - name: Stop server
+        if: always
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+            rm server.pid
+          fi
+          pkill -f "uvicorn src.entrypoint:app" || true

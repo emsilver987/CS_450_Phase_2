@@ -1,0 +1,694 @@
+..............ss.....sssssssssssssssss.................................. [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+........................................................................ [ 55%]
+...........F............................................................ [ 66%]
+.....................................FF.......FFFFFFFFF................. [ 77%]
+..............................FFF..FF.FF.FFF.F.FF.....F.F.F............. [ 88%]
+..............F...........F..F....F.F.....FF............................ [ 99%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+______________ TestArtifactStorage.test_update_artifact_not_found ______________
+tests/unit/test_services_artifact_storage.py:242: in test_update_artifact_not_found
+    assert result is False
+E   assert True is False
+________ TestAnalyzeModelContent.test_analyze_model_content_hf_http_url ________
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:475: in test_analyze_model_content_hf_http_url
+    result = analyze_model_content("https://huggingface.co/user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model https://huggingface.co/user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model https://huggingface.co/user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+______ TestAnalyzeModelContent.test_analyze_model_content_hf_non_http_id _______
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:498: in test_analyze_model_content_hf_non_http_id
+    result = analyze_model_content("user/model-name")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model-name: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model-name/1.0.0/model.zip
+AWS S3 download successful: user_model-name v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model-name v1.0.0
+Error analyzing model user/model-name: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+_____ TestAnalyzeModelContent.test_analyze_model_content_with_hf_metadata ______
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:622: in test_analyze_model_content_with_hf_metadata
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+______ TestAnalyzeModelContent.test_analyze_model_content_with_github_url ______
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:659: in test_analyze_model_content_with_github_url
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+____ TestAnalyzeModelContent.test_analyze_model_content_github_fetch_error _____
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:686: in test_analyze_model_content_github_fetch_error
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+____ TestAnalyzeModelContent.test_analyze_model_content_with_config_parent _____
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:713: in test_analyze_model_content_with_config_parent
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+__ TestAnalyzeModelContent.test_analyze_model_content_license_text_extraction __
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:741: in test_analyze_model_content_license_text_extraction
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+__ TestAnalyzeModelContent.test_analyze_model_content_github_from_description __
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:770: in test_analyze_model_content_github_from_description
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+_____ TestAnalyzeModelContent.test_analyze_model_content_hf_github_string ______
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:797: in test_analyze_model_content_hf_github_string
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+______ TestAnalyzeModelContent.test_analyze_model_content_hf_github_dict _______
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:824: in test_analyze_model_content_hf_github_dict
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+_____ TestAnalyzeModelContent.test_analyze_model_content_hf_error_handling _____
+src/services/rating.py:216: in analyze_model_content
+    f.write(model_content)
+E   TypeError: a bytes-like object is required, not 'MagicMock'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_rating.py:848: in test_analyze_model_content_hf_error_handling
+    result = analyze_model_content("user/model")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/rating.py:475: in analyze_model_content
+    raise RuntimeError(f"Failed to analyze model {target}: {str(e)}")
+E   RuntimeError: Failed to analyze model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stdout call -----------------------------
+[RATE] Found model via direct S3 lookup: models/user_model/1.0.0/model.zip
+AWS S3 download successful: user_model v1.0.0 (full)
+[RATE] Successfully downloaded model from S3: user_model v1.0.0
+Error analyzing model user/model: a bytes-like object is required, not 'MagicMock'
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/rating.py", line 216, in analyze_model_content
+    f.write(model_content)
+TypeError: a bytes-like object is required, not 'MagicMock'
+_____________ TestS3ServiceWithMocks.test_get_model_sizes_success ______________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+____________ TestS3ServiceWithMocks.test_get_model_sizes_not_found _____________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_______________ TestS3ServiceWithMocks.test_upload_model_success _______________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+____________ TestS3ServiceWithMocks.test_upload_model_access_denied ____________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+______________ TestS3ServiceWithMocks.test_download_model_success ______________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_________ TestS3ServiceWithMocks.test_download_model_component_weights _________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_________ TestS3ServiceWithMocks.test_get_presigned_upload_url_success _________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_______________ TestS3ServiceWithMocks.test_list_models_success ________________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+___________ TestS3ServiceWithMocks.test_list_models_with_name_regex ____________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+____________ TestS3ServiceWithMocks.test_list_models_invalid_regex _____________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+______________ TestS3ServiceWithMocks.test_reset_registry_success ______________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+______ TestS3ServiceWithMocks.test_get_model_lineage_from_config_success _______
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+___________ TestS3ServiceWithMocks.test_get_model_lineage_no_config ____________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_________ TestS3ServiceWithMocks.test_store_artifact_metadata_success __________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+__________ TestS3ServiceWithMocks.test_list_artifacts_from_s3_models ___________
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+______ TestS3ServiceWithMocks.test_find_artifact_metadata_by_id_not_found ______
+../../../miniforge3/lib/python3.12/unittest/mock.py:1393: in patched
+    with self.decoration_helper(patched,
+../../../miniforge3/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1375: in decoration_helper
+    arg = exit_stack.enter_context(patching)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../miniforge3/lib/python3.12/contextlib.py:526: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../../miniforge3/lib/python3.12/unittest/mock.py:1562: in __enter__
+    raise InvalidSpecError(
+E   unittest.mock.InvalidSpecError: Cannot autospec attr 's3' from target 'src.services.s3_service' as it has already been mocked out. [target=<module 'src.services.s3_service' from '/Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/services/s3_service.py'>, attr=<MagicMock name='client()' id='4712456768'>]
+_____ TestDownloadFromHuggingface.test_download_from_huggingface_with_url ______
+tests/unit/test_services_s3_service.py:928: in test_download_from_huggingface_with_url
+    download_from_huggingface("https://huggingface.co/test-model")
+src/services/s3_service.py:1224: in download_from_huggingface
+    raise HTTPException(
+E   fastapi.exceptions.HTTPException: 400: No essential files found for model test-model. Model may be empty or inaccessible.
+_______________ TestModelIngestion.test_model_ingestion_success ________________
+tests/unit/test_services_s3_service.py:1121: in test_model_ingestion_success
+    result = model_ingestion("test-model", "1.0.0")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/s3_service.py:1726: in model_ingestion
+    raise HTTPException(
+E   fastapi.exceptions.HTTPException: 422: {'error': 'INGESTIBILITY_FAILURE', 'message': 'Model failed ingestibility requirements. Failed metrics: license=MISSING, ramp_up=MISSING, bus_factor=MISSING, performance_claims=MISSING, size=MISSING, dataset_code=MISSING, dataset_quality=MISSING, code_quality=MISSING, reproducibility=MISSING, reviewedness=MISSING, treescore=MISSING', 'metric_scores': {'license': 0.0, 'ramp_up': 0.0, 'bus_factor': 0.0, 'performance_claims': 0.0, 'size': 0.0, 'dataset_code': 0.0, 'dataset_quality': 0.0, 'code_quality': 0.0, 'reproducibility': 0.0, 'reviewedness': 0.0, 'treescore': 0.0}, 'required_threshold': 0.5}
+----------------------------- Captured stdout call -----------------------------
+[INGEST] Downloaded in 0.00s
+[INGEST] Computing metrics...
+[INGEST] Computed metrics in 0.00s
+[INGEST] WARNING: license not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: ramp_up not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: bus_factor not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: performance_claims not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: size not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: dataset_code not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: dataset_quality not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: code_quality not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: reproducibility not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: reviewedness not found in metric_results. Available keys: ['score']
+[INGEST] WARNING: treescore not found in metric_results. Available keys: ['score']
+[INGEST] Failed: license=MISSING, ramp_up=MISSING, bus_factor=MISSING, performance_claims=MISSING, size=MISSING, dataset_code=MISSING, dataset_quality=MISSING, code_quality=MISSING, reproducibility=MISSING, reviewedness=MISSING, treescore=MISSING
+------------------------------ Captured log call -------------------------------
+ERROR    root:hf_handler.py:198 HTTP error fetching https://huggingface.co/api/models/test-model: HTTP Error 401: Unauthorized
+______ TestModelIngestion.test_model_ingestion_with_github_url_in_config _______
+tests/unit/test_services_s3_service.py:1191: in test_model_ingestion_with_github_url_in_config
+    result = model_ingestion("test-model", "1.0.0")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/s3_service.py:1726: in model_ingestion
+    raise HTTPException(
+E   fastapi.exceptions.HTTPException: 422: {'error': 'INGESTIBILITY_FAILURE', 'message': 'Model failed ingestibility requirements. Failed metrics: license=MISSING, ramp_up=MISSING, bus_factor=MISSING, performance_claims=MISSING, size=MISSING, dataset_code=MISSING, dataset_quality=MISSING, code_quality=MISSING, reproducibility=MISSING, reviewedness=MISSING, treescore=MISSING', 'metric_scores': {'license': 0.0, 'ramp_up': 0.0, 'bus_factor': 0.0, 'performance_claims': 0.0, 'size': 0.0, 'dataset_code': 0.0, 'dataset_quality': 0.0, 'code_quality': 0.0, 'reproducibility': 0.0, 'reviewedness': 0.0, 'treescore': 0.0}, 'required_threshold': 0.5}
+----------------------------- Captured stdout call -----------------------------
+[INGEST] Downloaded in 0.00s
+[INGEST] Warning: No README text found for test-model
+[INGEST] Computing metrics...
+[INGEST] Computed metrics in 0.00s
+[INGEST] WARNING: license not found in metric_results. Available keys: []
+[INGEST] WARNING: ramp_up not found in metric_results. Available keys: []
+[INGEST] WARNING: bus_factor not found in metric_results. Available keys: []
+[INGEST] WARNING: performance_claims not found in metric_results. Available keys: []
+[INGEST] WARNING: size not found in metric_results. Available keys: []
+[INGEST] WARNING: dataset_code not found in metric_results. Available keys: []
+[INGEST] WARNING: dataset_quality not found in metric_results. Available keys: []
+[INGEST] WARNING: code_quality not found in metric_results. Available keys: []
+[INGEST] WARNING: reproducibility not found in metric_results. Available keys: []
+[INGEST] WARNING: reviewedness not found in metric_results. Available keys: []
+[INGEST] WARNING: treescore not found in metric_results. Available keys: []
+[INGEST] Failed: license=MISSING, ramp_up=MISSING, bus_factor=MISSING, performance_claims=MISSING, size=MISSING, dataset_code=MISSING, dataset_quality=MISSING, code_quality=MISSING, reproducibility=MISSING, reviewedness=MISSING, treescore=MISSING
+------------------------------ Captured log call -------------------------------
+ERROR    root:hf_handler.py:198 HTTP error fetching https://huggingface.co/api/models/test-model: HTTP Error 401: Unauthorized
+__ TestDownloadModelCodePaths.test_download_model_component_extraction_error ___
+tests/unit/test_services_s3_service.py:1273: in test_download_model_component_extraction_error
+    assert exc_info.value.status_code == 400
+E   AssertionError: assert 500 == 400
+E    +  where 500 = HTTPException(status_code=500, detail='AWS download failed: 400: No weights files found').status_code
+E    +    where HTTPException(status_code=500, detail='AWS download failed: 400: No weights files found') = <ExceptionInfo HTTPException(status_code=500, detail='AWS download failed: 400: No weights files found') tblen=2>.value
+----------------------------- Captured stdout call -----------------------------
+AWS S3 download failed: 400: No weights files found
+______ TestDownloadModelCodePaths.test_download_model_component_datasets _______
+src/services/s3_service.py:306: in download_model
+    result = extract_model_component(zip_content, component)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/s3_service.py:196: in extract_model_component
+    raise ValueError(f"No {component} files found")
+E   ValueError: No datasets files found
+
+During handling of the above exception, another exception occurred:
+src/services/s3_service.py:312: in download_model
+    raise HTTPException(status_code=400, detail=str(e))
+E   fastapi.exceptions.HTTPException: 400: No datasets files found
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_services_s3_service.py:1303: in test_download_model_component_datasets
+    result = download_model("test-model", "1.0.0", "datasets")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/services/s3_service.py:317: in download_model
+    raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
+E   fastapi.exceptions.HTTPException: 500: AWS download failed: 400: No datasets files found
+----------------------------- Captured stdout call -----------------------------
+AWS S3 download failed: 400: No datasets files found
+_________ TestListModelsCodePaths.test_list_models_invalid_name_regex __________
+tests/unit/test_services_s3_service.py:1404: in test_list_models_invalid_name_regex
+    with pytest.raises(HTTPException) as exc_info:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'fastapi.exceptions.HTTPException'>
+_________ TestListModelsCodePaths.test_list_models_invalid_model_regex _________
+tests/unit/test_services_s3_service.py:1413: in test_list_models_invalid_model_regex
+    with pytest.raises(HTTPException) as exc_info:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'fastapi.exceptions.HTTPException'>
+=============================== warnings summary ===============================
+src/routes/artifacts.py:27
+  /Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/routes/artifacts.py:27: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at: datetime = datetime.utcnow()
+
+src/index.py:248
+  /Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/index.py:248: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+../../../miniforge3/lib/python3.12/site-packages/fastapi/applications.py:4495
+  /Users/fahdlaniyan/miniforge3/lib/python3.12/site-packages/fastapi/applications.py:4495: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+tests/integration/test_api_endpoints.py: 15 warnings
+tests/integration/test_package_system.py: 10 warnings
+tests/unit/test_index.py: 7 warnings
+tests/unit/test_routes_system.py: 5 warnings
+  /Users/fahdlaniyan/miniforge3/lib/python3.12/site-packages/botocore/auth.py:424: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime_now = datetime.datetime.utcnow()
+
+tests/unit/test_index.py::TestIndexHelperFunctions::test_link_model_to_datasets_code
+  /Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/index.py:892: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    update_artifact(artifact_id, updates)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_index.py::TestIndexHelperFunctions::test_link_dataset_code_to_models
+  /Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/index.py:921: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    update_artifact(model_id, {"dataset_id": artifact_id})
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_index.py::TestUpdateArtifact::test_update_artifact_dataset_success
+  /Users/fahdlaniyan/Documents/test/CS_450_Phase_2/src/index.py:2696: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    update_artifact(id, {
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_directory_success
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_rate_get_success
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_rate_by_id_success
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_lineage_success
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_size_cost_success
+tests/unit/test_routes_frontend.py::TestFrontendRoutes::test_ingest_post_success
+  /Users/fahdlaniyan/miniforge3/lib/python3.12/site-packages/starlette/templating.py:161: DeprecationWarning: The `name` is not the first parameter anymore. The first parameter should be the `Request` instance.
+  Replace `TemplateResponse(name, {"request": request})` by `TemplateResponse(request, name)`.
+    warnings.warn(
+
+tests/unit/test_services_validator_service.py::TestValidatorServiceEndpoints::test_health_check
+  /Users/fahdlaniyan/miniforge3/lib/python3.12/site-packages/pydantic/main.py:1114: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.9/migration/
+    warnings.warn('The `dict` method is deprecated; use `model_dump` instead.', category=PydanticDeprecatedSince20)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_services_artifact_storage.py::TestArtifactStorage::test_update_artifact_not_found
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_hf_http_url
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_hf_non_http_id
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_with_hf_metadata
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_with_github_url
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_github_fetch_error
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_with_config_parent
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_license_text_extraction
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_github_from_description
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_hf_github_string
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_hf_github_dict
+FAILED tests/unit/test_services_rating.py::TestAnalyzeModelContent::test_analyze_model_content_hf_error_handling
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_get_model_sizes_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_get_model_sizes_not_found
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_upload_model_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_upload_model_access_denied
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_download_model_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_download_model_component_weights
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_get_presigned_upload_url_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_list_models_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_list_models_with_name_regex
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_list_models_invalid_regex
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_reset_registry_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_get_model_lineage_from_config_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_get_model_lineage_no_config
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_store_artifact_metadata_success
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_list_artifacts_from_s3_models
+FAILED tests/unit/test_services_s3_service.py::TestS3ServiceWithMocks::test_find_artifact_metadata_by_id_not_found
+FAILED tests/unit/test_services_s3_service.py::TestDownloadFromHuggingface::test_download_from_huggingface_with_url
+FAILED tests/unit/test_services_s3_service.py::TestModelIngestion::test_model_ingestion_success
+FAILED tests/unit/test_services_s3_service.py::TestModelIngestion::test_model_ingestion_with_github_url_in_config
+FAILED tests/unit/test_services_s3_service.py::TestDownloadModelCodePaths::test_download_model_component_extraction_error
+FAILED tests/unit/test_services_s3_service.py::TestDownloadModelCodePaths::test_download_model_component_datasets
+FAILED tests/unit/test_services_s3_service.py::TestListModelsCodePaths::test_list_models_invalid_name_regex
+FAILED tests/unit/test_services_s3_service.py::TestListModelsCodePaths::test_list_models_invalid_model_regex
+35 failed, 595 passed, 19 skipped, 50 warnings in 15.58s

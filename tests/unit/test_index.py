@@ -9,9 +9,8 @@ import logging
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 # Mock boto3 and watchtower to prevent startup hangs and logging errors
-with patch("boto3.client"), patch("watchtower.CloudWatchLogHandler") as MockHandler:
-    # Ensure the mock handler has a valid integer level to prevent TypeError in logging module
-    MockHandler.return_value.level = logging.INFO
+# Mock boto3 to prevent startup hangs (watchtower is patched in conftest.py)
+with patch("boto3.client"):
     from src.index import app
 
 client = TestClient(app)

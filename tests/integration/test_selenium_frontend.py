@@ -8,10 +8,56 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 import time
 import os
 import requests
+import shutil
+import platform
+
+
+def _find_chromedriver_path():
+    """
+    Find chromedriver path across different platforms.
+    Returns the path if found, None otherwise.
+    """
+    # Platform-specific common paths
+    linux_paths = [
+        '/usr/bin/chromedriver',
+        '/usr/lib/chromium-browser/chromedriver',
+        '/usr/lib/chromium/chromedriver',
+    ]
+
+    macos_paths = [
+        '/opt/homebrew/bin/chromedriver',  # Apple Silicon
+        '/usr/local/bin/chromedriver',  # Intel
+    ]
+
+    # Check platform-specific paths first
+    system = platform.system().lower()
+    if system == 'darwin':  # macOS
+        search_paths = macos_paths + linux_paths
+    else:  # Linux or other
+        search_paths = linux_paths + macos_paths
+
+    # Check common paths
+    for path in search_paths:
+        if path and os.path.exists(path):
+            return path
+
+    # Fallback to PATH
+    return shutil.which('chromedriver')
+
+
+def _get_chromedriver_install_instruction():
+    """
+    Get platform-specific installation instruction for chromedriver.
+    """
+    system = platform.system().lower()
+    if system == 'darwin':  # macOS
+        return "brew install chromedriver"
+    else:  # Linux
+        return "sudo apt-get install chromium-chromedriver"
 
 
 @pytest.fixture(scope="module")
@@ -23,10 +69,18 @@ def driver():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--remote-debugging-port=9222")
-    
+
+    # Find chromedriver using helper function
+    chromedriver_path = _find_chromedriver_path()
+
     # Try to create driver
     try:
-        driver = webdriver.Chrome(options=chrome_options)
+        if chromedriver_path:
+            service = Service(chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            # Fallback: let Selenium try to find it
+            driver = webdriver.Chrome(options=chrome_options)
         driver.implicitly_wait(10)
         yield driver
     except Exception as e:
@@ -35,7 +89,7 @@ def driver():
         if 'driver' in locals():
             try:
                 driver.quit()
-            except:
+            except Exception:
                 pass
 
 
@@ -49,13 +103,43 @@ def base_url():
         if response.status_code != 200:
             pytest.skip(f"Server at {base} is not responding correctly")
     except (requests.exceptions.RequestException, requests.exceptions.Timeout):
-        pytest.skip(f"Server at {base} is not running. Start the server with: python -m src.index")
+        pytest.skip(
+            f"Server at {base} is not running. "
+            f"Start the server with: python -m src.index"
+        )
     return base
+
+
+def test_chromedriver_available():
+    """Verify ChromeDriver is available before running other tests"""
+    from selenium.webdriver.chrome.options import Options
+
+    # Find chromedriver using helper function
+    chromedriver_path = _find_chromedriver_path()
+
+    install_cmd = _get_chromedriver_install_instruction()
+    assert chromedriver_path is not None, (
+        f"chromedriver not found in PATH or common locations. "
+        f"Install with: {install_cmd}"
+    )
+
+    # Try to create a driver instance
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    try:
+        service = Service(chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.quit()
+    except Exception as e:
+        pytest.fail(f"Failed to create ChromeDriver instance: {e}")
 
 
 class TestHomePage:
     """Test home page functionality"""
-    
+
     def test_home_page_loads(self, driver, base_url):
         """Test that home page loads successfully"""
         driver.get(f"{base_url}/")
@@ -73,7 +157,7 @@ class TestHomePage:
         assert driver.current_url == f"{base_url}/" or base_url in driver.current_url, (
             f"Should be on home page, got {driver.current_url}"
         )
-    
+
     def test_home_page_has_content(self, driver, base_url):
         """Test that home page has some content"""
         driver.get(f"{base_url}/")
@@ -93,7 +177,7 @@ class TestHomePage:
 
 class TestUploadPage:
     """Test upload page functionality"""
-    
+
     def test_upload_page_loads(self, driver, base_url):
         """Test that upload page loads successfully"""
         driver.get(f"{base_url}/upload")
@@ -104,7 +188,10 @@ class TestUploadPage:
         )
 
         # Validate page loaded
-        assert driver.current_url.endswith("/upload") or "upload" in driver.current_url, (
+        assert (
+            driver.current_url.endswith("/upload") or
+            "upload" in driver.current_url
+        ), (
             f"Should be on upload page, got {driver.current_url}"
         )
         assert len(driver.page_source) > 0, "Page should have content"
@@ -117,7 +204,7 @@ class TestUploadPage:
         assert len(file_inputs) > 0 or len(forms) > 0, (
             "Upload page should have file input or form element"
         )
-    
+
     def test_upload_page_has_form(self, driver, base_url):
         """Test that upload page has a form"""
         driver.get(f"{base_url}/upload")
@@ -144,7 +231,7 @@ class TestUploadPage:
 
 class TestDirectoryPage:
     """Test directory page functionality"""
-    
+
     def test_directory_page_loads(self, driver, base_url):
         """Test that directory page loads successfully"""
         driver.get(f"{base_url}/directory")
@@ -155,14 +242,17 @@ class TestDirectoryPage:
         )
 
         # Validate page loaded
-        assert driver.current_url.endswith("/directory") or "directory" in driver.current_url, (
+        assert (
+            driver.current_url.endswith("/directory") or
+            "directory" in driver.current_url
+        ), (
             f"Should be on directory page, got {driver.current_url}"
         )
         assert driver.page_source is not None, "Page should have source"
         assert len(driver.page_source) > 0, "Page source should not be empty"
         body = driver.find_element(By.TAG_NAME, "body")
         assert body is not None, "Body element should exist"
-    
+
     def test_directory_page_has_search(self, driver, base_url):
         """Test that directory page has search functionality"""
         driver.get(f"{base_url}/directory")
@@ -187,7 +277,7 @@ class TestDirectoryPage:
 
 class TestRatePage:
     """Test rate page functionality"""
-    
+
     def test_rate_page_loads(self, driver, base_url):
         """Test that rate page loads successfully"""
         driver.get(f"{base_url}/rate")
@@ -205,7 +295,7 @@ class TestRatePage:
         assert len(driver.page_source) > 0, "Page source should not be empty"
         body = driver.find_element(By.TAG_NAME, "body")
         assert body is not None, "Body element should exist"
-    
+
     def test_rate_page_with_name(self, driver, base_url):
         """Test rate page with model name parameter"""
         driver.get(f"{base_url}/rate?name=test-model")
@@ -227,7 +317,7 @@ class TestRatePage:
 
 class TestNavigation:
     """Test navigation between pages"""
-    
+
     def test_navigate_home_to_upload(self, driver, base_url):
         """Test navigating from home to upload page"""
         driver.get(f"{base_url}/")
@@ -253,7 +343,7 @@ class TestNavigation:
             f"Should be on upload page, got {driver.current_url}"
         )
         assert driver.page_source is not None, "Page should have source"
-    
+
     def test_navigate_to_directory(self, driver, base_url):
         """Test navigating to directory page"""
         driver.get(f"{base_url}/")
@@ -278,7 +368,7 @@ class TestNavigation:
 
 class TestUploadAction:
     """Test actual upload functionality"""
-    
+
     def test_invalid_upload_no_file(self, driver, base_url):
         """Test upload without selecting a file"""
         driver.get(f"{base_url}/upload")
@@ -309,7 +399,10 @@ class TestUploadAction:
             assert driver.page_source is not None, "Page should still exist"
             assert len(driver.page_source) > 0, "Page should have content"
             # Page may stay on upload or show error - both are valid
-            assert "upload" in driver.current_url.lower() or url_before == driver.current_url, (
+            assert (
+                "upload" in driver.current_url.lower() or
+                url_before == driver.current_url
+            ), (
                 "Should stay on upload page or show error"
             )
         else:
@@ -321,32 +414,37 @@ class TestUploadAction:
         Creates a dummy zip file and attempts to upload it.
         """
         driver.get(f"{base_url}/upload")
-        
+
         # Create dummy zip
         dummy_zip = tmp_path / "test_package.zip"
         import zipfile
         with zipfile.ZipFile(dummy_zip, 'w') as zf:
             zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
-        
+
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
             file_input.send_keys(str(dummy_zip))
-            
+
             # Fill other fields if they exist
             try:
                 name_input = driver.find_element(By.NAME, "name")
                 name_input.send_keys("test-pkg")
-            except: pass
-            
+            except NoSuchElementException:
+                pass
+
             try:
                 version_input = driver.find_element(By.NAME, "version")
                 version_input.send_keys("1.0.0")
-            except: pass
-            
+            except NoSuchElementException:
+                pass
+
             # Submit
-            submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+            submit_btn = driver.find_element(
+                By.CSS_SELECTOR,
+                "button[type='submit'], input[type='submit']"
+            )
             submit_btn.click()
-            
+
             # Wait for result - either success message or redirect
             time.sleep(2)  # Wait for upload to process
 
@@ -362,29 +460,35 @@ class TestUploadAction:
                 "success" in page_text or "error" in page_text or
                 "upload" in driver.current_url.lower()
             ), "Page should show result or stay on upload page"
-            
+
         except NoSuchElementException:
             pytest.skip("Upload form elements not found")
 
 
 class TestSearchAction:
     """Test search functionality"""
-    
+
     def test_search_execution(self, driver, base_url):
         """Test performing a search"""
         driver.get(f"{base_url}/directory")
-        
+
         try:
-            search_input = driver.find_element(By.CSS_SELECTOR, "input[type='text'], input[type='search']")
+            search_input = driver.find_element(
+                By.CSS_SELECTOR,
+                "input[type='text'], input[type='search']"
+            )
             search_input.send_keys("test")
-            
+
             # Try to find search button or hit enter
             try:
-                search_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button.search-btn")
+                search_btn = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "button[type='submit'], button.search-btn"
+                )
                 search_btn.click()
-            except:
+            except NoSuchElementException:
                 search_input.submit()
-            
+
             # Wait for results or page update
             time.sleep(2)
 
@@ -399,8 +503,7 @@ class TestSearchAction:
             assert search_input_after.get_attribute("value") == "test", (
                 "Search input should retain the search term"
             )
-            
+
         except NoSuchElementException:
             pytest.skip("Search input not found")
-
 

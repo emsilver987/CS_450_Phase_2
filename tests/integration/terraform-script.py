@@ -134,10 +134,13 @@ def ingest_test_model(token=None):
                     artifact_id = clean_model_id
                 
                 return artifact_id, version
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 print(f"Ingest response (non-JSON): {r.text[:200]}...")
                 # Fallback to cleaned model name
-                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "").replace("/", "-")
+                clean_model_id = model_id.replace(
+                    "https://huggingface.co/",
+                    ""
+                ).replace("http://huggingface.co/", "").replace("/", "-")
                 return clean_model_id, version
         else:
             print(f"Ingest failed with status {r.status_code}: {r.text[:200]}...")

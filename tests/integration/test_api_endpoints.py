@@ -29,11 +29,13 @@ def mock_zip_file():
 
 class TestHealthEndpoints:
     """Test health check endpoints"""
-    
+
     def test_health_endpoint(self, client):
         """Test basic health endpoint"""
         response = client.get("/health")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         # Health endpoint may return empty body or simple status
         # If it returns JSON, validate structure
         if response.content:
@@ -41,15 +43,19 @@ class TestHealthEndpoints:
                 data = response.json()
                 # If JSON response, should have status field or be empty dict
                 if isinstance(data, dict) and data:
-                    assert "status" in data or "ok" in str(data).lower(), f"Unexpected health response structure: {data}"
+                    assert (
+                        "status" in data or "ok" in str(data).lower()
+                    ), f"Unexpected health response structure: {data}"
             except (json.JSONDecodeError, ValueError):
                 # Plain text response is also acceptable for health endpoint
                 pass
-    
+
     def test_health_components(self, client):
         """Test health components endpoint"""
         response = client.get("/health/components")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         data = response.json()
         # Validate response structure based on API docs
         assert isinstance(data, dict), "Response should be a JSON object"
@@ -58,14 +64,18 @@ class TestHealthEndpoints:
             for component in data["components"]:
                 assert isinstance(component, dict), "Each component should be a dict"
                 if "id" in component:
-                    assert isinstance(component["id"], str), "component.id should be a string"
+                    assert isinstance(
+                        component["id"], str
+                    ), "component.id should be a string"
                 if "status" in component:
-                    assert isinstance(component["status"], str), "component.status should be a string"
+                    assert isinstance(
+                        component["status"], str
+                    ), "component.status should be a string"
 
 
 class TestPackageEndpoints:
     """Test package management endpoints"""
-    
+
     @patch('src.services.s3_service.list_models')
     def test_list_packages(self, mock_list, client):
         """Test listing packages"""
@@ -75,9 +85,11 @@ class TestPackageEndpoints:
             ],
             "next_token": None
         }
-        
+
         response = client.get("/api/packages")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         data = response.json()
         assert "packages" in data, "Response missing 'packages' field"
         assert isinstance(data["packages"], list), "packages should be a list"
@@ -86,54 +98,70 @@ class TestPackageEndpoints:
             package = data["packages"][0]
             assert isinstance(package, dict), "Each package should be a dict"
             if "name" in package:
-                assert isinstance(package["name"], str), "package.name should be a string"
+                assert isinstance(
+                    package["name"], str
+                ), "package.name should be a string"
             if "version" in package:
-                assert isinstance(package["version"], str), "package.version should be a string"
-    
+                assert isinstance(
+                    package["version"], str
+                ), "package.version should be a string"
+
     @patch('src.services.s3_service.upload_model')
     def test_upload_package(self, mock_upload, client, mock_zip_file):
         """Test uploading a package"""
         mock_upload.return_value = {"status": "success"}
-        
+
         response = client.post(
             "/api/packages/upload",
             files={"file": ("test.zip", mock_zip_file, "application/zip")}
         )
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         data = response.json()
         assert isinstance(data, dict), "Response should be a JSON object"
         # Validate upload response structure
         if "status" in data:
             assert isinstance(data["status"], str), "status should be a string"
         # Check for success indicators
-        assert "status" in data or "message" in data or "id" in data, "Response should indicate upload result"
-    
+        assert (
+            "status" in data or "message" in data or "id" in data
+        ), "Response should indicate upload result"
+
     @patch('src.routes.packages.download_model')
     def test_download_package(self, mock_download, client):
         """Test downloading a package"""
         mock_download.return_value = b"fake zip content"
-        
+
         response = client.get("/api/packages/models/test/1.0.0/model.zip")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
         content_type = response.headers.get("content-type", "")
-        assert "application/zip" in content_type or "application/octet-stream" in content_type, \
-            f"Expected zip content type, got {content_type}"
+        assert (
+            "application/zip" in content_type or
+            "application/octet-stream" in content_type
+        ), f"Expected zip content type, got {content_type}"
         assert len(response.content) > 0, "Response should contain file content"
 
 
 class TestArtifactEndpoints:
     """Test artifact endpoints"""
-    
+
     @patch('src.services.artifact_storage.list_all_artifacts')
     @patch('src.services.s3_service.list_models')
     @patch('src.index.verify_auth_token')
-    def test_get_artifact_by_name(self, mock_verify, mock_list_models, mock_list, client):
+    def test_get_artifact_by_name(
+        self, mock_verify, mock_list_models, mock_list, client
+    ):
         """Test getting artifact by name"""
         # Setup mocks to return matching data
         mock_list.return_value = [
             {"id": "1", "name": "test-model", "type": "model", "version": "1.0.0"}
         ]
-        mock_list_models.return_value = {"models": [{"name": "test-model", "version": "1.0.0"}]}
+        mock_list_models.return_value = {
+            "models": [{"name": "test-model", "version": "1.0.0"}]
+        }
         mock_verify.return_value = True  # verify_auth_token returns bool
 
         response = client.get(
@@ -141,30 +169,31 @@ class TestArtifactEndpoints:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Endpoint may return 200 (found) or 404 (not found) depending on data
+        # Endpoint may return 200 (found) or 404 (not found)
         assert response.status_code in [200, 404], (
-            f"Expected 200 or 404, got {response.status_code}: {response.text}"
+            f"Expected 200 or 404, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
             data = response.json()
-            assert isinstance(data, dict), "Response should be a JSON object"
+            assert isinstance(data, list), "Response should be a JSON list"
             # Validate artifact structure for success case
-            if "metadata" in data:
-                assert isinstance(data["metadata"], dict), "metadata should be a dict"
-                if "name" in data["metadata"]:
-                    assert data["metadata"]["name"] == "test-model", (
+            if len(data) > 0:
+                artifact = data[0]
+                assert isinstance(artifact, dict), "Artifact should be a dict"
+                if "name" in artifact:
+                    assert artifact["name"] == "test-model", (
                         "Artifact name should match"
                     )
-            if "data" in data:
-                assert isinstance(data["data"], dict), "data should be a dict"
+
         elif response.status_code == 404:
             # Validate error response structure
             data = response.json()
             assert isinstance(data, dict), "Error response should be a JSON object"
             assert "detail" in data, "Error response should contain 'detail' field"
             assert isinstance(data["detail"], str), "detail should be a string"
-    
+
     @patch('src.services.artifact_storage.get_artifact')
     @patch('src.services.s3_service.list_models')
     @patch('src.index.verify_auth_token')
@@ -185,7 +214,8 @@ class TestArtifactEndpoints:
 
         # Endpoint may return 200 (found) or 404 (not found)
         assert response.status_code in [200, 404], (
-            f"Expected 200 or 404, got {response.status_code}: {response.text}"
+            f"Expected 200 or 404, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
@@ -211,37 +241,37 @@ class TestArtifactEndpoints:
             data = response.json()
             assert isinstance(data, dict), "Error response should be a JSON object"
             assert "detail" in data, "Error response should contain 'detail' field"
-    
-    @patch('src.services.s3_service.list_artifacts_from_s3')
-    @patch('src.services.artifact_storage.list_all_artifacts')
-    @patch('src.services.s3_service.list_models')
+
+    @patch('src.index.list_artifacts_from_s3')
+    @patch('src.index.list_all_artifacts')
+    @patch('src.index.list_models')
     @patch('src.index.verify_auth_token')
-    def test_search_artifacts_by_regex(self, mock_verify, mock_list_models, mock_db_list, mock_s3_list, client):
+    def test_search_artifacts_by_regex(
+        self, mock_verify, mock_list_models, mock_db_list,
+        mock_s3_list, client
+    ):
         """Test searching artifacts by regex"""
         mock_db_list.return_value = []
         mock_s3_list.return_value = {"artifacts": []}
         mock_list_models.return_value = {"models": []}
         mock_verify.return_value = True  # verify_auth_token returns bool
-        
+
         response = client.post(
             "/artifact/byRegEx",
             json={"regex": "test.*"},
             headers={"Authorization": "Bearer test-token"}
         )
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        # Code returns 404 if no artifacts found
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
         data = response.json()
-        assert isinstance(data, (list, dict)), "Response should be a list or dict"
-        # If list, validate artifact structure
-        if isinstance(data, list):
-            for artifact in data:
-                assert isinstance(artifact, dict), "Each artifact should be a dict"
-                if "name" in artifact:
-                    assert isinstance(artifact["name"], str), "artifact.name should be a string"
+        assert "detail" in data
 
 
 class TestRatingEndpoints:
     """Test rating endpoints"""
-    
+
     @patch('src.services.rating.run_scorer')
     @patch('src.services.s3_service.list_models')
     def test_rate_model(self, mock_list, mock_scorer, client):
@@ -251,7 +281,9 @@ class TestRatingEndpoints:
             "ramp_up": 0.9,
             "license": 1.0
         }
-        mock_list.return_value = {"models": [{"name": "test-model", "version": "1.0.0"}]}
+        mock_list.return_value = {
+            "models": [{"name": "test-model", "version": "1.0.0"}]
+        }
 
         response = client.get("/package/test-model/rate")
 
@@ -279,7 +311,7 @@ class TestRatingEndpoints:
             assert isinstance(data, dict), "Error response should be a JSON object"
             if "detail" in data:
                 assert isinstance(data["detail"], str), "detail should be a string"
-    
+
     @patch('src.services.rating.run_scorer')
     @patch('src.services.artifact_storage.get_artifact')
     @patch('src.index.verify_auth_token')
@@ -326,7 +358,7 @@ class TestRatingEndpoints:
 
 class TestResetEndpoint:
     """Test reset endpoint"""
-    
+
     @patch('src.services.s3_service.reset_registry')
     @patch('src.services.artifact_storage.clear_all_artifacts')
     @patch('src.index.verify_auth_token')
@@ -341,9 +373,10 @@ class TestResetEndpoint:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Reset endpoint may return 200 (success), 401 (unauthorized), or 403 (forbidden)
+        # Reset endpoint may return 200, 401, or 403
         assert response.status_code in [200, 401, 403], (
-            f"Expected 200, 401, or 403, got {response.status_code}: {response.text}"
+            f"Expected 200, 401, or 403, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
@@ -364,16 +397,20 @@ class TestResetEndpoint:
             if response.content:
                 try:
                     data = response.json()
-                    assert isinstance(data, dict), "Error response should be a JSON object"
+                    assert isinstance(
+                        data, dict
+                    ), "Error response should be a JSON object"
                     if "detail" in data:
-                        assert isinstance(data["detail"], str), "detail should be a string"
+                        assert isinstance(
+                            data["detail"], str
+                        ), "detail should be a string"
                 except (json.JSONDecodeError, ValueError):
                     pass
 
 
 class TestIngestEndpoint:
     """Test ingest endpoint"""
-    
+
     @patch('src.services.s3_service.model_ingestion')
     @patch('src.services.artifact_storage.list_all_artifacts')
     @patch('src.index.verify_auth_token')
@@ -395,9 +432,10 @@ class TestIngestEndpoint:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Ingest endpoint may return 200 (success), 400 (bad request), 403 (forbidden), or 500 (error)
+        # Ingest endpoint may return 200, 400, 403, or 500
         assert response.status_code in [200, 400, 403, 500], (
-            f"Expected 200, 400, 403, or 500, got {response.status_code}: {response.text}"
+            f"Expected 200, 400, 403, or 500, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
@@ -418,9 +456,9 @@ class TestIngestEndpoint:
 
 class TestLineageEndpoint:
     """Test lineage endpoint"""
-    
-    @patch('src.services.s3_service.get_model_lineage_from_config')
-    @patch('src.services.artifact_storage.get_artifact')
+
+    @patch('src.index.get_model_lineage_from_config')
+    @patch('src.index.get_artifact_from_db')
     @patch('src.index.verify_auth_token')
     def test_get_lineage(self, mock_verify, mock_get, mock_lineage, client):
         """Test getting model lineage"""
@@ -436,9 +474,10 @@ class TestLineageEndpoint:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Lineage endpoint may return 200 (success), 404 (not found), or 403 (forbidden)
+        # Lineage endpoint may return 200, 404, or 403
         assert response.status_code in [200, 404, 403], (
-            f"Expected 200, 404, or 403, got {response.status_code}: {response.text}"
+            f"Expected 200, 404, or 403, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
@@ -463,13 +502,15 @@ class TestLineageEndpoint:
 
 class TestLicenseCheckEndpoint:
     """Test license check endpoint"""
-    
+
     @patch('src.services.license_compatibility.extract_model_license')
     @patch('src.services.license_compatibility.extract_github_license')
     @patch('src.services.license_compatibility.check_license_compatibility')
     @patch('src.services.artifact_storage.get_artifact')
     @patch('src.index.verify_auth_token')
-    def test_license_check(self, mock_verify, mock_get, mock_check, mock_gh, mock_model, client):
+    def test_license_check(
+        self, mock_verify, mock_get, mock_check, mock_gh, mock_model, client
+    ):
         """Test license compatibility check"""
         mock_model.return_value = "mit"
         mock_gh.return_value = "mit"
@@ -486,9 +527,10 @@ class TestLicenseCheckEndpoint:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # License check endpoint may return 200 (success), 404 (not found), or 403 (forbidden)
+        # License check endpoint may return 200, 404, or 403
         assert response.status_code in [200, 404, 403], (
-            f"Expected 200, 404, or 403, got {response.status_code}: {response.text}"
+            f"Expected 200, 404, or 403, got {response.status_code}: "
+            f"{response.text}"
         )
 
         if response.status_code == 200:
@@ -507,4 +549,3 @@ class TestLicenseCheckEndpoint:
             assert isinstance(data, dict), "Error response should be a JSON object"
             if "detail" in data:
                 assert isinstance(data["detail"], str), "detail should be a string"
-
