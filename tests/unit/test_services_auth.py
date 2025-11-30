@@ -2,9 +2,10 @@
 Unit tests for auth_service
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, patch as patch_module
 from datetime import datetime, timedelta, timezone
 import jwt
+import src.services.auth_service as auth_service_module
 
 
 class TestAuthService:
@@ -53,7 +54,7 @@ class TestAuthService:
         assert decoded["username"] == "testuser"
     
     @patch('src.services.auth_service.get_user_by_username')
-    @patch('src.services.auth_service.dynamodb')
+    @patch_module.object(auth_service_module, 'dynamodb', autospec=True)
     def test_create_user_success(self, mock_dynamodb, mock_get_user):
         """Test creating a user successfully"""
         from src.services.auth_service import create_user, UserRegistration
@@ -88,13 +89,12 @@ class TestAuthService:
             create_user(user_data)
         assert exc_info.value.status_code == 409
     
-    @patch('src.services.auth_service.dynamodb')
+    @patch_module.object(auth_service_module, 'dynamodb', autospec=True)
     def test_get_user_by_username(self, mock_dynamodb):
         """Test getting user by username"""
         from src.services.auth_service import get_user_by_username
         
         mock_table = MagicMock()
-        mock_dynamodb.Table.return_value = mock_table
         mock_table.query.return_value = {
             "Items": [{
                 "user_id": "123",
@@ -103,20 +103,21 @@ class TestAuthService:
                 "roles": ["user"]
             }]
         }
+        mock_dynamodb.Table.return_value = mock_table
         
         result = get_user_by_username("testuser")
         assert result is not None
         assert result["username"] == "testuser"
     
-    @patch('src.services.auth_service.dynamodb')
+    @patch_module.object(auth_service_module, 'dynamodb', autospec=True)
     def test_get_user_by_username_not_found(self, mock_dynamodb):
         """Test getting non-existent user"""
         from src.services.auth_service import get_user_by_username
         
         mock_table = MagicMock()
-        mock_dynamodb.Table.return_value = mock_table
         mock_table.query.return_value = {"Items": []}
         mock_table.scan.return_value = {"Items": []}
+        mock_dynamodb.Table.return_value = mock_table
         
         result = get_user_by_username("nonexistent")
         assert result is None
@@ -166,7 +167,7 @@ class TestAuthService:
         result = authenticate_user("nonexistent", "password")
         assert result is None
     
-    @patch('src.services.auth_service.dynamodb')
+    @patch_module.object(auth_service_module, 'dynamodb', autospec=True)
     def test_store_token(self, mock_dynamodb):
         """Test storing a token"""
         from src.services.auth_service import store_token
