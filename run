@@ -144,11 +144,11 @@ run_tests() {
         exit 1
     fi
     
-    # Enforce minimum coverage threshold (70%)
+    # Enforce minimum coverage threshold (60% per eval_spec.md)
     # Use awk for floating point comparison (more portable than bc)
-    coverage_check=$(echo "$percent" | awk '{if ($1 < 70) print "fail"; else print "pass"}')
+    coverage_check=$(echo "$percent" | awk '{if ($1 < 60) print "fail"; else print "pass"}')
     if [[ "$coverage_check" == "fail" ]]; then
-        echo "❌ Coverage ${percent}% is below required 70%"
+        echo "❌ Coverage ${percent}% is below required 60%"
         echo "$coverage_report"
         exit 1
     fi
