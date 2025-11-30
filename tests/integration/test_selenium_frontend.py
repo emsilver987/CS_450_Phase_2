@@ -413,17 +413,21 @@ class TestUploadAction:
         Test valid upload flow.
         Creates a dummy zip file and attempts to upload it.
         """
-        driver.get(f"{base_url}/upload")
-
-        # Create dummy zip
+        # Create dummy zip file before navigating to page
         dummy_zip = tmp_path / "test_package.zip"
         import zipfile
         with zipfile.ZipFile(dummy_zip, 'w') as zf:
             zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
 
+        # Ensure file exists and get absolute path
+        assert dummy_zip.exists(), f"Test file should exist at {dummy_zip}"
+        file_path = str(dummy_zip.resolve())  # Get absolute path
+
+        driver.get(f"{base_url}/upload")
+
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            file_input.send_keys(str(dummy_zip))
+            file_input.send_keys(file_path)
 
             # Fill other fields if they exist
             try:
@@ -506,4 +510,3 @@ class TestSearchAction:
 
         except NoSuchElementException:
             pytest.skip("Search input not found")
-
