@@ -1,6 +1,5 @@
 """
 Unit tests for src/services/rating.py
-Focusing on core functions to improve coverage from 43% to 70%+
 """
 import pytest
 import os
