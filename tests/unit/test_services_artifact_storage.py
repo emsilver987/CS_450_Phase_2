@@ -98,6 +98,16 @@ class TestArtifactStorage:
         mock_table_instance = MagicMock()
         mock_table.return_value = mock_table_instance
         
+        # Configure get_item to return an existing artifact
+        # This is required because update_artifact checks for existence first
+        mock_table_instance.get_item.return_value = {
+            "Item": {
+                "artifact_id": "test-id",
+                "name": "test-model",
+                "type": "model"
+            }
+        }
+        
         updates = {"name": "updated-name", "version": "2.0.0"}
         result = update_artifact("test-id", updates)
         assert result is True
