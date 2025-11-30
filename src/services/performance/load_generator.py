@@ -8,18 +8,11 @@ import aiohttp
 import time
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import os
 
 logger = logging.getLogger(__name__)
-
-# RDS credentials (hardcoded from infra/envs/dev/main.tf)
-# These match the Terraform configuration
-RDS_PASSWORD = "acme_rds_password_123"
-RDS_DATABASE = "acme"
-RDS_USERNAME = "acme"
-RDS_PORT = 5432
 
 
 @dataclass
@@ -54,45 +47,32 @@ class LoadGenerator:
     def __init__(
         self,
         run_id: str,
-        base_url: Optional[str] = None,
+        base_url: str,
         num_clients: int = 100,
         model_id: str = "arnir0/Tiny-LLM",
         version: str = "main",
         duration_seconds: Optional[int] = None,
         use_performance_path: bool = False,
-        auth_token: Optional[str] = None,
-        use_direct_rds: bool = False,
-        rds_endpoint: Optional[str] = None,
-        storage_backend: str = "s3",
-        use_direct_calls: bool = False,
     ):
         """
         Initialize load generator.
 
         Args:
             run_id: Unique identifier for this workload run
-            base_url: Base URL of the API (None to use direct function calls instead of HTTP)
+            base_url: Base URL of the API (e.g., "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod")
             num_clients: Number of concurrent clients to simulate
             model_id: Model ID to download
             version: Model version (default: "main")
             duration_seconds: Optional duration limit in seconds
             use_performance_path: If True, use performance/ path instead of models/ path
-            auth_token: Optional authentication token to include in requests (for production API)
-            storage_backend: Storage backend to use ('s3' or 'rds')
-            use_direct_calls: If True, call download functions directly instead of HTTP (when base_url is None)
         """
         self.run_id = run_id
-        self.base_url = base_url.rstrip("/") if base_url else None
+        self.base_url = base_url.rstrip("/")
         self.num_clients = num_clients
         self.model_id = model_id
         self.version = version
         self.duration_seconds = duration_seconds
         self.use_performance_path = use_performance_path
-        self.auth_token = auth_token
-        self.use_direct_rds = use_direct_rds
-        self.rds_endpoint = rds_endpoint or os.getenv("RDS_ENDPOINT", "")
-        self.storage_backend = storage_backend.lower()
-        self.use_direct_calls = use_direct_calls or (base_url is None)
 
         # Store metrics
         self.metrics: List[Metric] = []
@@ -114,351 +94,27 @@ class LoadGenerator:
             .replace(">", "_")
             .replace("|", "_")
         )
-        
-        # Use the appropriate endpoint based on storage backend
-        base_url = self.base_url.rstrip("/")
-        if self.storage_backend == "rds":
-            url = f"{base_url}/artifact/model/{sanitized_model_id}/download-rds"
-        else:
-            # Default to S3 endpoint
-            url = f"{base_url}/artifact/model/{sanitized_model_id}/download"
-        
-        # Add query parameters for version, component, and performance path
-        params = []
-        if self.version and self.version != "main":
-            params.append(f"version={self.version}")
-        params.append("component=full")
-        if self.use_performance_path:
-            params.append("path_prefix=performance")
-        
-        if params:
-            url += "?" + "&".join(params)
-        
-        return url
-
-    async def check_model_exists(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
-        """
-        Check if the model exists in the storage backend before starting load generation.
-        For RDS, uses the check-rds endpoint. For S3, assumes it exists.
-        
-        Returns:
-            (exists: bool, info: Optional[dict]) - True if model exists, False otherwise.
-            info contains details about the model or similar models if not found.
-        """
-        if self.storage_backend != "rds":
-            # For S3, we assume the model exists (or let the download fail)
-            return (True, None)
-        
-        # For RDS, check using the check-rds endpoint
-        sanitized_model_id = (
-            self.model_id.replace("/", "_")
-            .replace(":", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace('"', "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace("|", "_")
-        )
-        
+        # Use performance/ path if specified, otherwise models/
         path_prefix = "performance" if self.use_performance_path else "models"
-        check_url = f"{self.base_url}/artifact/model/{sanitized_model_id}/check-rds?version={self.version}&path_prefix={path_prefix}"
-        
-        try:
-            timeout = aiohttp.ClientTimeout(total=10, connect=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                headers = {}
-                if self.auth_token:
-                    headers["X-Authorization"] = self.auth_token
-                
-                async with session.get(check_url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        exists = data.get("found", False)
-                        return (exists, data)
-                    else:
-                        error_text = await response.text()
-                        logger.warning(f"Model check failed: HTTP {response.status} - {error_text[:200]}")
-                        return (False, {"error": f"HTTP {response.status}", "detail": error_text[:200]})
-        except Exception as e:
-            logger.warning(f"Model check error: {str(e)}")
-            return (False, {"error": str(e)})
-
-    def _download_from_s3_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
-        """
-        Directly download model from S3 (bypasses API/HTTP).
-        Calls the s3_service.download_model function directly.
-        
-        Args:
-            model_id: Model identifier (sanitized)
-            version: Model version
-            component: Component to download
-            
-        Returns:
-            Model file content as bytes
-        """
-        try:
-            from ..s3_service import download_model as s3_download_model
-            
-            # Call the S3 download function directly
-            file_content = s3_download_model(
-                model_id=model_id,
-                version=version,
-                component=component,
-                use_performance_path=self.use_performance_path
-            )
-            
-            return file_content
-        except Exception as e:
-            # Convert HTTPException to regular Exception for consistency
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                raise Exception(f"Model {model_id} version {version} not found in S3")
-            raise Exception(f"S3 download failed: {error_msg}")
-
-    def _download_from_rds_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
-        """
-        Directly download model from RDS (bypasses API).
-        Simple implementation that directly queries RDS database.
-        
-        Args:
-            model_id: Model identifier (sanitized)
-            version: Model version
-            component: Component to download
-            
-        Returns:
-            Model file content as bytes
-        """
-        if not self.rds_endpoint:
-            raise Exception("RDS endpoint not configured")
-        
-        try:
-            import psycopg2
-        except ImportError:
-            raise Exception("psycopg2-binary not installed. Install with: pip install psycopg2-binary")
-        
-        path_prefix = "performance" if self.use_performance_path else "models"
-        
-        # Parse endpoint to extract hostname (remove port if included)
-        rds_host = self.rds_endpoint
-        rds_port = RDS_PORT
-        if ":" in rds_host:
-            # Endpoint includes port (e.g., "hostname:5432")
-            parts = rds_host.split(":")
-            rds_host = parts[0]
-            if len(parts) > 1:
-                try:
-                    rds_port = int(parts[1])
-                except ValueError:
-                    # Invalid port, use default
-                    pass
-        
-        # Simple direct connection with shorter timeout for faster fallback
-        # Use connect_timeout to fail quickly if RDS is not accessible
-        conn = psycopg2.connect(
-            host=rds_host,
-            port=rds_port,
-            database=RDS_DATABASE,
-            user=RDS_USERNAME,
-            password=RDS_PASSWORD,
-            connect_timeout=5  # 5 second timeout for connection attempt
-        )
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT file_data, file_size
-                FROM model_files
-                WHERE model_id = %s AND version = %s AND component = %s AND path_prefix = %s
-            """, (model_id, version, component, path_prefix))
-            
-            result = cursor.fetchone()
-            if not result:
-                raise Exception(f"Model {model_id} version {version} not found in RDS ({path_prefix}/)")
-            
-            file_data, file_size = result
-            return bytes(file_data)
-        finally:
-            conn.close()
+        return f"{self.base_url}/{path_prefix}/{sanitized_model_id}/{self.version}/model.zip"
 
     async def _make_request(
-        self, client_id: int, session: Optional[aiohttp.ClientSession] = None
+        self, client_id: int, session: aiohttp.ClientSession
     ) -> Metric:
         """
         Make a single download request and return metrics.
 
         Args:
             client_id: ID of this client (1-based)
-            session: aiohttp session for making requests (not used for direct RDS)
+            session: aiohttp session for making requests
 
         Returns:
             Metric object with request details
         """
+        url = self._get_download_url()
         timestamp = datetime.now(timezone.utc)
         start_time = time.time()
-        
-        # Sanitize model_id for storage queries
-        sanitized_model_id = (
-            self.model_id.replace("/", "_")
-            .replace(":", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace('"', "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace("|", "_")
-        )
 
-        # Use direct function calls if enabled (bypasses HTTP/API Gateway)
-        if self.use_direct_calls:
-            try:
-                # Run download in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                
-                if self.storage_backend == "rds":
-                    file_content = await loop.run_in_executor(
-                        None,
-                        self._download_from_rds_direct,
-                        sanitized_model_id,
-                        self.version,
-                        "full"
-                    )
-                else:
-                    # Default to S3
-                    file_content = await loop.run_in_executor(
-                        None,
-                        self._download_from_s3_direct,
-                        sanitized_model_id,
-                        self.version,
-                        "full"
-                    )
-                
-                end_time = time.time()
-                
-                latency_ms = (end_time - start_time) * 1000
-                bytes_transferred = len(file_content)
-                status_code = 200
-                
-                metric = Metric(
-                    run_id=self.run_id,
-                    client_id=client_id,
-                    request_latency_ms=latency_ms,
-                    bytes_transferred=bytes_transferred,
-                    status_code=status_code,
-                    timestamp=timestamp,
-                )
-                
-                logger.debug(
-                    f"Direct {self.storage_backend.upper()} download completed: client_id={client_id}, "
-                    f"status={status_code}, latency={latency_ms:.2f}ms, "
-                    f"bytes={bytes_transferred}"
-                )
-                
-                return metric
-            except Exception as e:
-                error_str = str(e).lower()
-                end_time = time.time()
-                latency_ms = (end_time - start_time) * 1000
-                logger.error(f"Direct {self.storage_backend.upper()} download error for client_id={client_id}: {str(e)}")
-                return Metric(
-                    run_id=self.run_id,
-                    client_id=client_id,
-                    request_latency_ms=latency_ms,
-                    bytes_transferred=0,
-                    status_code=0,
-                    timestamp=timestamp,
-                )
-
-        # Use direct RDS if enabled (legacy support)
-        if self.use_direct_rds:
-            try:
-                # Run RDS download in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                file_content = await loop.run_in_executor(
-                    None,
-                    self._download_from_rds_direct,
-                    sanitized_model_id,
-                    self.version,
-                    "full"
-                )
-                end_time = time.time()
-                
-                latency_ms = (end_time - start_time) * 1000
-                bytes_transferred = len(file_content)
-                status_code = 200
-                
-                metric = Metric(
-                    run_id=self.run_id,
-                    client_id=client_id,
-                    request_latency_ms=latency_ms,
-                    bytes_transferred=bytes_transferred,
-                    status_code=status_code,
-                    timestamp=timestamp,
-                )
-                
-                logger.debug(
-                    f"RDS direct download completed: client_id={client_id}, "
-                    f"status={status_code}, latency={latency_ms:.2f}ms, "
-                    f"bytes={bytes_transferred}"
-                )
-                
-                return metric
-            except Exception as e:
-                error_str = str(e).lower()
-                # Check if it's a connection error (RDS not publicly accessible)
-                if any(phrase in error_str for phrase in [
-                    "connection timed out", "connection refused", 
-                    "could not translate host name", "timeout expired",
-                    "server closed the connection", "network is unreachable"
-                ]):
-                    # RDS is not publicly accessible - fall back to API endpoint
-                    if session is not None:
-                        # Only log once per client to reduce noise
-                        if client_id <= 20 or client_id % 10 == 0:
-                            logger.warning(
-                                f"Direct RDS connection failed for client_id={client_id} (RDS not publicly accessible). "
-                                f"Falling back to API endpoint."
-                            )
-                        # Fall through to API endpoint code below
-                    else:
-                        # No session available, return error
-                        end_time = time.time()
-                        latency_ms = (end_time - start_time) * 1000
-                        logger.error(
-                            f"RDS direct connection failed and no API session available for client_id={client_id}: {str(e)}"
-                        )
-                        return Metric(
-                            run_id=self.run_id,
-                            client_id=client_id,
-                            request_latency_ms=latency_ms,
-                            bytes_transferred=0,
-                            status_code=0,
-                            timestamp=timestamp,
-                        )
-                else:
-                    # Other error - return failure
-                    end_time = time.time()
-                    latency_ms = (end_time - start_time) * 1000
-                    logger.error(f"RDS direct download error for client_id={client_id}: {str(e)}")
-                    return Metric(
-                        run_id=self.run_id,
-                        client_id=client_id,
-                        request_latency_ms=latency_ms,
-                        bytes_transferred=0,
-                        status_code=0,
-                        timestamp=timestamp,
-                    )
-        
-        # Otherwise use API endpoint (HTTP requests)
-        if self.base_url is None:
-            raise Exception("base_url is required for HTTP requests, or enable use_direct_calls")
-        
-        if session is None:
-            raise Exception("HTTP session required for API requests")
-        
-        url = self._get_download_url()
         try:
             async with session.get(url) as response:
                 # Read response content to measure bytes
@@ -468,20 +124,6 @@ class LoadGenerator:
                 latency_ms = (end_time - start_time) * 1000
                 bytes_transferred = len(content)
                 status_code = response.status
-
-                # Log error details for 4xx/5xx responses (but only for first few clients to reduce noise)
-                if status_code >= 400 and (client_id <= 5 or client_id % 20 == 0):
-                    try:
-                        error_text = content.decode('utf-8')[:200]  # First 200 chars
-                        logger.warning(
-                            f"Request failed for client_id={client_id}: "
-                            f"status={status_code}, error={error_text}"
-                        )
-                    except:
-                        logger.warning(
-                            f"Request failed for client_id={client_id}: "
-                            f"status={status_code}, bytes={bytes_transferred}"
-                        )
 
                 metric = Metric(
                     run_id=self.run_id,
@@ -514,30 +156,6 @@ class LoadGenerator:
                 timestamp=timestamp,
             )
 
-        except aiohttp.ClientConnectorError as e:
-            # Connection errors (server not available, connection refused, etc.)
-            end_time = time.time()
-            latency_ms = (end_time - start_time) * 1000
-            
-            error_msg = str(e)
-            # Windows-specific error message handling
-            if "network name is no longer available" in error_msg.lower() or "WinError 64" in error_msg:
-                logger.warning(
-                    f"Connection reset for client_id={client_id}: "
-                    f"Server may be overwhelmed or connection limit reached. "
-                    f"Consider reducing concurrent clients for local testing."
-                )
-            else:
-                logger.error(f"Connection error for client_id={client_id}: {error_msg}")
-            
-            return Metric(
-                run_id=self.run_id,
-                client_id=client_id,
-                request_latency_ms=latency_ms,
-                bytes_transferred=0,
-                status_code=0,  # 0 indicates error
-                timestamp=timestamp,
-            )
         except Exception as e:
             end_time = time.time()
             latency_ms = (end_time - start_time) * 1000
@@ -552,13 +170,13 @@ class LoadGenerator:
                 timestamp=timestamp,
             )
 
-    async def _run_client(self, client_id: int, session: Optional[aiohttp.ClientSession]):
+    async def _run_client(self, client_id: int, session: aiohttp.ClientSession):
         """
         Run a single client - makes one or more requests depending on duration.
 
         Args:
             client_id: ID of this client (1-based)
-            session: aiohttp session for making requests (None for direct RDS)
+            session: aiohttp session for making requests
         """
         if self.duration_seconds:
             # Run for specified duration
@@ -587,69 +205,23 @@ class LoadGenerator:
             f"num_clients={self.num_clients}, model_id={self.model_id}"
         )
 
-        # Check if model exists before starting (for RDS backend)
-        if self.storage_backend == "rds":
-            logger.info(f"Checking if model {self.model_id} exists in RDS...")
-            exists, info = await self.check_model_exists()
-            if not exists:
-                error_msg = f"Model {self.model_id} not found in RDS"
-                if info and "similar_models" in info and info["similar_models"]:
-                    error_msg += f". Similar models found: {[m['model_id'] for m in info['similar_models']]}"
-                elif info and "message" in info:
-                    error_msg += f". {info['message']}"
-                raise ValueError(error_msg)
-            logger.info(f"✓ Model {self.model_id} found in RDS")
-
         self.start_time = time.time()
 
         # Create aiohttp session with timeout
-        # Set timeout to allow for large file downloads (24MB model file)
-        # total: total timeout for the entire operation
-        # connect: timeout for establishing connection
-        # sock_read: timeout for reading data from socket
-        timeout = aiohttp.ClientTimeout(
-            total=600,  # 10 minute total timeout per request (for large downloads)
-            connect=60,  # 1 minute to establish connection
-            sock_read=300  # 5 minute timeout for reading data
-        )
-        # Configure connector with connection limits and keep-alive
-        # For local testing, use smaller connection pool to avoid overwhelming server
-        # For production, use larger pool to match concurrent clients
-        connector = aiohttp.TCPConnector(
-            limit=self.num_clients,  # Total connection pool size
-            limit_per_host=self.num_clients,  # Max connections per host
-            ttl_dns_cache=300,  # DNS cache TTL
-            force_close=False,  # Keep connections alive for reuse
-            enable_cleanup_closed=True,  # Clean up closed connections
-        )
+        timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout per request
+        connector = aiohttp.TCPConnector(limit=self.num_clients)
 
-        # Prepare headers with auth token if provided
-        headers = {}
-        if self.auth_token:
-            headers["X-Authorization"] = self.auth_token
-
-        # Create HTTP session only if not using direct calls
-        # For direct calls, we don't need HTTP session
-        if self.use_direct_calls:
-            # Direct function calls - no HTTP session needed
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
+            # Create tasks for all clients (client_id is 1-based)
             tasks = [
-                self._run_client(client_id, None)
+                self._run_client(client_id, session)
                 for client_id in range(1, self.num_clients + 1)
             ]
+
+            # Run all clients concurrently
             await asyncio.gather(*tasks)
-        else:
-            # HTTP requests - need session
-            async with aiohttp.ClientSession(
-                timeout=timeout, connector=connector, headers=headers
-            ) as session:
-                # Create tasks for all clients (client_id is 1-based)
-                tasks = [
-                    self._run_client(client_id, session)
-                    for client_id in range(1, self.num_clients + 1)
-                ]
-                
-                # Run all clients concurrently
-                await asyncio.gather(*tasks)
 
         self.end_time = time.time()
 
