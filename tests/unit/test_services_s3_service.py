@@ -6,7 +6,7 @@ import pytest
 import zipfile
 import io
 import json
-from unittest.mock import patch, MagicMock, patch.object
+from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 from botocore.exceptions import ClientError
 import src.services.s3_service as s3_service_module
