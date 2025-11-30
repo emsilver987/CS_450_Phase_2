@@ -127,11 +127,14 @@ def analyze_model_content(
                 found_model_name = found_model["name"]
                 try:
                     model_content = download_model(found_model_name, found_version, "full")
-                    if model_content:
+                    if model_content and isinstance(model_content, bytes):
                         clean_model_id = target  # Keep original target for display
                         print(f"[RATE] Successfully downloaded model from S3: {found_model_name} v{found_version}")
+                    else:
+                        model_content = None  # Ensure it's None, not MagicMock
                 except Exception as s3_error:
                     # If download fails, continue to try HuggingFace
+                    model_content = None  # Explicitly set to None
                     print(f"[RATE] S3 download failed for {found_model_name}: {s3_error}")
                     pass
         except Exception as s3_check_error:
@@ -196,6 +199,13 @@ def analyze_model_content(
             raise ValueError(
                 f"No model content found for {target} in S3 or HuggingFace. Cannot compute metrics without model data."
             )
+
+        # Validate that model_content is bytes before writing
+        if not isinstance(model_content, bytes):
+            error_msg = f"model_content must be bytes, got {type(model_content).__name__}"
+            if suppress_errors:
+                return None
+            raise TypeError(error_msg)
 
         # Sanitize model ID for file system (remove path separators, invalid chars)
         safe_model_id = (
