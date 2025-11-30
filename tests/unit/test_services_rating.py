@@ -1,5 +1,6 @@
 """
 Unit tests for src/services/rating.py
+Focusing on core functions to improve coverage from 43% to 70%+
 """
 import pytest
 import os
@@ -454,14 +455,12 @@ class TestAnalyzeModelContent:
                 assert result is None
 
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.rating.run_acme_metrics")
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
-    def test_analyze_model_content_hf_http_url(self, mock_s3, mock_list, mock_extract_config, 
-                                                mock_create_meta, mock_metrics, mock_download, mock_hf):
+    def test_analyze_model_content_hf_http_url(self, mock_list, mock_extract_config, 
+                                                mock_create_meta, mock_metrics, mock_hf):
         """Test HuggingFace download with HTTP URL"""
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
@@ -469,12 +468,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -485,14 +478,12 @@ class TestAnalyzeModelContent:
         mock_hf.assert_called_once_with("user/model", "main")
 
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.rating.run_acme_metrics")
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
-    def test_analyze_model_content_hf_non_http_id(self, mock_s3, mock_list, mock_extract_config,
-                                                   mock_create_meta, mock_metrics, mock_download, mock_hf):
+    def test_analyze_model_content_hf_non_http_id(self, mock_list, mock_extract_config,
+                                                   mock_create_meta, mock_metrics, mock_hf):
         """Test HuggingFace download with non-HTTP ID"""
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
@@ -500,12 +491,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -612,11 +597,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_with_hf_metadata(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_with_hf_metadata(self, mock_fetch_hf, mock_list, mock_hf,
                                                      mock_extract_config, mock_create_meta, mock_metrics):
         """Test model content processing with HuggingFace metadata"""
         zip_buffer = io.BytesIO()
@@ -625,12 +608,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -651,14 +628,12 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
     @patch("src.acmecli.github_handler.fetch_github_metadata")
     @patch("src.services.s3_service.extract_github_url_from_text")
     def test_analyze_model_content_with_github_url(self, mock_extract_gh, mock_fetch_gh, 
-                                                    mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+                                                    mock_fetch_hf, mock_list, mock_hf,
                                                     mock_extract_config, mock_create_meta, mock_metrics):
         """Test model content processing with GitHub URL extraction"""
         zip_buffer = io.BytesIO()
@@ -667,12 +642,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -695,13 +664,11 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
     @patch("src.acmecli.github_handler.fetch_github_metadata")
     def test_analyze_model_content_github_fetch_error(self, mock_fetch_gh, mock_fetch_hf,
-                                                      mock_s3, mock_list, mock_download, mock_hf, mock_extract_config,
+                                                      mock_list, mock_hf, mock_extract_config,
                                                       mock_create_meta, mock_metrics):
         """Test GitHub metadata fetch error handling"""
         zip_buffer = io.BytesIO()
@@ -710,12 +677,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -730,11 +691,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_with_config_parent(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_with_config_parent(self, mock_fetch_hf, mock_list, mock_hf,
                                                       mock_extract_config, mock_create_meta, mock_metrics):
         """Test model content with config and parent model"""
         zip_buffer = io.BytesIO()
@@ -743,12 +702,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {
             "model_type": "test",
@@ -765,11 +718,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_license_text_extraction(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_license_text_extraction(self, mock_fetch_hf, mock_list, mock_hf,
                                                             mock_extract_config, mock_create_meta, mock_metrics):
         """Test license text extraction"""
         zip_buffer = io.BytesIO()
@@ -778,12 +729,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {
@@ -801,13 +746,11 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
     @patch("src.services.s3_service.extract_github_url_from_text")
-    def test_analyze_model_content_github_from_description(self, mock_extract_gh, mock_fetch_hf, mock_s3, mock_list,
-                                                            mock_download, mock_hf, mock_extract_config, mock_create_meta, mock_metrics):
+    def test_analyze_model_content_github_from_description(self, mock_extract_gh, mock_fetch_hf, mock_list,
+                                                            mock_hf, mock_extract_config, mock_create_meta, mock_metrics):
         """Test GitHub URL extraction from description"""
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
@@ -815,12 +758,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -838,11 +775,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_hf_github_string(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_hf_github_string(self, mock_fetch_hf, mock_list, mock_hf,
                                                     mock_extract_config, mock_create_meta, mock_metrics):
         """Test GitHub URL from HF metadata github field (string)"""
         zip_buffer = io.BytesIO()
@@ -851,12 +786,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -873,11 +802,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_hf_github_dict(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_hf_github_dict(self, mock_fetch_hf, mock_list, mock_hf,
                                                   mock_extract_config, mock_create_meta, mock_metrics):
         """Test GitHub URL from HF metadata github field (dict)"""
         zip_buffer = io.BytesIO()
@@ -886,12 +813,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
@@ -908,11 +829,9 @@ class TestAnalyzeModelContent:
     @patch("src.services.rating.create_metadata_from_files")
     @patch("src.services.s3_service.extract_config_from_model")
     @patch("src.services.s3_service.download_from_huggingface")
-    @patch("src.services.s3_service.download_model")
     @patch("src.services.s3_service.list_models")
-    @patch("src.services.s3_service.s3")
     @patch("src.acmecli.hf_handler.fetch_hf_metadata")
-    def test_analyze_model_content_hf_error_handling(self, mock_fetch_hf, mock_s3, mock_list, mock_download, mock_hf,
+    def test_analyze_model_content_hf_error_handling(self, mock_fetch_hf, mock_list, mock_hf,
                                                      mock_extract_config, mock_create_meta, mock_metrics):
         """Test HF metadata fetch error handling"""
         zip_buffer = io.BytesIO()
@@ -921,12 +840,6 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
-        with patch("src.services.s3_service.ap_arn", "test-bucket"):
-            from botocore.exceptions import ClientError
-            mock_s3.head_object.side_effect = ClientError(
-                {"Error": {"Code": "NoSuchKey"}}, "head_object"
-            )
         mock_hf.return_value = zip_content
         mock_extract_config.return_value = {"model_type": "test"}
         mock_create_meta.return_value = {"repo_files": set(["config.json"]), "readme_text": ""}
