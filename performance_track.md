@@ -34,29 +34,29 @@ This document tracks remaining tasks for the Performance Track requirements. The
 **Requirement**: Experiment with the effect of different AWS compute components on performance (e.g., Lambdas vs. EC2/ECS).
 
 **Tasks**:
-- [x] Create Lambda-based download handler function
-  - [x] Implement Lambda function that handles model downloads
-  - [x] Store Lambda function code in `src/lambda/download_handler.py` or similar
-  - [x] Configure Lambda IAM permissions for S3 access
-- [x] Make compute backend configurable
-  - [x] Add environment variable `COMPUTE_BACKEND=ecs|lambda`
-  - [x] Modify routing logic to select compute backend
-  - [x] Ensure same endpoint works with both backends
-- [x] Deploy Lambda function via Terraform
-  - [x] Create Lambda module in `infra/modules/lambda/`
-  - [x] Configure Lambda integration (IAM permissions for ECS to invoke Lambda)
-  - [x] Add feature flag/configuration to switch between ECS and Lambda (via COMPUTE_BACKEND env var)
-- [x] Run performance tests with Lambda backend
-  - [x] Run same workload (100 concurrent clients, Tiny-LLM download)
-  - [x] Measure latency (mean, median, P99)
-  - [x] Measure throughput
-  - [x] Compare to ECS baseline measurements
-- [x] Document Lambda vs ECS comparison
-  - [x] Document latency differences
-  - [x] Document throughput differences
-  - [x] Document cold start impact (if any)
-  - [x] Document cost trade-offs
-  - [x] Create comparison table/section
+- [ ] Create Lambda-based download handler function
+  - [ ] Implement Lambda function that handles model downloads
+  - [ ] Store Lambda function code in `src/lambda/download_handler.py` or similar
+  - [ ] Configure Lambda IAM permissions for S3 access
+- [ ] Make compute backend configurable
+  - [ ] Add environment variable `COMPUTE_BACKEND=ecs|lambda`
+  - [ ] Modify routing logic to select compute backend
+  - [ ] Ensure same endpoint works with both backends
+- [ ] Deploy Lambda function via Terraform
+  - [ ] Create Lambda module in `infra/modules/lambda/`
+  - [ ] Configure Lambda integration with API Gateway
+  - [ ] Add feature flag/configuration to switch between ECS and Lambda
+- [ ] Run performance tests with Lambda backend
+  - [ ] Run same workload (100 concurrent clients, Tiny-LLM download)
+  - [ ] Measure latency (mean, median, P99)
+  - [ ] Measure throughput
+  - [ ] Compare to ECS baseline measurements
+- [ ] Document Lambda vs ECS comparison
+  - [ ] Document latency differences
+  - [ ] Document throughput differences
+  - [ ] Document cold start impact (if any)
+  - [ ] Document cost trade-offs
+  - [ ] Create comparison table/section
 
 **Estimated Effort**: 2-3 days
 
