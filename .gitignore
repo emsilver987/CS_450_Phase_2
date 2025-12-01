@@ -164,3 +164,4 @@ infra/envs/dev/terraform.tfvars
 
 # personal file
 docs/terraform_change_log.md
+.cursor/rules/cs450-rule.mdc
