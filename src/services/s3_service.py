@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
+from botocore.exceptions import ClientError
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import get_credentials
@@ -340,6 +341,17 @@ def download_model(model_id: str, version: str, component: str = "full", use_per
                 raise HTTPException(status_code=400, detail=str(e))
         print(f"AWS S3 download successful: {model_id} v{version} (full) from {path_prefix}/")
         return zip_content
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code == "NoSuchKey":
+            print(f"AWS S3 download failed: Model {model_id} v{version} not found at {path_prefix}/{model_id}/{version}/model.zip")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model {model_id} version {version} not found in {path_prefix}/ path"
+            )
+        else:
+            print(f"AWS S3 download failed: {e}")
+            raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
     except Exception as e:
         print(f"AWS S3 download failed: {e}")
         raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")

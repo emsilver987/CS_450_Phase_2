@@ -14,6 +14,13 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# RDS credentials (hardcoded from infra/envs/dev/main.tf)
+# These match the Terraform configuration
+RDS_PASSWORD = "acme_rds_password_123"
+RDS_DATABASE = "acme"
+RDS_USERNAME = "acme"
+RDS_PORT = 5432
+
 
 @dataclass
 class Metric:
@@ -54,6 +61,8 @@ class LoadGenerator:
         duration_seconds: Optional[int] = None,
         use_performance_path: bool = False,
         auth_token: Optional[str] = None,
+        use_direct_rds: bool = False,
+        rds_endpoint: Optional[str] = None,
     ):
         """
         Initialize load generator.
@@ -76,6 +85,8 @@ class LoadGenerator:
         self.duration_seconds = duration_seconds
         self.use_performance_path = use_performance_path
         self.auth_token = auth_token
+        self.use_direct_rds = use_direct_rds
+        self.rds_endpoint = rds_endpoint or os.getenv("RDS_ENDPOINT", "")
 
         # Store metrics
         self.metrics: List[Metric] = []
@@ -116,23 +127,136 @@ class LoadGenerator:
         
         return url
 
+    def _download_from_rds_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
+        """
+        Directly download model from RDS (bypasses API).
+        Simple implementation that directly queries RDS database.
+        
+        Args:
+            model_id: Model identifier (sanitized)
+            version: Model version
+            component: Component to download
+            
+        Returns:
+            Model file content as bytes
+        """
+        if not self.rds_endpoint:
+            raise Exception("RDS endpoint not configured")
+        
+        try:
+            import psycopg2
+        except ImportError:
+            raise Exception("psycopg2-binary not installed. Install with: pip install psycopg2-binary")
+        
+        path_prefix = "performance" if self.use_performance_path else "models"
+        
+        # Simple direct connection (no connection pool for simplicity)
+        conn = psycopg2.connect(
+            host=self.rds_endpoint,
+            port=RDS_PORT,
+            database=RDS_DATABASE,
+            user=RDS_USERNAME,
+            password=RDS_PASSWORD
+        )
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT file_data, file_size
+                FROM model_files
+                WHERE model_id = %s AND version = %s AND component = %s AND path_prefix = %s
+            """, (model_id, version, component, path_prefix))
+            
+            result = cursor.fetchone()
+            if not result:
+                raise Exception(f"Model {model_id} version {version} not found in RDS ({path_prefix}/)")
+            
+            file_data, file_size = result
+            return bytes(file_data)
+        finally:
+            conn.close()
+
     async def _make_request(
-        self, client_id: int, session: aiohttp.ClientSession
+        self, client_id: int, session: Optional[aiohttp.ClientSession] = None
     ) -> Metric:
         """
         Make a single download request and return metrics.
 
         Args:
             client_id: ID of this client (1-based)
-            session: aiohttp session for making requests
+            session: aiohttp session for making requests (not used for direct RDS)
 
         Returns:
             Metric object with request details
         """
-        url = self._get_download_url()
         timestamp = datetime.now(timezone.utc)
         start_time = time.time()
+        
+        # Sanitize model_id for RDS query
+        sanitized_model_id = (
+            self.model_id.replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
 
+        # Use direct RDS if enabled
+        if self.use_direct_rds:
+            try:
+                # Run RDS download in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                file_content = await loop.run_in_executor(
+                    None,
+                    self._download_from_rds_direct,
+                    sanitized_model_id,
+                    self.version,
+                    "full"
+                )
+                end_time = time.time()
+                
+                latency_ms = (end_time - start_time) * 1000
+                bytes_transferred = len(file_content)
+                status_code = 200
+                
+                metric = Metric(
+                    run_id=self.run_id,
+                    client_id=client_id,
+                    request_latency_ms=latency_ms,
+                    bytes_transferred=bytes_transferred,
+                    status_code=status_code,
+                    timestamp=timestamp,
+                )
+                
+                logger.debug(
+                    f"RDS direct download completed: client_id={client_id}, "
+                    f"status={status_code}, latency={latency_ms:.2f}ms, "
+                    f"bytes={bytes_transferred}"
+                )
+                
+                return metric
+            except Exception as e:
+                end_time = time.time()
+                latency_ms = (end_time - start_time) * 1000
+                logger.error(f"RDS direct download error for client_id={client_id}: {str(e)}")
+                return Metric(
+                    run_id=self.run_id,
+                    client_id=client_id,
+                    request_latency_ms=latency_ms,
+                    bytes_transferred=0,
+                    status_code=0,
+                    timestamp=timestamp,
+                )
+        
+        # Otherwise use API endpoint
+        if session is None:
+            raise Exception("HTTP session required for API requests")
+        
+        url = self._get_download_url()
         try:
             async with session.get(url) as response:
                 # Read response content to measure bytes
@@ -212,13 +336,13 @@ class LoadGenerator:
                 timestamp=timestamp,
             )
 
-    async def _run_client(self, client_id: int, session: aiohttp.ClientSession):
+    async def _run_client(self, client_id: int, session: Optional[aiohttp.ClientSession]):
         """
         Run a single client - makes one or more requests depending on duration.
 
         Args:
             client_id: ID of this client (1-based)
-            session: aiohttp session for making requests
+            session: aiohttp session for making requests (None for direct RDS)
         """
         if self.duration_seconds:
             # Run for specified duration
@@ -275,17 +399,29 @@ class LoadGenerator:
         if self.auth_token:
             headers["X-Authorization"] = self.auth_token
 
-        async with aiohttp.ClientSession(
-            timeout=timeout, connector=connector, headers=headers
-        ) as session:
+        # For direct RDS, we don't need HTTP session
+        if self.use_direct_rds:
             # Create tasks for all clients (client_id is 1-based)
             tasks = [
-                self._run_client(client_id, session)
+                self._run_client(client_id, None)
                 for client_id in range(1, self.num_clients + 1)
             ]
-
+            
             # Run all clients concurrently
             await asyncio.gather(*tasks)
+        else:
+            # Use HTTP session for API requests
+            async with aiohttp.ClientSession(
+                timeout=timeout, connector=connector, headers=headers
+            ) as session:
+                # Create tasks for all clients (client_id is 1-based)
+                tasks = [
+                    self._run_client(client_id, session)
+                    for client_id in range(1, self.num_clients + 1)
+                ]
+
+                # Run all clients concurrently
+                await asyncio.gather(*tasks)
 
         self.end_time = time.time()
 

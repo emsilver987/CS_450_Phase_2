@@ -184,6 +184,18 @@ async def test_load_generator(
         print(f"     to handle high concurrency (e.g., uvicorn with --workers or proper connection limits).")
     print()
     
+    # For RDS storage, use direct RDS connection if endpoint is available
+    use_direct_rds = False
+    rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+    
+    if storage_backend == "rds" and rds_endpoint:
+        use_direct_rds = True
+        print(f"✓ Using direct RDS connection: {rds_endpoint}")
+        print(f"  This bypasses the API and directly queries RDS database")
+    elif storage_backend == "rds":
+        print(f"⚠️  RDS storage selected but RDS_ENDPOINT not set")
+        print(f"  Will use API endpoint (ensure server has STORAGE_BACKEND=rds)")
+    
     # Create load generator
     # Set use_performance_path=True to use performance/ S3 path instead of models/
     generator = LoadGenerator(
@@ -195,10 +207,16 @@ async def test_load_generator(
         duration_seconds=None,  # Single request per client
         use_performance_path=True,  # Use performance/ path for performance testing
         auth_token=auth_token,  # Include auth token for production API
+        use_direct_rds=use_direct_rds,  # Direct RDS connection for RDS storage
+        rds_endpoint=rds_endpoint,  # RDS endpoint for direct connection
     )
     
     print("Starting load generation...")
-    print(f"URL: {generator._get_download_url()}")
+    if use_direct_rds:
+        print(f"Mode: Direct RDS connection (bypassing API)")
+        print(f"Model: {model_id} (sanitized: {model_id.replace('/', '_')})")
+    else:
+        print(f"URL: {generator._get_download_url()}")
     print()
     
     # Run the load generator

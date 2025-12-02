@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status, Query
 import watchtower
 
 # from fastapi.security import HTTPBearer  # Not used - removed to prevent accidental security enforcement
@@ -5480,6 +5480,8 @@ async def download_artifact_model(
         
         # Import download function based on storage backend
         storage_backend = os.getenv("STORAGE_BACKEND", "s3").lower()
+        
+        logger.info(f"[DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, storage_backend={storage_backend}, use_performance_path={use_performance_path}")
         
         if storage_backend == "rds":
             from .services.rds_service import download_model as rds_download_model
