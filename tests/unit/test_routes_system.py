@@ -3,7 +3,7 @@ Unit tests for system routes
 """
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 @pytest.fixture
@@ -107,4 +107,59 @@ class TestSystemRoutes:
         assert len(_INMEM_DB["artifacts"]) == 0
         mock_purge.assert_called_once()
         mock_ensure_admin.assert_called_once()
+
+    def test_health_returns_ok(self):
+        """Test health endpoint returns correct structure"""
+        from src.routes.system import health
+        result = health()
+        assert result == {"status": "ok"}
+
+    def test_tracks_returns_list(self):
+        """Test tracks endpoint returns list of tracks"""
+        from src.routes.system import tracks
+        result = tracks()
+        assert "tracks" in result
+        assert isinstance(result["tracks"], list)
+        assert len(result["tracks"]) > 0
+
+    @patch('src.services.auth_service.purge_tokens')
+    @patch('src.services.auth_service.ensure_default_admin')
+    def test_reset_clears_artifacts(self, mock_ensure_admin, mock_purge):
+        """Test reset clears artifacts database"""
+        from src.routes.system import reset, _INMEM_DB
+        
+        # Set up artifacts
+        _INMEM_DB["artifacts"] = [{"id": "artifact-1"}, {"id": "artifact-2"}]
+        
+        result = reset()
+        
+        assert result == {"status": "ok"}
+        assert len(_INMEM_DB["artifacts"]) == 0
+
+    @patch('src.services.auth_service.purge_tokens')
+    @patch('src.services.auth_service.ensure_default_admin')
+    def test_reset_delete_clears_artifacts(self, mock_ensure_admin, mock_purge):
+        """Test reset_delete clears artifacts database"""
+        from src.routes.system import reset_delete, _INMEM_DB
+        
+        # Set up artifacts
+        _INMEM_DB["artifacts"] = [{"id": "artifact-1"}]
+        
+        result = reset_delete()
+        
+        assert result == {"status": "ok"}
+        assert len(_INMEM_DB["artifacts"]) == 0
+
+    def test_reset_empty_artifacts(self):
+        """Test reset when artifacts list is already empty"""
+        from src.routes.system import reset, _INMEM_DB
+
+        _INMEM_DB["artifacts"] = []
+
+        with patch('src.services.auth_service.purge_tokens'), \
+             patch('src.services.auth_service.ensure_default_admin'):
+            result = reset()
+
+            assert result == {"status": "ok"}
+            assert len(_INMEM_DB["artifacts"]) == 0
 

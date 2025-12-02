@@ -26,9 +26,6 @@ def reset_db():
     """Reset the in-memory database before and after each test"""
     from src.routes.system import _INMEM_DB
 
-    # Store original state for safety (defensive copy)
-    original_artifacts = _INMEM_DB.get("artifacts", []).copy()
-
     # Reset before test
     _INMEM_DB["artifacts"] = []
 
@@ -367,3 +364,95 @@ class TestArtifactsPydanticSerialization:
         from src.routes.artifacts import ingest
         result = ingest(payload)
         assert result["ingested"] == 1
+
+
+class TestArtifactsDirectFunctionCalls:
+    """Test route handler functions directly for coverage"""
+
+    def test_ingest_function_direct(self):
+        """Test ingest function directly"""
+        from src.routes.artifacts import ingest
+        from src.routes.system import _INMEM_DB
+        
+        # Clear artifacts
+        _INMEM_DB["artifacts"] = []
+        
+        payload = {
+            "id": "direct-test-1",
+            "name": "direct-model",
+            "type": "model",
+            "version": "1.0.0"
+        }
+        
+        result = ingest(payload)
+        assert result["ingested"] == 1
+        assert len(_INMEM_DB["artifacts"]) == 1
+
+    def test_list_artifacts_function_direct(self):
+        """Test list_artifacts function directly"""
+        from src.routes.artifacts import list_artifacts
+        from src.routes.system import _INMEM_DB
+        
+        _INMEM_DB["artifacts"] = [
+            {"id": "test-1", "name": "model-1"},
+            {"id": "test-2", "name": "model-2"}
+        ]
+        
+        result = list_artifacts()
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+    def test_by_name_function_direct_found(self):
+        """Test by_name function directly when found"""
+        from src.routes.artifacts import by_name
+        from src.routes.system import _INMEM_DB
+        
+        _INMEM_DB["artifacts"] = [
+            {"id": "test-1", "name": "test-model"},
+            {"id": "test-2", "name": "test-model"},
+            {"id": "test-3", "name": "other-model"}
+        ]
+        
+        result = by_name("test-model")
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+    def test_by_name_function_direct_not_found(self):
+        """Test by_name function directly when not found"""
+        from src.routes.artifacts import by_name
+        from src.routes.system import _INMEM_DB
+        from fastapi import HTTPException
+        
+        _INMEM_DB["artifacts"] = []
+        
+        with pytest.raises(HTTPException) as exc_info:
+            by_name("non-existent")
+        
+        assert exc_info.value.status_code == 404
+
+    def test_by_id_function_direct_found(self):
+        """Test by_id function directly when found"""
+        from src.routes.artifacts import by_id
+        from src.routes.system import _INMEM_DB
+        
+        _INMEM_DB["artifacts"] = [
+            {"id": "test-1", "name": "model-1"},
+            {"id": "test-2", "name": "model-2"}
+        ]
+        
+        result = by_id("test-1")
+        assert result["id"] == "test-1"
+        assert result["name"] == "model-1"
+
+    def test_by_id_function_direct_not_found(self):
+        """Test by_id function directly when not found"""
+        from src.routes.artifacts import by_id
+        from src.routes.system import _INMEM_DB
+        from fastapi import HTTPException
+        
+        _INMEM_DB["artifacts"] = []
+        
+        with pytest.raises(HTTPException) as exc_info:
+            by_id("non-existent")
+        
+        assert exc_info.value.status_code == 404

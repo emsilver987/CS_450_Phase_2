@@ -3,8 +3,7 @@ Unit tests for entrypoint module
 """
 import os
 import sys
-import importlib
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 class TestEntrypointAuthSetup:
@@ -136,3 +135,36 @@ class TestEntrypointAuthSetup:
         # Verify the module has the expected attributes
         assert hasattr(src.entrypoint, 'app')
         assert src.entrypoint.app is not None
+
+    def test_entrypoint_both_conditions_false(self):
+        """Test entrypoint when both ENABLE_AUTH and JWT_SECRET are not set"""
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        with patch.dict(os.environ, {}, clear=True):
+            with patch('src.index.app') as mock_app:
+                # Import the module to trigger execution
+                import src.entrypoint
+                
+                # Verify middleware was NOT added
+                mock_app.add_middleware.assert_not_called()
+
+    def test_entrypoint_both_conditions_true(self):
+        """Test entrypoint when both ENABLE_AUTH=true and JWT_SECRET are set"""
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        with patch.dict(os.environ, {'ENABLE_AUTH': 'true', 'JWT_SECRET': 'test-secret'}, clear=False):
+            with patch('src.index.app') as mock_app:
+                from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
+                
+                # Import the module to trigger execution
+                import src.entrypoint
+                
+                # Verify middleware was added
+                mock_app.add_middleware.assert_called_once()
+                args, kwargs = mock_app.add_middleware.call_args
+                assert args[0] == JWTAuthMiddleware
+                assert kwargs['exempt_paths'] == DEFAULT_EXEMPT
