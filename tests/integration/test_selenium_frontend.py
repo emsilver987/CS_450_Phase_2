@@ -139,12 +139,8 @@ def sample_upload_zip(tmp_path):
     """
     zip_path = tmp_path / "test_package.zip"
 
-    # Create a minimal valid zip archive
     with zipfile.ZipFile(zip_path, "w") as zf:
-        zf.writestr(
-            "README.txt",
-            "This is a test package used by Selenium upload tests."
-        )
+        zf.writestr("dummy.txt", "content for upload test")
 
     # Selenium requires a string path
     return str(zip_path.resolve())
