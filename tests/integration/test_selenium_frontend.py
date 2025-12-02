@@ -147,9 +147,18 @@ def sample_upload_zip(tmp_path):
     """
     zip_path = tmp_path / "test_package.zip"
 
-    with zipfile.ZipFile(zip_path, "w") as zf:
+    # Create a valid zip file with content
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # Add a simple file to the archive for upload testing
         zf.writestr("dummy.txt", "content for upload test")
+
+    # Verify the zip file was created and is valid
+    assert zip_path.exists(), "Zip file should exist after creation"
+    assert zip_path.is_file(), "Zip file should be a file, not a directory"
+
+    # Verify it's a valid zip file by trying to read it
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        assert "dummy.txt" in zf.namelist(), "Zip file should contain dummy.txt"
 
     return str(zip_path.resolve())
 
