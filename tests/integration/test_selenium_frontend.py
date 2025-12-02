@@ -15,6 +15,7 @@ import time
 import os
 import requests
 import socket
+import zipfile
 
 from tests.utils.chromedriver import find_chromedriver_path, get_chromedriver_install_instruction
 from tests.constants import (
@@ -481,12 +482,8 @@ class TestUploadAction:
         """
         driver.get(f"{base_url}/upload")
 
-        # Ensure directory exists
-        os.makedirs(str(tmp_path), exist_ok=True)
-
-        # Create dummy zip
+        # Create dummy zip file in tmp_path (pytest guarantees this directory exists)
         dummy_zip = tmp_path / "test_package.zip"
-        import zipfile
         with zipfile.ZipFile(dummy_zip, 'w') as zf:
             zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
 
