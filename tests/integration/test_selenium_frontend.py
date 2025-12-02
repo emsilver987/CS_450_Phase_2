@@ -481,15 +481,22 @@ class TestUploadAction:
         """
         driver.get(f"{base_url}/upload")
 
+        # Ensure directory exists
+        os.makedirs(str(tmp_path), exist_ok=True)
+
         # Create dummy zip
         dummy_zip = tmp_path / "test_package.zip"
         import zipfile
         with zipfile.ZipFile(dummy_zip, 'w') as zf:
             zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
 
+        # Verify file was created and get absolute path
+        assert dummy_zip.exists(), f"Test file should exist at {dummy_zip}"
+        upload_path = str(dummy_zip.resolve())
+
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            file_input.send_keys(str(dummy_zip))
+            file_input.send_keys(upload_path)
 
             # Fill other fields if they exist
             try:
