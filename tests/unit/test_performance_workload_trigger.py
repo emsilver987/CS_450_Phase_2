@@ -2,9 +2,7 @@
 Unit tests for performance workload trigger service
 """
 import os
-import time
-from unittest.mock import patch, MagicMock, Mock
-from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock
 import pytest
 
 from src.services.performance.workload_trigger import (
@@ -310,4 +308,180 @@ class TestGetLatestWorkloadMetrics:
 
         # Cleanup
         _workload_runs.pop(test_run_id, None)
+
+
+class TestRunLoadGeneratorAsync:
+    """Test _run_load_generator_async function internal behavior"""
+
+    @patch("src.services.performance.load_generator.LoadGenerator")
+    @patch("src.services.performance.workload_trigger.asyncio")
+    def test_run_load_generator_async_success(
+        self, mock_asyncio, mock_load_generator_class
+    ):
+        """Test successful execution of load generator"""
+        from src.services.performance.workload_trigger import (
+            _workload_runs,
+            _load_generators,
+        )
+
+        run_id = "test-run-async"
+        _workload_runs[run_id] = {
+            "run_id": run_id,
+            "status": "started",
+        }
+        
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_asyncio.set_event_loop = MagicMock()
+
+        mock_generator = MagicMock()
+        mock_generator.metrics = [{"latency": 100}]
+        mock_generator.get_summary.return_value = {
+            "throughput_bps": 1000,
+            "p99_latency_ms": 500,
+        }
+        mock_load_generator_class.return_value = mock_generator
+
+        from src.services.performance.workload_trigger import (
+            _run_load_generator_async,
+        )
+
+        _run_load_generator_async(
+            run_id=run_id,
+            base_url="http://test.com",
+            num_clients=10,
+            model_id="test-model",
+            version="main",
+            duration_seconds=60,
+        )
+
+        assert _workload_runs[run_id]["status"] == "completed"
+        assert "completed_at" in _workload_runs[run_id]
+        assert "metrics_count" in _workload_runs[run_id]
+        assert "summary" in _workload_runs[run_id]
+        mock_loop.close.assert_called_once()
+
+        # Cleanup
+        _workload_runs.pop(run_id, None)
+        _load_generators.pop(run_id, None)
+
+    @patch("src.services.performance.load_generator.LoadGenerator")
+    @patch("src.services.performance.workload_trigger.asyncio")
+    @patch("src.services.performance.workload_trigger.logger")
+    def test_run_load_generator_async_exception(
+        self, mock_logger, mock_asyncio, mock_load_generator_class
+    ):
+        """Test exception handling in load generator"""
+        from src.services.performance.workload_trigger import _workload_runs
+
+        run_id = "test-run-exception"
+        _workload_runs[run_id] = {
+            "run_id": run_id,
+            "status": "started",
+        }
+        
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_asyncio.set_event_loop = MagicMock()
+
+        # Make LoadGenerator raise an exception
+        mock_load_generator_class.side_effect = Exception("Test error")
+
+        from src.services.performance.workload_trigger import (
+            _run_load_generator_async,
+        )
+
+        _run_load_generator_async(
+            run_id=run_id,
+            base_url="http://test.com",
+            num_clients=10,
+            model_id="test-model",
+            version="main",
+            duration_seconds=60,
+        )
+
+        assert _workload_runs[run_id]["status"] == "failed"
+        assert "error" in _workload_runs[run_id]
+        assert _workload_runs[run_id]["error"] == "Test error"
+        mock_logger.error.assert_called_once()
+        mock_loop.close.assert_called_once()
+
+        # Cleanup
+        _workload_runs.pop(run_id, None)
+
+    @patch("src.services.performance.load_generator.LoadGenerator")
+    @patch("src.services.performance.workload_trigger.asyncio")
+    def test_run_load_generator_async_loop_run_exception(
+        self, mock_asyncio, mock_load_generator_class
+    ):
+        """Test exception during loop.run_until_complete"""
+        from src.services.performance.workload_trigger import _workload_runs
+
+        run_id = "test-run-loop-exception"
+        _workload_runs[run_id] = {
+            "run_id": run_id,
+            "status": "started",
+        }
+        
+        mock_loop = MagicMock()
+        mock_loop.run_until_complete.side_effect = RuntimeError("Loop error")
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_asyncio.set_event_loop = MagicMock()
+        
+        mock_generator = MagicMock()
+        mock_load_generator_class.return_value = mock_generator
+
+        from src.services.performance.workload_trigger import (
+            _run_load_generator_async,
+        )
+
+        _run_load_generator_async(
+            run_id=run_id,
+            base_url="http://test.com",
+            num_clients=10,
+            model_id="test-model",
+            version="main",
+            duration_seconds=60,
+        )
+
+        assert _workload_runs[run_id]["status"] == "failed"
+        assert "error" in _workload_runs[run_id]
+        mock_loop.close.assert_called_once()
+
+        # Cleanup
+        _workload_runs.pop(run_id, None)
+
+    @patch("src.services.performance.load_generator.LoadGenerator")
+    @patch("src.services.performance.workload_trigger.asyncio")
+    def test_run_load_generator_async_missing_run_id(
+        self, mock_asyncio, mock_load_generator_class
+    ):
+        """Test when run_id doesn't exist in _workload_runs"""
+        run_id = "test-run-missing"
+        # Don't add to _workload_runs
+
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_asyncio.set_event_loop = MagicMock()
+
+        mock_generator = MagicMock()
+        mock_generator.metrics = []
+        mock_generator.get_summary.return_value = {}
+        mock_load_generator_class.return_value = mock_generator
+
+        from src.services.performance.workload_trigger import (
+            _run_load_generator_async,
+        )
+
+        # Should not raise exception even if run_id doesn't exist
+        _run_load_generator_async(
+            run_id=run_id,
+            base_url="http://test.com",
+            num_clients=10,
+            model_id="test-model",
+            version="main",
+            duration_seconds=60,
+        )
+
+        mock_loop.close.assert_called_once()
 

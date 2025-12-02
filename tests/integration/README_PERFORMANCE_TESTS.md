@@ -78,7 +78,7 @@ This is **normal and expected** for TDD!
 
 ### Environment Variables
 ```bash
-export API_BASE_URL="https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod"
+export API_BASE_URL="https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod"
 export AWS_REGION="us-east-1"
 export ARTIFACTS_BUCKET="pkg-artifacts"
 export SKIP_AWS_TESTS="false"  # Set to "true" to skip AWS-dependent tests

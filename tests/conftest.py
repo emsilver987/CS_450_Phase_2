@@ -26,7 +26,11 @@ MockWatchtower.return_value.level = logging.INFO
 def cleanup_watchtower_patch():
     """Cleanup the global watchtower patch at the end of the session"""
     yield
-    watchtower_patcher.stop()
+    try:
+        if watchtower_patcher:
+            watchtower_patcher.stop()
+    except Exception:
+        pass  # Ignore cleanup errors
 
 
 @pytest.fixture(autouse=True)

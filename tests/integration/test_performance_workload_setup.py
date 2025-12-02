@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from datetime import datetime
 
 # Configuration
-BASE_URL = os.getenv("API_BASE_URL", "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod")
+BASE_URL = os.getenv("API_BASE_URL", "https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod")
 ARTIFACTS_BUCKET = os.getenv("ARTIFACTS_BUCKET", "pkg-artifacts")
 REGION = os.getenv("AWS_REGION", "us-east-1")
 

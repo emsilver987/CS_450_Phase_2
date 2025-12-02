@@ -59,7 +59,7 @@ class LoadGenerator:
 
         Args:
             run_id: Unique identifier for this workload run
-            base_url: Base URL of the API (e.g., "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod")
+            base_url: Base URL of the API (e.g., "https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod")
             num_clients: Number of concurrent clients to simulate
             model_id: Model ID to download
             version: Model version (default: "main")
@@ -156,6 +156,28 @@ class LoadGenerator:
                 timestamp=timestamp,
             )
 
+        except aiohttp.ClientConnectorError as e:
+            end_time = time.time()
+            latency_ms = (end_time - start_time) * 1000
+
+            error_msg = str(e)
+            if "nodename nor servname provided" in error_msg or "Cannot connect to host" in error_msg:
+                logger.error(
+                    f"DNS resolution failed for client_id={client_id}: {error_msg}. "
+                    f"Check that API_BASE_URL environment variable is set correctly. "
+                    f"Current base_url: {self.base_url}"
+                )
+            else:
+                logger.error(f"Connection error for client_id={client_id}: {error_msg}")
+            
+            return Metric(
+                run_id=self.run_id,
+                client_id=client_id,
+                request_latency_ms=latency_ms,
+                bytes_transferred=0,
+                status_code=0,  # 0 indicates error
+                timestamp=timestamp,
+            )
         except Exception as e:
             end_time = time.time()
             latency_ms = (end_time - start_time) * 1000
@@ -202,7 +224,8 @@ class LoadGenerator:
         """
         logger.info(
             f"Starting load generator: run_id={self.run_id}, "
-            f"num_clients={self.num_clients}, model_id={self.model_id}"
+            f"num_clients={self.num_clients}, model_id={self.model_id}, "
+            f"base_url={self.base_url}"
         )
 
         self.start_time = time.time()
