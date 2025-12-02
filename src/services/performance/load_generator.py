@@ -164,13 +164,15 @@ class LoadGenerator:
                     # Invalid port, use default
                     pass
         
-        # Simple direct connection (no connection pool for simplicity)
+        # Simple direct connection with shorter timeout for faster fallback
+        # Use connect_timeout to fail quickly if RDS is not accessible
         conn = psycopg2.connect(
             host=rds_host,
             port=rds_port,
             database=RDS_DATABASE,
             user=RDS_USERNAME,
-            password=RDS_PASSWORD
+            password=RDS_PASSWORD,
+            connect_timeout=5  # 5 second timeout for connection attempt
         )
         
         try:
@@ -254,17 +256,50 @@ class LoadGenerator:
                 
                 return metric
             except Exception as e:
-                end_time = time.time()
-                latency_ms = (end_time - start_time) * 1000
-                logger.error(f"RDS direct download error for client_id={client_id}: {str(e)}")
-                return Metric(
-                    run_id=self.run_id,
-                    client_id=client_id,
-                    request_latency_ms=latency_ms,
-                    bytes_transferred=0,
-                    status_code=0,
-                    timestamp=timestamp,
-                )
+                error_str = str(e).lower()
+                # Check if it's a connection error (RDS not publicly accessible)
+                if any(phrase in error_str for phrase in [
+                    "connection timed out", "connection refused", 
+                    "could not translate host name", "timeout expired",
+                    "server closed the connection", "network is unreachable"
+                ]):
+                    # RDS is not publicly accessible - fall back to API endpoint
+                    if session is not None:
+                        # Only log once per client to reduce noise
+                        if client_id <= 20 or client_id % 10 == 0:
+                            logger.warning(
+                                f"Direct RDS connection failed for client_id={client_id} (RDS not publicly accessible). "
+                                f"Falling back to API endpoint."
+                            )
+                        # Fall through to API endpoint code below
+                    else:
+                        # No session available, return error
+                        end_time = time.time()
+                        latency_ms = (end_time - start_time) * 1000
+                        logger.error(
+                            f"RDS direct connection failed and no API session available for client_id={client_id}: {str(e)}"
+                        )
+                        return Metric(
+                            run_id=self.run_id,
+                            client_id=client_id,
+                            request_latency_ms=latency_ms,
+                            bytes_transferred=0,
+                            status_code=0,
+                            timestamp=timestamp,
+                        )
+                else:
+                    # Other error - return failure
+                    end_time = time.time()
+                    latency_ms = (end_time - start_time) * 1000
+                    logger.error(f"RDS direct download error for client_id={client_id}: {str(e)}")
+                    return Metric(
+                        run_id=self.run_id,
+                        client_id=client_id,
+                        request_latency_ms=latency_ms,
+                        bytes_transferred=0,
+                        status_code=0,
+                        timestamp=timestamp,
+                    )
         
         # Otherwise use API endpoint
         if session is None:
@@ -280,6 +315,20 @@ class LoadGenerator:
                 latency_ms = (end_time - start_time) * 1000
                 bytes_transferred = len(content)
                 status_code = response.status
+
+                # Log error details for 4xx/5xx responses (but only for first few clients to reduce noise)
+                if status_code >= 400 and (client_id <= 5 or client_id % 20 == 0):
+                    try:
+                        error_text = content.decode('utf-8')[:200]  # First 200 chars
+                        logger.warning(
+                            f"Request failed for client_id={client_id}: "
+                            f"status={status_code}, error={error_text}"
+                        )
+                    except:
+                        logger.warning(
+                            f"Request failed for client_id={client_id}: "
+                            f"status={status_code}, bytes={bytes_transferred}"
+                        )
 
                 metric = Metric(
                     run_id=self.run_id,
@@ -413,29 +462,18 @@ class LoadGenerator:
         if self.auth_token:
             headers["X-Authorization"] = self.auth_token
 
-        # For direct RDS, we don't need HTTP session
-        if self.use_direct_rds:
+        # Always create HTTP session (needed for API fallback if direct RDS fails)
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector, headers=headers
+        ) as session:
             # Create tasks for all clients (client_id is 1-based)
             tasks = [
-                self._run_client(client_id, None)
+                self._run_client(client_id, session)
                 for client_id in range(1, self.num_clients + 1)
             ]
             
             # Run all clients concurrently
             await asyncio.gather(*tasks)
-        else:
-            # Use HTTP session for API requests
-            async with aiohttp.ClientSession(
-                timeout=timeout, connector=connector, headers=headers
-            ) as session:
-                # Create tasks for all clients (client_id is 1-based)
-                tasks = [
-                    self._run_client(client_id, session)
-                    for client_id in range(1, self.num_clients + 1)
-                ]
-
-                # Run all clients concurrently
-                await asyncio.gather(*tasks)
 
         self.end_time = time.time()
 

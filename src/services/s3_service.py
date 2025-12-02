@@ -1950,7 +1950,9 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                 },
             )
 
-        upload_model(zip_content, model_id, version)
+        # Use storage service abstraction to support both S3 and RDS backends
+        from ..services.storage_service import upload_model as storage_upload_model
+        storage_upload_model(zip_content, model_id, version, use_performance_path=False)
         total_time = time.time() - start_time
         print(f"[INGEST] Success in {total_time:.2f}s")
         return {

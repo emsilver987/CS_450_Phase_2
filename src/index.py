@@ -5449,6 +5449,69 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
+@app.post("/artifact/model/{id}/upload-rds")
+async def upload_artifact_model_to_rds(
+    id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    version: str = Query("main", description="Model version"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Upload model file directly to RDS.
+    This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
+    Supports both models/ and performance/ paths.
+    """
+    # Optional authentication check
+    try:
+        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+        if auth_header:
+            if not verify_auth_token(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+                )
+    except ImportError:
+        pass
+    
+    try:
+        # Check if RDS is configured
+        storage_backend = os.getenv("STORAGE_BACKEND", "s3").lower()
+        if storage_backend != "rds":
+            raise HTTPException(
+                status_code=400,
+                detail=f"RDS upload endpoint requires STORAGE_BACKEND=rds, but current backend is {storage_backend}"
+            )
+        
+        # Read file content
+        file_content = await file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File content is empty")
+        
+        # Determine if we should use performance path
+        use_performance_path = (path_prefix.lower() == "performance")
+        
+        # Import RDS service and upload directly
+        from .services.rds_service import upload_model as rds_upload_model
+        
+        logger.info(f"[RDS UPLOAD] Request: id={id}, version={version}, path_prefix={path_prefix}, size={len(file_content)} bytes")
+        
+        result = rds_upload_model(file_content, id, version, use_performance_path=use_performance_path)
+        
+        return {
+            "message": "Upload successful",
+            "details": result,
+            "model_id": id,
+            "version": version,
+            "path_prefix": path_prefix
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RDS upload failed for {id} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS upload failed: {str(e)}")
+
+
 @app.get("/artifact/model/{id}/download")
 async def download_artifact_model(
     id: str,

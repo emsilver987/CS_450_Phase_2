@@ -28,6 +28,7 @@ import boto3
 import uuid
 import zipfile
 import io
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
@@ -69,6 +70,55 @@ except ImportError:
         "t5-base",
         "facebook/bart-base",
     ]
+
+
+def get_rds_endpoint_from_terraform() -> Optional[str]:
+    """
+    Get RDS endpoint from Terraform output.
+    Returns the RDS endpoint (hostname) or None if not available.
+    """
+    try:
+        import subprocess
+        import json
+        # Get Terraform output for RDS endpoint
+        # Navigate to infra/envs/dev directory
+        script_dir = Path(__file__).parent.parent
+        terraform_dir = script_dir / "infra" / "envs" / "dev"
+        
+        if not terraform_dir.exists():
+            return None
+        
+        # Run terraform output -json to get all outputs
+        result = subprocess.run(
+            ["terraform", "output", "-json"],
+            cwd=str(terraform_dir),
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            outputs = json.loads(result.stdout)
+            # Try rds_endpoint first, then rds_address
+            endpoint = None
+            if "rds_endpoint" in outputs and "value" in outputs["rds_endpoint"]:
+                endpoint = outputs["rds_endpoint"]["value"]
+            elif "rds_address" in outputs and "value" in outputs["rds_address"]:
+                endpoint = outputs["rds_address"]["value"]
+            
+            if endpoint:
+                # Remove port if included (e.g., "hostname:5432" -> "hostname")
+                if ":" in endpoint:
+                    endpoint = endpoint.split(":")[0]
+                return endpoint
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
+        # Terraform not available or output not accessible
+        pass
+    except Exception:
+        # Any other error - just return None
+        pass
+    
+    return None
 
 
 def get_authentication_token(api_base_url: str) -> Optional[str]:
@@ -441,6 +491,9 @@ def ingest_model_rds_mode(model_id: str, version: str = "main", skip_missing: bo
         print("  Make sure psycopg2-binary is installed and RDS environment variables are set")
         return (False, "error")
     
+    # Ensure RDS environment variables are set (they should be set in main_rds_mode before calling this)
+    # This is a safety check - if they're not set, the RDS service will fail with a clear error
+    
     # Check if model already exists in RDS (skip to avoid re-uploading)
     if skip_existing:
         try:
@@ -448,7 +501,14 @@ def ingest_model_rds_mode(model_id: str, version: str = "main", skip_missing: bo
                 print(f"  ⊘ Model already exists in RDS: {model_id} (skipping)")
                 return (True, "already_exists")
         except Exception as e:
-            print(f"  ⚠ Error checking RDS for existing model: {e}")
+            error_str = str(e).lower()
+            # Check if it's a connection error (RDS not accessible)
+            if "connection timed out" in error_str or "connection refused" in error_str or "could not translate host name" in error_str:
+                print(f"  ⚠ RDS connection failed (RDS may not be publicly accessible): {str(e)[:100]}")
+                print(f"     This is expected if RDS is in a private subnet.")
+                print(f"     You may need to run this script from within the VPC (EC2/ECS).")
+            else:
+                print(f"  ⚠ Error checking RDS for existing model: {e}")
     
     # Check if model exists on HuggingFace first
     if skip_missing:
@@ -479,11 +539,22 @@ def ingest_model_rds_mode(model_id: str, version: str = "main", skip_missing: bo
         return (True, None)
     except Exception as e:
         error_msg = str(e)
-        if "not found" in error_msg.lower() or "404" in error_msg:
+        error_str = error_msg.lower()
+        
+        # Check if it's a connection error (RDS not accessible)
+        if "connection timed out" in error_str or "connection refused" in error_str or "could not translate host name" in error_str:
+            print(f"  ✗ RDS connection failed: {error_msg[:200]}")
+            print(f"     RDS is not publicly accessible from your local machine.")
+            print(f"     To populate RDS, you need to:")
+            print(f"       1. Run this script from within the VPC (EC2 instance or ECS task)")
+            print(f"       2. Or use a VPN/bastion host to access RDS")
+            print(f"       3. Or make RDS publicly accessible (not recommended for security)")
+            return (False, "error")
+        elif "not found" in error_str or "404" in error_msg:
             print(f"  ⊘ Model not found: {model_id} (skipping)")
             return (False, "not_found")
         else:
-            print(f"  ✗ Failed: {error_msg}")
+            print(f"  ✗ Failed: {error_msg[:200]}")
             return (False, "error")
 
 
@@ -569,9 +640,13 @@ def ingest_model_performance_mode(s3, ap_arn: str, table, model_id: str, version
             return (False, "error")
 
 
-def ingest_model(api_base_url: str, model_id: str, auth_token: Optional[str], retry: int = 0, skip_missing: bool = True) -> tuple:
+def ingest_model(api_base_url: str, model_id: str, auth_token: Optional[str], retry: int = 0, skip_missing: bool = True, use_rds_direct: bool = False, use_performance_path: bool = False) -> tuple:
     """
     Ingest a single model into the registry.
+    
+    Args:
+        use_rds_direct: If True, use direct RDS upload endpoint instead of standard ingestion
+        use_performance_path: If True, upload to performance/ path (only used with use_rds_direct)
     
     Returns:
         (success: bool, status: Optional[str]) where status can be:
@@ -586,17 +661,44 @@ def ingest_model(api_base_url: str, model_id: str, auth_token: Optional[str], re
             return (False, "not_found")
     
     try:
-        headers = {"Content-Type": "application/json"}
+        headers = {}
         if auth_token:
             headers["X-Authorization"] = auth_token
         
-        # Use the /artifact/model endpoint to ingest
-        url = f"{api_base_url}/artifact/model"
-        payload = {
-            "url": f"https://huggingface.co/{model_id}"
-        }
-        
-        response = requests.post(url, json=payload, headers=headers, timeout=300)
+        # If using direct RDS upload, download model and upload directly
+        if use_rds_direct:
+            # Download model from HuggingFace
+            print(f"  Downloading model from HuggingFace...")
+            is_tiny_llm = (model_id == REQUIRED_MODEL)
+            zip_content = download_from_huggingface(model_id, "main", download_all=is_tiny_llm)
+            
+            # Upload directly to RDS
+            path_prefix = "performance" if use_performance_path else "models"
+            sanitized_model_id = (
+                model_id.replace("/", "_")
+                .replace(":", "_")
+                .replace("\\", "_")
+                .replace("?", "_")
+                .replace("*", "_")
+                .replace('"', "_")
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace("|", "_")
+            )
+            
+            url = f"{api_base_url}/artifact/model/{sanitized_model_id}/upload-rds"
+            files = {"file": (f"{model_id}.zip", zip_content, "application/zip")}
+            params = {"version": "main", "path_prefix": path_prefix}
+            
+            response = requests.post(url, files=files, params=params, headers=headers, timeout=600)
+        else:
+            # Use standard ingestion endpoint
+            headers["Content-Type"] = "application/json"
+            url = f"{api_base_url}/artifact/model"
+            payload = {
+                "url": f"https://huggingface.co/{model_id}"
+            }
+            response = requests.post(url, json=payload, headers=headers, timeout=300)
         
         if response.status_code in [200, 201, 202]:
             print(f"✓ Successfully ingested: {model_id}")
@@ -708,7 +810,123 @@ def main():
     is_local = args.local
     is_prod = args.prod
     
+    # RDS mode: Use direct RDS writes for local, API endpoint for prod
+    # For local: Direct RDS writes (requires local env vars or Terraform)
+    # For prod: Use API endpoint (API server is in VPC and can access RDS)
+    if use_rds:
+        if is_local:
+            return main_rds_mode()
+        # For production, use API endpoint (API server can access RDS from within VPC)
+        elif is_prod:
+            api_base_url = DEFAULT_API_URL
+            print("=" * 80)
+            print("ACME Model Registry Population Script")
+            print("RDS STORAGE MODE - PRODUCTION (using production API endpoint)")
+            print("=" * 80)
+            print(f"API Base URL: {api_base_url}")
+            print()
+            print("Note: Production API server is in VPC and can access RDS.")
+            print("      Models will be uploaded directly to RDS using /artifact/model/{id}/upload-rds endpoint.")
+            print("      Models will be stored in performance/ path for load generator compatibility.")
+            print()
+            
+            # Get authentication token
+            print("Authenticating...")
+            auth_token = get_authentication_token(api_base_url)
+            if auth_token:
+                print("✓ Authentication successful")
+            else:
+                print("⊘ No authentication token (some endpoints may fail)")
+            print()
+            
+            # Get hardcoded list of 500 models
+            print("Loading hardcoded list of 500 HuggingFace models...")
+            models = get_hardcoded_models(count=500)
+            print(f"✓ Loaded {len(models)} models to ingest")
+            
+            # Ensure REQUIRED_MODEL is first
+            if REQUIRED_MODEL in models:
+                models.remove(REQUIRED_MODEL)
+            models.insert(0, REQUIRED_MODEL)
+            models = models[:500]  # Ensure exactly 500
+            
+            print(f"Will ingest {len(models)} models (starting with {REQUIRED_MODEL})")
+            print()
+            
+            # Start ingesting models
+            print("Starting model ingestion via production API...")
+            print("=" * 80)
+            
+            successful = 0
+            failed = 0
+            not_found = 0
+            not_found_models = []
+            
+            for i, model_id in enumerate(models, 1):
+                print(f"[{i}/{len(models)}] Ingesting: {model_id}")
+                
+                # For RDS storage, use direct RDS upload with performance path
+                result, status = ingest_model(
+                    api_base_url, 
+                    model_id, 
+                    auth_token, 
+                    skip_missing=True,
+                    use_rds_direct=True,  # Use direct RDS upload endpoint
+                    use_performance_path=True  # Store in performance/ path for load generator
+                )
+                if result:
+                    successful += 1
+                elif status == "not_found":
+                    not_found += 1
+                    not_found_models.append(model_id)
+                else:
+                    failed += 1
+                
+                # Small delay to avoid rate limiting
+                if i < len(models):
+                    time.sleep(0.5)
+                
+                # Progress update every 50 models
+                if i % 50 == 0:
+                    print()
+                    print(f"Progress: {i}/{len(models)} ({successful} successful, {failed} failed, {not_found} not found)")
+                    print()
+            
+            # Final summary
+            print()
+            print("=" * 80)
+            print("Ingestion Summary")
+            print("=" * 80)
+            print(f"Total models processed: {len(models)}")
+            print(f"  - Successfully ingested: {successful}")
+            print(f"  - Not found on HuggingFace: {not_found}")
+            print(f"  - Failed (other errors): {failed}")
+            print(f"Total successful: {successful}")
+            print()
+            
+            # Report models that don't exist
+            if not_found_models:
+                print(f"⚠ {len(not_found_models)} models not found on HuggingFace:")
+                print("   These models should be removed from the list:")
+                for model in not_found_models[:20]:  # Show first 20
+                    print(f"     - {model}")
+                if len(not_found_models) > 20:
+                    print(f"     ... and {len(not_found_models) - 20} more")
+                print()
+            
+            # Verify Tiny-LLM was in the list
+            if REQUIRED_MODEL in models:
+                print(f"✓ Required model '{REQUIRED_MODEL}' was included in ingestion list")
+            
+            if successful >= 500:
+                print("✓ Registry should have 500+ models")
+                return 0
+            else:
+                print(f"⚠ Successfully ingested {successful} models (target: 500)")
+                return 1 if failed > successful else 0
+    
     # Production mode: Use API endpoint (env vars are set in ECS, no manual setup needed)
+    # Note: This applies to S3 storage
     if is_prod:
         api_base_url = DEFAULT_API_URL
         print("=" * 80)
@@ -951,16 +1169,30 @@ def main_rds_mode():
     print("=" * 80)
     print()
     
-    # Check RDS environment variables
+    # Check RDS environment variables or try to get from Terraform
     rds_endpoint = os.getenv("RDS_ENDPOINT", "")
     rds_password = os.getenv("RDS_PASSWORD", "")
     
-    if not rds_endpoint or not rds_password:
+    # If RDS_ENDPOINT not set, try to get from Terraform
+    if not rds_endpoint:
+        print("Attempting to get RDS endpoint from Terraform output...")
+        rds_endpoint = get_rds_endpoint_from_terraform()
+        if rds_endpoint:
+            print(f"✓ Found RDS endpoint from Terraform: {rds_endpoint}")
+        else:
+            print(f"⚠️  Could not get RDS endpoint from Terraform output")
+    
+    # If RDS_PASSWORD not set, try to use hardcoded password (from Terraform config)
+    if not rds_password:
+        rds_password = "acme_rds_password_123"  # Hardcoded from infra/envs/dev/main.tf
+        print(f"⚠️  RDS_PASSWORD not set, using hardcoded password (from Terraform config)")
+    
+    if not rds_endpoint:
         print("✗ RDS configuration missing!")
         print()
-        print("  Required environment variables:")
-        print("    - RDS_ENDPOINT (RDS hostname)")
-        print("    - RDS_PASSWORD (RDS password)")
+        print("  Required:")
+        print("    - RDS_ENDPOINT (RDS hostname) - set as env var or available via Terraform")
+        print("    - RDS_PASSWORD (RDS password) - set as env var or will use hardcoded value")
         print()
         print("  Optional:")
         print("    - RDS_DATABASE (default: acme)")
@@ -970,6 +1202,42 @@ def main_rds_mode():
     
     print(f"✓ RDS Endpoint: {rds_endpoint}")
     print(f"✓ RDS Database: {os.getenv('RDS_DATABASE', 'acme')}")
+    print()
+    
+    # Set environment variables so RDS service can read them
+    # The RDS service reads these at import time, so we must set them before importing
+    os.environ["RDS_ENDPOINT"] = rds_endpoint
+    os.environ["RDS_PASSWORD"] = rds_password
+    # Set optional variables if not already set
+    if not os.getenv("RDS_DATABASE"):
+        os.environ["RDS_DATABASE"] = "acme"
+    if not os.getenv("RDS_USERNAME"):
+        os.environ["RDS_USERNAME"] = "acme"
+    if not os.getenv("RDS_PORT"):
+        os.environ["RDS_PORT"] = "5432"
+    
+    print("✓ RDS environment variables set")
+    print()
+    print("⚠️  IMPORTANT: RDS Connection Requirements")
+    print("   RDS is in a private subnet and is NOT publicly accessible.")
+    print("   To populate RDS from your local machine, you have two options:")
+    print()
+    print("   Option 1: Run from within AWS VPC (Recommended)")
+    print("     - SSH into an EC2 instance in the same VPC")
+    print("     - Or run from an ECS task")
+    print("     - Then run: python scripts/populate_registry.py --rds --prod")
+    print()
+    print("   Option 2: Use API endpoint (if it supports performance/ path)")
+    print("     - Run: python scripts/populate_registry.py --rds --prod")
+    print("     - But this requires API endpoint to support performance/ path")
+    print()
+    print("   Note: Direct RDS connection from local machine will fail with timeout.")
+    print("         This is expected - RDS is configured for security (not publicly accessible).")
+    print()
+    response = input("Continue anyway? (y/N): ").strip().lower()
+    if response != 'y':
+        print("Aborted.")
+        return 1
     print()
     
     # Get all available models

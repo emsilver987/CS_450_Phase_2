@@ -119,6 +119,10 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name  = "RDS_PASSWORD"
         value = var.rds_password
+      },
+      {
+        name  = "RDS_PORT"
+        value = "5432"
       }
     ]
 

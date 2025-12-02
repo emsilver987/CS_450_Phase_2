@@ -228,9 +228,18 @@ async def test_load_generator(
             print(f"⚠️  Could not get RDS endpoint from Terraform output")
     
     if storage_backend == "rds" and rds_endpoint:
-        use_direct_rds = True
-        print(f"✓ Using direct RDS connection: {rds_endpoint}")
-        print(f"  This bypasses the API and directly queries RDS database")
+        # For production API, RDS is likely not publicly accessible
+        # Skip direct RDS attempt and use API endpoint directly
+        if base_url != DEFAULT_LOCAL_URL and "localhost" not in base_url:
+            use_direct_rds = False
+            print(f"⚠️  RDS endpoint found but using API endpoint for production")
+            print(f"  (RDS is not publicly accessible, API server can access it)")
+        else:
+            use_direct_rds = True
+            print(f"✓ Using direct RDS connection: {rds_endpoint}")
+            print(f"  This bypasses the API and directly queries RDS database")
+            print(f"  ⚠️  Note: If RDS is not publicly accessible, will automatically")
+            print(f"     fall back to API endpoint (which can access RDS)")
     elif storage_backend == "rds":
         print(f"⚠️  RDS storage selected but RDS_ENDPOINT not available")
         print(f"  Options:")
@@ -241,7 +250,11 @@ async def test_load_generator(
     print()
     print("⚠️  Prerequisites:")
     if storage_backend == "rds":
-        print(f"  1. Run: python scripts/populate_registry.py --rds --local")
+        if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
+            print(f"  1. Run: python scripts/populate_registry.py --rds --local")
+        else:
+            print(f"  1. Run: python scripts/populate_registry.py --rds --prod")
+            print(f"     (to populate production RDS with model data)")
         if use_direct_rds:
             print(f"  2. ✓ Direct RDS mode enabled - API server NOT required")
         else:
