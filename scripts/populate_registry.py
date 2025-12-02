@@ -6,20 +6,17 @@ This script populates the ACME Model Registry with 500 real models from HuggingF
 including the required Tiny-LLM model for performance testing.
 
 Usage:
-    # Use remote API (default):
-    python scripts/populate_registry.py
+    # S3 storage with local environment:
+    python scripts/populate_registry.py --s3 --local
     
-    # Use local server:
-    python scripts/populate_registry.py --local
+    # S3 storage with production environment:
+    python scripts/populate_registry.py --s3 --prod
     
-    # Use custom URL:
-    python scripts/populate_registry.py --url http://localhost:8000
+    # RDS storage with local environment:
+    python scripts/populate_registry.py --rds --local
     
-    # Performance mode (stores in performance/ S3 path, bypasses API):
-    python scripts/populate_registry.py --performance
-    
-    # Or with environment variable:
-    API_BASE_URL=http://localhost:3000 python scripts/populate_registry.py
+    # RDS storage with production environment:
+    python scripts/populate_registry.py --rds --prod
 """
 import sys
 import os
@@ -645,42 +642,44 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/populate_registry.py              # Use remote API (default)
-  python scripts/populate_registry.py --local      # Use local server (localhost:8000)
-  python scripts/populate_registry.py --url http://localhost:3000  # Use custom URL
-    python scripts/populate_registry.py --performance  # Performance mode (stores in performance/ S3 path)
-    python scripts/populate_registry.py --local --performance  # Performance mode (bypasses API, --local ignored)
-    python scripts/populate_registry.py --rds  # RDS mode (stores in RDS PostgreSQL)
-    python scripts/populate_registry.py --rds --performance  # RDS mode with performance path
+  # S3 storage with local environment
+  python scripts/populate_registry.py --s3 --local
+  
+  # S3 storage with production environment
+  python scripts/populate_registry.py --s3 --prod
+  
+  # RDS storage with local environment
+  python scripts/populate_registry.py --rds --local
+  
+  # RDS storage with production environment
+  python scripts/populate_registry.py --rds --prod
         """
     )
     
-    # --local and --url are mutually exclusive
-    url_group = parser.add_mutually_exclusive_group()
-    url_group.add_argument(
-        "--local",
+    # Storage backend flags (mutually exclusive)
+    storage_group = parser.add_mutually_exclusive_group(required=True)
+    storage_group.add_argument(
+        "--s3",
         action="store_true",
-        help=f"Use local server at {DEFAULT_LOCAL_URL} (ignored in --performance mode)"
+        help="Use S3 storage backend (direct upload to S3, bypasses API)"
     )
-    url_group.add_argument(
-        "--url",
-        type=str,
-        metavar="URL",
-        help="Custom API base URL (e.g., http://localhost:8000). Ignored in --performance mode."
-    )
-    
-    # --performance is independent (bypasses API, so --local/--url are ignored)
-    parser.add_argument(
-        "--performance",
-        action="store_true",
-        help="Performance mode: directly upload to S3 at performance/ path (bypasses API, --local/--url ignored)"
-    )
-    
-    # --rds flag for RDS storage backend
-    parser.add_argument(
+    storage_group.add_argument(
         "--rds",
         action="store_true",
-        help="Use RDS storage backend instead of S3 (requires RDS environment variables to be set)"
+        help="Use RDS storage backend (direct upload to RDS, bypasses API)"
+    )
+    
+    # Environment flags (mutually exclusive)
+    env_group = parser.add_mutually_exclusive_group(required=True)
+    env_group.add_argument(
+        "--local",
+        action="store_true",
+        help="Use local environment (for future use, currently direct storage writes bypass API)"
+    )
+    env_group.add_argument(
+        "--prod",
+        action="store_true",
+        help="Use production environment (for future use, currently direct storage writes bypass API)"
     )
     
     return parser.parse_args()
@@ -688,10 +687,9 @@ Examples:
 
 def get_api_base_url(args: argparse.Namespace) -> str:
     """Determine the API base URL from arguments or environment"""
-    # Priority: CLI args > environment variable > default
-    if args.url:
-        return args.url.rstrip("/")
-    elif args.local:
+    # For direct storage writes (S3/RDS), API URL is not used
+    # But we keep this for potential future use
+    if args.local:
         return DEFAULT_LOCAL_URL
     elif os.getenv("API_BASE_URL"):
         return os.getenv("API_BASE_URL").rstrip("/")
@@ -704,121 +702,27 @@ def main():
     # Parse command-line arguments
     args = parse_arguments()
     
-    # RDS mode: direct RDS writes (bypasses API, ignores --local/--url)
-    if args.rds:
-        if args.local or args.url:
-            print("Note: --rds mode bypasses API, so --local/--url flags are ignored")
+    # Determine storage backend and environment
+    use_rds = args.rds
+    use_s3 = args.s3
+    is_local = args.local
+    is_prod = args.prod
+    
+    # RDS mode: direct RDS writes (bypasses API)
+    if use_rds:
+        env_name = "local" if is_local else "production"
+        print(f"Note: --rds mode bypasses API, using {env_name} environment configuration")
         return main_rds_mode()
     
-    # Performance mode: direct S3/DynamoDB writes (bypasses API, ignores --local/--url)
-    if args.performance:
-        if args.local or args.url:
-            print("Note: --performance mode bypasses API, so --local/--url flags are ignored")
+    # S3 mode: direct S3/DynamoDB writes (bypasses API)
+    if use_s3:
+        env_name = "local" if is_local else "production"
+        print(f"Note: --s3 mode bypasses API, using {env_name} environment configuration")
         return main_performance_mode()
     
-    # Normal mode: use API
-    api_base_url = get_api_base_url(args)
-    
-    print("=" * 80)
-    print("ACME Model Registry Population Script")
-    print("=" * 80)
-    print(f"API Base URL: {api_base_url}")
-    if args.local:
-        print("Mode: Local")
-    elif args.url:
-        print(f"Mode: Custom URL")
-    elif os.getenv("API_BASE_URL"):
-        print("Mode: Environment Variable")
-    else:
-        print("Mode: Remote API (default)")
-    print()
-    
-    # Get authentication token
-    print("Authenticating...")
-    auth_token = get_authentication_token(api_base_url)
-    if auth_token:
-        print("✓ Authentication successful")
-    else:
-        print("⊘ No authentication token (some endpoints may fail)")
-    print()
-    
-    # Get hardcoded list of 500 models
-    print("Loading hardcoded list of 500 HuggingFace models...")
-    models = get_hardcoded_models(count=500)
-    print(f"✓ Loaded {len(models)} models to ingest")
-    
-    # Ensure REQUIRED_MODEL is first
-    if REQUIRED_MODEL in models:
-        models.remove(REQUIRED_MODEL)
-    models.insert(0, REQUIRED_MODEL)
-    models = models[:500]  # Ensure exactly 500
-    
-    print(f"Will ingest {len(models)} models (starting with {REQUIRED_MODEL})")
-    print()
-    
-    # Start ingesting models (check existence first to avoid wasting time)
-    print("Starting model ingestion...")
-    print("=" * 80)
-    
-    successful = 0
-    failed = 0
-    not_found = 0
-    not_found_models = []
-    
-    for i, model_id in enumerate(models, 1):
-        print(f"[{i}/{len(models)}] Ingesting: {model_id}")
-        
-        result, status = ingest_model(api_base_url, model_id, auth_token, skip_missing=True)
-        if result:
-            successful += 1
-        elif status == "not_found":
-            not_found += 1
-            not_found_models.append(model_id)
-        else:
-            failed += 1
-        
-        # Small delay to avoid rate limiting
-        if i < len(models):
-            time.sleep(0.5)
-        
-        # Progress update every 50 models
-        if i % 50 == 0:
-            print()
-            print(f"Progress: {i}/{len(models)} ({successful} successful, {failed} failed, {not_found} not found)")
-            print()
-    
-    # Final summary
-    print()
-    print("=" * 80)
-    print("Ingestion Summary")
-    print("=" * 80)
-    print(f"Total models processed: {len(models)}")
-    print(f"  - Successfully ingested: {successful}")
-    print(f"  - Not found on HuggingFace: {not_found}")
-    print(f"  - Failed (other errors): {failed}")
-    print(f"Total successful: {successful}")
-    print()
-    
-    # Report models that don't exist
-    if not_found_models:
-        print(f"⚠ {len(not_found_models)} models not found on HuggingFace:")
-        print("   These models should be removed from the list:")
-        for model in not_found_models[:20]:  # Show first 20
-            print(f"     - {model}")
-        if len(not_found_models) > 20:
-            print(f"     ... and {len(not_found_models) - 20} more")
-        print()
-    
-    # Verify Tiny-LLM was in the list
-    if REQUIRED_MODEL in models:
-        print(f"✓ Required model '{REQUIRED_MODEL}' was included in ingestion list")
-    
-    if successful >= 500:
-        print("✓ Registry should have 500+ models")
-        return 0
-    else:
-        print(f"⚠ Successfully ingested {successful} models (target: 500)")
-        return 1 if failed > successful else 0
+    # This should not be reached due to required=True in argument groups
+    print("Error: Must specify either --s3 or --rds, and either --local or --prod")
+    return 1
 
 
 def main_performance_mode():
@@ -944,7 +848,7 @@ def main_rds_mode():
     """Main function for RDS mode: direct RDS writes"""
     print("=" * 80)
     print("ACME Model Registry Population Script")
-    print("RDS MODE (stores in RDS PostgreSQL)")
+    print("RDS STORAGE MODE (stores in RDS PostgreSQL)")
     print("=" * 80)
     print()
     
