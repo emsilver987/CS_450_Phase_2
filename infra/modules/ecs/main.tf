@@ -1,5 +1,10 @@
 # JWT secret ARN is now passed as a variable instead of using a data source
 
+# Data source for GenAI API key secret
+data "aws_secretsmanager_secret" "genai_api_key" {
+  name = "acme-genai-api-key"
+}
+
 # ECR Repository
 resource "aws_ecr_repository" "validator_repo" {
   name                 = "validator-service"
@@ -110,6 +115,10 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name      = "GITHUB_TOKEN"
         valueFrom = "${var.github_token_secret_arn}:github_token::"
+      },
+      {
+        name      = "GEN_AI_STUDIO_API_KEY"
+        valueFrom = "${data.aws_secretsmanager_secret.genai_api_key.arn}:GEN_AI_STUDIO_API_KEY::"
       }
     ]
 
@@ -323,7 +332,8 @@ resource "aws_iam_role_policy" "ecs_execution_secrets_policy" {
         ]
         Resource = [
           var.jwt_secret_arn,
-          var.github_token_secret_arn
+          var.github_token_secret_arn,
+          data.aws_secretsmanager_secret.genai_api_key.arn
         ]
       },
       {
