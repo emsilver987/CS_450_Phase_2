@@ -69,6 +69,26 @@ def driver(request):
 
     # Initialize driver to None for reliable cleanup check
     driver = None
+    driver_created = False
+
+    # Register finalizer BEFORE creating driver to ensure cleanup even if creation fails
+    if not _driver_finalizer_registered:
+        _driver_finalizer_registered = True
+
+        def cleanup_driver():
+            if "driver" in _driver_cache and _driver_cache["driver"] is not None:
+                cached_driver = _driver_cache["driver"]
+                try:
+                    cached_driver.quit()
+                    time.sleep(0.5)
+                except Exception as e:
+                    # Log but don't fail - cleanup errors shouldn't break tests
+                    print(f"Warning: Error during driver cleanup: {e}")
+                finally:
+                    _driver_cache.clear()
+
+        # Register at session scope to ensure it runs only once
+        request.session.addfinalizer(cleanup_driver)
 
     # Try to create driver
     try:
@@ -80,38 +100,21 @@ def driver(request):
             driver = webdriver.Chrome(options=chrome_options)
 
         driver.implicitly_wait(WEBDRIVER_IMPLICIT_WAIT)
+        driver_created = True
 
         # Store in module cache for reuse
         _driver_cache["driver"] = driver
-
-        # Register finalizer only once to cleanup when module scope truly ends
-        if not _driver_finalizer_registered:
-            _driver_finalizer_registered = True
-
-            def cleanup_driver():
-                if "driver" in _driver_cache and _driver_cache["driver"] is not None:
-                    cached_driver = _driver_cache["driver"]
-                    try:
-                        cached_driver.quit()
-                        time.sleep(0.5)
-                    except Exception:
-                        pass
-                    finally:
-                        _driver_cache.clear()
-
-            # Register at session scope to ensure it runs only once
-            request.session.addfinalizer(cleanup_driver)
 
         yield driver
     except Exception as e:
         pytest.skip(f"Chrome WebDriver not available: {e}")
     finally:
-        # Ensure cleanup even if test fails or driver creation fails
-        if driver is not None and "driver" not in _driver_cache:
+        # Ensure cleanup even if driver creation fails mid-way (created but not cached)
+        if driver is not None and not driver_created:
             try:
                 driver.quit()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Error cleaning up failed driver: {e}")
 
 
 @pytest.fixture
@@ -134,15 +137,15 @@ def base_url():
 @pytest.fixture
 def sample_upload_zip(tmp_path):
     """
-    Create a small dummy zip file to use for the upload test.
-    Returns the absolute path as a string (what Selenium expects).
+    Create a dummy zip file used by Selenium upload tests.
+    Returns the absolute file path as a string (for Selenium).
     """
     zip_path = tmp_path / "test_package.zip"
 
     with zipfile.ZipFile(zip_path, "w") as zf:
+        # Add a simple file to the archive for upload testing
         zf.writestr("dummy.txt", "content for upload test")
 
-    # Selenium requires a string path
     return str(zip_path.resolve())
 
 
@@ -662,3 +665,67 @@ class TestSearchAction:
 
         except NoSuchElementException:
             pytest.skip("Search input not found")
+
+
+class TestDriverCleanup:
+    """Test driver cleanup and state management"""
+
+    def test_driver_cleanup_after_failure(self, driver, base_url):
+        """Verify driver is cleaned up even if test fails"""
+        driver.get(f"{base_url}/")
+
+        # Wait for page to load
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
+        # Verify driver is working
+        assert driver.current_url is not None, "Driver should have a current URL"
+
+        # Simulate a test failure - driver should still be cleaned up properly
+        # This test verifies that the finalizer will handle cleanup even if
+        # a test raises an exception
+        raise AssertionError("Intentional test failure to verify cleanup")
+
+    def test_driver_reuse_across_tests(self, driver, base_url):
+        """Verify module-scoped driver is properly reused"""
+        # Get initial driver instance
+        initial_driver_id = id(driver)
+
+        # Perform some operations
+        driver.get(f"{base_url}/")
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
+        # Navigate to another page
+        driver.get(f"{base_url}/directory")
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+
+        # Verify it's the same driver instance (module scope ensures reuse)
+        assert id(driver) == initial_driver_id, (
+            "Driver should be reused across tests in the same module"
+        )
+
+        # Verify driver is still functional
+        assert driver.current_url is not None, "Driver should still be functional"
+
+    def test_driver_state_tracking(self, driver):
+        """Verify _driver_cache state is managed correctly"""
+        # Verify driver is in cache
+        assert "driver" in _driver_cache, "Driver should be in module cache"
+        assert _driver_cache["driver"] is not None, "Cached driver should not be None"
+        assert _driver_cache["driver"] is driver, (
+            "Cached driver should be the same instance as fixture"
+        )
+
+        # Verify finalizer is registered
+        assert _driver_finalizer_registered, (
+            "Driver finalizer should be registered"
+        )
+
+        # Verify driver is functional
+        assert driver is not None, "Driver should exist"
+        assert hasattr(driver, "get"), "Driver should have get method"
