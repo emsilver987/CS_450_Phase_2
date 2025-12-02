@@ -226,3 +226,4 @@ If results don't show `llm_enhanced: true`:
 2. **Without LLM**: System works normally using rule-based methods (graceful degradation)
 3. **API Failures**: System falls back to rule-based methods automatically
 
+
