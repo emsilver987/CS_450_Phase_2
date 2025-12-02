@@ -186,27 +186,73 @@ jobs:
       - name: Import S3 bucket if not in state
         shell: bash
         working-directory: ${{ env.TF_DIR }}
-        continue-on-error: true
+        continue-on-error: false
         env:
           TF_VAR_aws_region: us-east-1
           TF_VAR_artifacts_bucket: pkg-artifacts
         run: |
           # Import S3 bucket if it exists but is not in state
           BUCKET_NAME="pkg-artifacts"
-          if ! terraform state show module.s3.aws_s3_bucket.artifacts >/dev/null 2>&1; then
-            echo "S3 bucket not in state, checking if it exists in AWS..."
-            # Check if bucket exists in AWS
-            if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
-              echo "Bucket ${BUCKET_NAME} exists in AWS, importing..."
-              terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=${BUCKET_NAME}" module.s3.aws_s3_bucket.artifacts "${BUCKET_NAME}" || {
-                echo "ERROR: Failed to import bucket ${BUCKET_NAME}"
+          
+          # Check if bucket exists in AWS (try both possible names)
+          BUCKET_EXISTS=false
+          ACTUAL_BUCKET_NAME=""
+          
+          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
+            BUCKET_EXISTS=true
+            ACTUAL_BUCKET_NAME="${BUCKET_NAME}"
+            echo "Found bucket: ${BUCKET_NAME}"
+          elif aws s3api head-bucket --bucket "pkg-artifacts-team" 2>/dev/null; then
+            BUCKET_EXISTS=true
+            ACTUAL_BUCKET_NAME="pkg-artifacts-team"
+            echo "Found bucket: pkg-artifacts-team (different name)"
+          fi
+          
+          # Check if bucket is in Terraform state
+          if terraform state show module.s3.aws_s3_bucket.artifacts >/dev/null 2>&1; then
+            # Extract bucket name from state more reliably
+            STATE_OUTPUT=$(terraform state show module.s3.aws_s3_bucket.artifacts 2>/dev/null || echo "")
+            STATE_BUCKET=$(echo "${STATE_OUTPUT}" | grep -E "^\s*bucket\s*=" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ' || echo "")
+            
+            if [ -z "${STATE_BUCKET}" ]; then
+              # Try alternative method to get bucket name
+              STATE_BUCKET=$(echo "${STATE_OUTPUT}" | grep "id" | head -1 | awk '{print $3}' | tr -d '"' || echo "")
+            fi
+            
+            echo "Bucket in state: '${STATE_BUCKET}'"
+            echo "Actual bucket in AWS: '${ACTUAL_BUCKET_NAME}'"
+            echo "Expected bucket name: '${BUCKET_NAME}'"
+            
+            # If state bucket doesn't match actual bucket, remove from state and re-import
+            if [ "${BUCKET_EXISTS}" = "true" ] && [ -n "${STATE_BUCKET}" ] && [ "${STATE_BUCKET}" != "${ACTUAL_BUCKET_NAME}" ]; then
+              echo "Bucket name mismatch! State has '${STATE_BUCKET}' but AWS has '${ACTUAL_BUCKET_NAME}'"
+              echo "Removing from state and re-importing with correct name..."
+              terraform state rm module.s3.aws_s3_bucket.artifacts || true
+              terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" module.s3.aws_s3_bucket.artifacts "${ACTUAL_BUCKET_NAME}" || {
+                echo "ERROR: Failed to import bucket ${ACTUAL_BUCKET_NAME}"
+                exit 1
+              }
+              echo "Successfully re-imported bucket ${ACTUAL_BUCKET_NAME}"
+            elif [ "${BUCKET_EXISTS}" = "true" ] && [ -n "${STATE_BUCKET}" ] && [ "${STATE_BUCKET}" = "${ACTUAL_BUCKET_NAME}" ]; then
+              echo "S3 bucket already in state correctly (${STATE_BUCKET}), skipping import"
+            elif [ "${BUCKET_EXISTS}" = "true" ] && [ -z "${STATE_BUCKET}" ]; then
+              echo "Bucket exists in AWS but state bucket name could not be determined, re-importing..."
+              terraform state rm module.s3.aws_s3_bucket.artifacts || true
+              terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" module.s3.aws_s3_bucket.artifacts "${ACTUAL_BUCKET_NAME}" || {
+                echo "ERROR: Failed to import bucket ${ACTUAL_BUCKET_NAME}"
                 exit 1
               }
             else
-              echo "Bucket ${BUCKET_NAME} does not exist in AWS, will be created by Terraform"
+              echo "Bucket in state but may need verification"
             fi
+          elif [ "${BUCKET_EXISTS}" = "true" ]; then
+            echo "Bucket ${ACTUAL_BUCKET_NAME} exists in AWS but not in state, importing..."
+            terraform import -var="aws_region=us-east-1" -var="artifacts_bucket=pkg-artifacts" module.s3.aws_s3_bucket.artifacts "${ACTUAL_BUCKET_NAME}" || {
+              echo "ERROR: Failed to import bucket ${ACTUAL_BUCKET_NAME}"
+              exit 1
+            }
           else
-            echo "S3 bucket already in state, skipping import"
+            echo "Bucket ${BUCKET_NAME} does not exist in AWS, will be created by Terraform"
           fi
           
           # Import encryption configuration if not in state
