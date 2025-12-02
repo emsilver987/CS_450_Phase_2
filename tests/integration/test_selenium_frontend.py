@@ -145,6 +145,8 @@ def sample_upload_zip(tmp_path):
     """
     Create a dummy zip file used by Selenium upload tests.
     Returns the absolute file path as a string (for Selenium).
+
+    Creates the file in tmp_path and ensures it's accessible to Chrome/Selenium.
     """
     # Ensure parent directory exists
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -164,13 +166,45 @@ def sample_upload_zip(tmp_path):
     with zipfile.ZipFile(zip_path, "r") as zf:
         assert "dummy.txt" in zf.namelist(), "Zip file should contain dummy.txt"
 
-    # Resolve to absolute path and verify it exists
+    # Resolve to absolute path - this is critical for Selenium
     absolute_path = zip_path.resolve()
     assert absolute_path.exists(), f"Absolute path should exist: {absolute_path}"
     assert absolute_path.is_file(), f"Absolute path should be a file: {absolute_path}"
 
-    # Return as string for Selenium
-    return str(absolute_path)
+    # Ensure file is readable by all (for Chrome/Selenium access)
+    # Also ensure parent directory is accessible
+    try:
+        os.chmod(absolute_path, 0o644)
+        # Ensure parent directory is accessible
+        parent_dir = absolute_path.parent
+        if parent_dir.exists():
+            os.chmod(parent_dir, 0o755)
+    except Exception:
+        # If chmod fails, continue - permissions might already be fine
+        pass
+
+    # Flush any pending writes and ensure file is fully written
+    try:
+        absolute_path.resolve().stat()
+    except Exception as e:
+        raise AssertionError(
+            f"File must be fully written and accessible: {absolute_path}, error: {e}"
+        )
+
+    # Return as string for Selenium - must be absolute path
+    # Use the resolved absolute path directly
+    absolute_path_str = str(absolute_path)
+
+    # Final verification that the path string resolves to an existing file
+    verify_path = pathlib.Path(absolute_path_str).resolve()
+    assert verify_path.exists(), (
+        f"Path string must resolve to existing file: {absolute_path_str}"
+    )
+    assert verify_path.samefile(absolute_path), (
+        f"Path string must resolve to same file: {absolute_path_str}"
+    )
+
+    return absolute_path_str
 
 
 def test_chromedriver_available():
@@ -535,19 +569,41 @@ class TestUploadAction:
         """
         # Verify the upload file exists before attempting upload
         upload_file_path = pathlib.Path(sample_upload_zip)
-        assert upload_file_path.exists(), (
-            f"Upload file must exist before test. Expected at: {upload_file_path}"
+
+        # Resolve to absolute path and verify it exists
+        absolute_upload_path = upload_file_path.resolve()
+        assert absolute_upload_path.exists(), (
+            f"Upload file must exist before test. Expected at: {absolute_upload_path}"
         )
-        assert upload_file_path.is_file(), (
-            f"Upload path must be a file, not a directory: {upload_file_path}"
+        assert absolute_upload_path.is_file(), (
+            f"Upload path must be a file, not a directory: {absolute_upload_path}"
+        )
+
+        # Get the absolute path as a string - Chrome needs this format
+        file_path_str = str(absolute_upload_path)
+
+        # Verify the string path resolves to the same file
+        verify_path = pathlib.Path(file_path_str)
+        assert verify_path.exists() and verify_path.samefile(absolute_upload_path), (
+            f"File path string must resolve to existing file: {file_path_str}"
         )
 
         driver.get(f"{base_url}/upload")
 
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            # Use fixture path for upload - ensure it's an absolute path string
-            file_path_str = str(upload_file_path.resolve())
+            # Verify file still exists right before sending to Selenium
+            file_path_check = pathlib.Path(file_path_str)
+            if not file_path_check.exists():
+                pytest.fail(
+                    f"File does not exist when attempting upload: {file_path_str}. "
+                    f"Original path: {sample_upload_zip}, "
+                    f"Resolved path: {absolute_upload_path}"
+                )
+            # Ensure file is readable
+            if not os.access(file_path_str, os.R_OK):
+                pytest.fail(f"File is not readable: {file_path_str}")
+            # Send the absolute path string to Selenium
             file_input.send_keys(file_path_str)
 
             # Fill other fields if they exist
@@ -705,8 +761,15 @@ class TestSearchAction:
 class TestDriverCleanup:
     """Test driver cleanup and state management"""
 
+    @pytest.mark.xfail(reason="Intentional failure to verify cleanup mechanism")
     def test_driver_cleanup_after_failure(self, driver, base_url):
-        """Verify driver is cleaned up even if test fails"""
+        """
+        Verify driver is cleaned up even if test fails.
+
+        This test intentionally fails to verify that the cleanup finalizer
+        properly handles driver cleanup even when tests raise exceptions.
+        Marked as xfail since the failure is expected and part of the test design.
+        """
         driver.get(f"{base_url}/")
 
         # Wait for page to load
