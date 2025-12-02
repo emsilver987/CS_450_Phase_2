@@ -4,150 +4,28 @@ Simple script to test the load generator directly
 Useful for quick testing without running the full API server
 
 Usage:
-    # Test specific combinations (local environment)
-    python scripts/test_load_generator.py --s3 --ecs --local
-    python scripts/test_load_generator.py --s3 --lambda --local
-    python scripts/test_load_generator.py --rds --ecs --local
-    python scripts/test_load_generator.py --rds --lambda --local
+    # Test with ECS backend (default)
+    python scripts/test_load_generator.py --backend ecs
     
-    # Test specific combinations (production environment)
-    python scripts/test_load_generator.py --s3 --ecs --prod
-    python scripts/test_load_generator.py --s3 --lambda --prod
-    python scripts/test_load_generator.py --rds --ecs --prod
-    python scripts/test_load_generator.py --rds --lambda --prod
+    # Test with Lambda backend
+    python scripts/test_load_generator.py --backend lambda
     
-    # Test all combinations and display comparison
-    python scripts/test_load_generator.py --all --local
-    python scripts/test_load_generator.py --all --prod
-    
-    # Test with custom base URL (overrides --local/--prod)
-    python scripts/test_load_generator.py --s3 --ecs --base-url http://localhost:8000
+    # Test with custom base URL
+    python scripts/test_load_generator.py --backend lambda --base-url http://localhost:8000
 """
 import asyncio
 import sys
 import uuid
 import argparse
-import os
-import subprocess
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
 
 # Add parent directory to path to allow imports from src
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.services.performance.load_generator import LoadGenerator
 
-# Default URLs
-DEFAULT_API_URL = "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod"
-DEFAULT_LOCAL_URL = "http://localhost:8000"
 
-# Import requests for authentication
-import requests
-
-
-def get_rds_endpoint_from_terraform() -> Optional[str]:
-    """
-    Get RDS endpoint from Terraform output.
-    Returns the RDS endpoint (hostname) or None if not available.
-    """
-    try:
-        # Get Terraform output for RDS endpoint
-        # Navigate to infra/envs/dev directory
-        script_dir = Path(__file__).parent.parent
-        terraform_dir = script_dir / "infra" / "envs" / "dev"
-        
-        if not terraform_dir.exists():
-            return None
-        
-        # Run terraform output -json to get all outputs
-        result = subprocess.run(
-            ["terraform", "output", "-json"],
-            cwd=str(terraform_dir),
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        if result.returncode == 0:
-            outputs = json.loads(result.stdout)
-            # Try rds_endpoint first, then rds_address
-            endpoint = None
-            if "rds_endpoint" in outputs and "value" in outputs["rds_endpoint"]:
-                endpoint = outputs["rds_endpoint"]["value"]
-            elif "rds_address" in outputs and "value" in outputs["rds_address"]:
-                endpoint = outputs["rds_address"]["value"]
-            
-            if endpoint:
-                # Remove port if included (e.g., "hostname:5432" -> "hostname")
-                if ":" in endpoint:
-                    endpoint = endpoint.split(":")[0]
-                return endpoint
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
-        # Terraform not available or output not accessible
-        pass
-    except Exception:
-        # Any other error - just return None
-        pass
-    
-    return None
-
-
-def get_authentication_token(api_base_url: str) -> Optional[str]:
-    """Get authentication token for API requests"""
-    try:
-        response = requests.put(
-            f"{api_base_url}/authenticate",
-            json={
-                "user": {
-                    "name": "ece30861defaultadminuser",
-                    "is_admin": True
-                },
-                "secret": {
-                    "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-                }
-            },
-            timeout=10
-        )
-        if response.status_code == 200:
-            token = response.text.strip().strip('"')
-            # The token should already include "bearer " prefix from the API
-            # But ensure it's properly formatted
-            if not token.lower().startswith("bearer "):
-                # If somehow it doesn't have bearer prefix, add it
-                token = f"bearer {token}"
-            return token
-        else:
-            print(f"Warning: Authentication failed with status {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"Warning: Could not authenticate: {e}")
-        return None
-
-
-@dataclass
-class TestResult:
-    """Container for test results."""
-    storage_backend: str
-    compute_backend: str
-    total_requests: int
-    successful_requests: int
-    failed_requests: int
-    total_duration_seconds: float
-    mean_latency_ms: float
-    median_latency_ms: float
-    p99_latency_ms: float
-    throughput_bps: float
-    total_bytes_transferred: int
-    success_rate: float
-
-
-async def test_load_generator(
-    storage_backend: str = "s3",
-    compute_backend: str = "ecs",
-    base_url: str = "http://localhost:8000"
-) -> Tuple[int, Optional[TestResult]]:
+async def test_load_generator(backend: str = "ecs", base_url: str = "http://localhost:8000"):
     """
     Test the load generator per ACME Corporation requirements:
     - 100 concurrent clients downloading Tiny-LLM model
@@ -155,33 +33,19 @@ async def test_load_generator(
     - Measure throughput, mean, median, and 99th percentile latency
     
     Args:
-        storage_backend: Storage backend to test ('s3' or 'rds')
-        compute_backend: Compute backend to test ('ecs' or 'lambda')
+        backend: Compute backend to test ('ecs' or 'lambda')
         base_url: Base URL of the API server
     
-    Returns:
-        Tuple of (exit_code, TestResult or None)
-    
     Prerequisites:
-    1. Ensure 500 models are populated in registry
-       - For S3: run populate_registry.py --performance
-       - For RDS: run populate_registry.py --rds --performance
+    1. Ensure 500 models are populated in registry (run populate_registry.py --performance)
     2. Ensure Tiny-LLM model is fully ingested with binary (required for performance testing)
-    3. Start the FastAPI server with correct environment variables:
-       - STORAGE_BACKEND=s3 or rds
-       - COMPUTE_BACKEND=ecs or lambda
+    3. Start the FastAPI server with COMPUTE_BACKEND environment variable set
     """
-    # Validate backends
-    storage_backend = storage_backend.lower()
-    compute_backend = compute_backend.lower()
-    
-    if storage_backend not in ["s3", "rds"]:
-        print(f"✗ Error: Invalid storage backend '{storage_backend}'. Must be 's3' or 'rds'")
-        return (1, None)
-    
-    if compute_backend not in ["ecs", "lambda"]:
-        print(f"✗ Error: Invalid compute backend '{compute_backend}'. Must be 'ecs' or 'lambda'")
-        return (1, None)
+    # Validate backend
+    backend = backend.lower()
+    if backend not in ["ecs", "lambda"]:
+        print(f"✗ Error: Invalid backend '{backend}'. Must be 'ecs' or 'lambda'")
+        return 1
     
     print("=" * 80)
     print("Performance Load Generator Test")
@@ -195,89 +59,24 @@ async def test_load_generator(
     
     print(f"Configuration:")
     print(f"  Base URL: {base_url}")
-    print(f"  Storage Backend: {storage_backend.upper()}")
-    print(f"  Compute Backend: {compute_backend.upper()}")
+    print(f"  Compute Backend: {backend.upper()} (feature flag)")
     print(f"  Number of clients: {num_clients} (assignment requirement)")
     print(f"  Model ID: {model_id} (must be fully ingested with binary)")
     print(f"  Expected registry: 500 distinct models")
     print(f"  Run ID: {run_id}")
     print()
     
-    # Authenticate if using production API
-    auth_token = None
-    if base_url != DEFAULT_LOCAL_URL and "localhost" not in base_url:
-        print("Authenticating with production API...")
-        auth_token = get_authentication_token(base_url)
-        if auth_token:
-            print("✓ Authentication successful")
-        else:
-            print("⚠️  Warning: Authentication failed - requests may fail with 403")
-        print()
-    
-    # For RDS storage, use direct RDS connection if endpoint is available
-    use_direct_rds = False
-    rds_endpoint = None
-    
-    # Only check for RDS endpoint if RDS storage is selected
-    if storage_backend == "rds":
-        rds_endpoint = os.getenv("RDS_ENDPOINT", "")
-        
-        # If RDS_ENDPOINT not set, try to get it from Terraform output
-        if not rds_endpoint:
-            print("Attempting to get RDS endpoint from Terraform output...")
-            rds_endpoint = get_rds_endpoint_from_terraform()
-            if rds_endpoint:
-                print(f"✓ Found RDS endpoint from Terraform: {rds_endpoint}")
-            else:
-                print(f"⚠️  Could not get RDS endpoint from Terraform output")
-    
-    if storage_backend == "rds" and rds_endpoint:
-        # For production API, RDS is likely not publicly accessible
-        # Skip direct RDS attempt and use API endpoint directly
-        if base_url != DEFAULT_LOCAL_URL and "localhost" not in base_url:
-            use_direct_rds = False
-            print(f"⚠️  RDS endpoint found but using API endpoint for production")
-            print(f"  (RDS is not publicly accessible, API server can access it)")
-        else:
-            use_direct_rds = True
-            print(f"✓ Using direct RDS connection: {rds_endpoint}")
-            print(f"  This bypasses the API and directly queries RDS database")
-            print(f"  ⚠️  Note: If RDS is not publicly accessible, will automatically")
-            print(f"     fall back to API endpoint (which can access RDS)")
-    elif storage_backend == "rds":
-        print(f"⚠️  RDS storage selected but RDS_ENDPOINT not available")
-        print(f"  Options:")
-        print(f"    1. Set RDS_ENDPOINT environment variable")
-        print(f"    2. Run 'terraform output rds_endpoint' in infra/envs/dev/ and set it")
-        print(f"    3. Will use API endpoint (ensure server has STORAGE_BACKEND=rds)")
-    
-    print()
     print("⚠️  Prerequisites:")
-    if storage_backend == "rds":
-        if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
-            print(f"  1. Run: python scripts/populate_registry.py --rds --local")
-        else:
-            print(f"  1. Run: python scripts/populate_registry.py --rds --prod")
-            print(f"     (to populate production RDS with model data)")
-        if use_direct_rds:
-            print(f"  2. ✓ Direct RDS mode enabled - API server NOT required")
-        else:
-            print(f"  2. Start API server with: STORAGE_BACKEND=rds, COMPUTE_BACKEND={compute_backend}")
+    print(f"  1. Run: python scripts/populate_registry.py --performance")
+    print(f"  2. Ensure Tiny-LLM has full model binary (for performance testing)")
+    print(f"  3. Start API server with correct COMPUTE_BACKEND:")
+    if backend == "lambda":
+        print(f"     $env:COMPUTE_BACKEND='lambda'; python run_server.py")
+        print(f"     OR: set COMPUTE_BACKEND=lambda && python run_server.py")
     else:
-        print(f"  1. Run: python scripts/populate_registry.py --s3 --local")
-        print(f"  2. Start API server with correct environment variables:")
-        print(f"     STORAGE_BACKEND={storage_backend}")
-        print(f"     COMPUTE_BACKEND={compute_backend}")
-        print(f"     Example:")
-        print(f"       $env:STORAGE_BACKEND='{storage_backend}'; $env:COMPUTE_BACKEND='{compute_backend}'; python run_server.py")
-    print(f"  3. Ensure Tiny-LLM has full model binary (for performance testing)")
-    if not use_direct_rds:
-        print(f"  4. Verify server is using {storage_backend.upper()} storage and {compute_backend.upper()} compute (check server logs)")
-        if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
-            print(f"  5. ⚠️  LOCAL TESTING NOTE: Local server may struggle with 100 concurrent connections.")
-            print(f"     If you see 'network name is no longer available' errors, the server may be overwhelmed.")
-            print(f"     Consider using --prod for production testing, or ensure your local server is configured")
-            print(f"     to handle high concurrency (e.g., uvicorn with --workers or proper connection limits).")
+        print(f"     $env:COMPUTE_BACKEND='ecs'; python run_server.py")
+        print(f"     OR: set COMPUTE_BACKEND=ecs && python run_server.py")
+    print(f"  4. Verify server is using {backend.upper()} backend (check server logs)")
     print()
     
     # Create load generator
@@ -290,17 +89,10 @@ async def test_load_generator(
         version="main",
         duration_seconds=None,  # Single request per client
         use_performance_path=True,  # Use performance/ path for performance testing
-        auth_token=auth_token,  # Include auth token for production API
-        use_direct_rds=use_direct_rds,  # Direct RDS connection for RDS storage
-        rds_endpoint=rds_endpoint,  # RDS endpoint for direct connection
     )
     
     print("Starting load generation...")
-    if use_direct_rds:
-        print(f"Mode: Direct RDS connection (bypassing API)")
-        print(f"Model: {model_id} (sanitized: {model_id.replace('/', '_')})")
-    else:
-        print(f"URL: {generator._get_download_url()}")
+    print(f"URL: {generator._get_download_url()}")
     print()
     
     # Run the load generator
@@ -311,49 +103,41 @@ async def test_load_generator(
         metrics = generator.get_metrics()
         summary = generator.get_summary()
         
-        # Calculate success rate
-        success_rate = 0.0
-        if summary['total_requests'] > 0:
-            success_rate = (summary['successful_requests'] / summary['total_requests']) * 100
-        
-        # Create result object
-        result = TestResult(
-            storage_backend=storage_backend,
-            compute_backend=compute_backend,
-            total_requests=summary['total_requests'],
-            successful_requests=summary['successful_requests'],
-            failed_requests=summary['failed_requests'],
-            total_duration_seconds=summary['total_duration_seconds'],
-            mean_latency_ms=summary['mean_latency_ms'],
-            median_latency_ms=summary['median_latency_ms'],
-            p99_latency_ms=summary['p99_latency_ms'],
-            throughput_bps=summary['throughput_bps'],
-            total_bytes_transferred=summary['total_bytes_transferred'],
-            success_rate=success_rate
-        )
-        
         print()
         print("=" * 80)
         print("Performance Test Results")
-        print(f"Storage: {storage_backend.upper()} | Compute: {compute_backend.upper()}")
+        print(f"Backend: {backend.upper()}")
         print("=" * 80)
         print()
         print("Request Statistics:")
-        print(f"  Total requests: {result.total_requests}")
-        print(f"  Successful: {result.successful_requests}")
-        print(f"  Failed: {result.failed_requests}")
-        print(f"  Success rate: {result.success_rate:.2f}%")
-        print(f"  Total duration: {result.total_duration_seconds:.2f}s")
+        print(f"  Total requests: {summary['total_requests']}")
+        print(f"  Successful: {summary['successful_requests']}")
+        print(f"  Failed: {summary['failed_requests']}")
+        print(f"  Total duration: {summary['total_duration_seconds']:.2f}s")
         print()
         print("Latency Statistics (Required Measurements):")
-        print(f"  Mean latency: {result.mean_latency_ms:.2f} ms ({result.mean_latency_ms / 1000:.2f} s)")
-        print(f"  Median latency: {result.median_latency_ms:.2f} ms ({result.median_latency_ms / 1000:.2f} s)")
-        print(f"  99th percentile (P99) latency: {result.p99_latency_ms:.2f} ms ({result.p99_latency_ms / 1000:.2f} s)")
+        print(f"  Mean latency: {summary['mean_latency_ms']:.2f} ms")
+        print(f"  Median latency: {summary['median_latency_ms']:.2f} ms")
+        print(f"  99th percentile (P99) latency: {summary['p99_latency_ms']:.2f} ms")
+        print(f"  Min latency: {summary['min_latency_ms']:.2f} ms")
+        print(f"  Max latency: {summary['max_latency_ms']:.2f} ms")
         print()
         print("Throughput Statistics (Required Measurement):")
-        print(f"  Throughput: {result.throughput_bps / (1024 * 1024):.2f} MB/sec")
-        print(f"  Total bytes transferred: {result.total_bytes_transferred / (1024 * 1024):.2f} MB")
+        print(f"  Throughput: {summary['throughput_bps']:.2f} bytes/sec")
+        print(f"  Throughput: {summary['throughput_bps'] / (1024 * 1024):.2f} MB/sec")
+        print(f"  Total bytes transferred: {summary['total_bytes_transferred']:,} bytes")
+        print(f"  Total bytes transferred: {summary['total_bytes_transferred'] / (1024 * 1024):.2f} MB")
         print()
+        
+        # Calculate requests per second for additional insight
+        if summary['total_duration_seconds'] > 0:
+            req_per_sec = summary['total_requests'] / summary['total_duration_seconds']
+            print(f"Additional Metrics:")
+            print(f"  Requests per second: {req_per_sec:.2f} req/s")
+            if summary['successful_requests'] > 0:
+                success_rate = (summary['successful_requests'] / summary['total_requests']) * 100
+                print(f"  Success rate: {success_rate:.2f}%")
+            print()
         
         # Show sample metrics
         if metrics:
@@ -364,250 +148,88 @@ async def test_load_generator(
                       f"Status {metric['status_code']}, "
                       f"Latency {metric['request_latency_ms']:.2f}ms, "
                       f"Bytes {metric['bytes_transferred']:,}")
-            print()
         
-        return (0, result)
+        print()
+        print("=" * 80)
+        print("Next Steps for Performance Analysis:")
+        print("=" * 80)
+        print("1. Identify Bottlenecks:")
+        print("   - Compare mean vs P99 latency (large gap = tail latency issues)")
+        print("   - Check if throughput plateaus before reaching expected values")
+        print("   - Analyze failed requests (may indicate resource exhaustion)")
+        print()
+        print("2. White-box Analysis:")
+        print("   - Check CloudWatch metrics for S3 download latency")
+        print("   - Monitor DynamoDB query times")
+        print("   - Review API Gateway latency metrics")
+        print()
+        print("3. Component Comparison:")
+        print("   - Run this script with --backend ecs and --backend lambda")
+        print("   - Compare Lambda vs ECS performance metrics")
+        print("   - Use /health/performance/workload endpoint with different configs")
+        print()
+        print(f"✓ Load generator test completed successfully for {backend.upper()} backend!")
+        print()
+        print(f"💡 To compare backends, run:")
+        print(f"   python scripts/test_load_generator.py --backend ecs")
+        print(f"   python scripts/test_load_generator.py --backend lambda")
+        print()
+        return 0
         
     except Exception as e:
         print(f"\n✗ Error running load generator: {e}")
         import traceback
         traceback.print_exc()
-        return (1, None)
-
-
-def print_comparison_table(results: List[TestResult]):
-    """Print a comparison table of all test results."""
-    print()
-    print("=" * 100)
-    print("COMPARISON TABLE: All Backend Combinations")
-    print("=" * 100)
-    print()
-    
-    # Header
-    print(f"{'Configuration':<20} {'Success':<10} {'Mean (s)':<12} {'Median (s)':<12} {'P99 (s)':<12} {'Throughput':<15}")
-    print(f"{'Storage+Compute':<20} {'Rate %':<10} {'Latency':<12} {'Latency':<12} {'Latency':<12} {'MB/sec':<15}")
-    print("-" * 100)
-    
-    # Results
-    for result in results:
-        config = f"{result.storage_backend.upper()}+{result.compute_backend.upper()}"
-        print(f"{config:<20} "
-              f"{result.success_rate:>6.2f}%   "
-              f"{result.mean_latency_ms/1000:>10.2f}   "
-              f"{result.median_latency_ms/1000:>10.2f}   "
-              f"{result.p99_latency_ms/1000:>10.2f}   "
-              f"{result.throughput_bps/(1024*1024):>12.2f}")
-    
-    print("-" * 100)
-    print()
-    
-    # Summary statistics
-    if len(results) > 1:
-        print("Summary:")
-        best_throughput = max(results, key=lambda r: r.throughput_bps)
-        best_mean_latency = min(results, key=lambda r: r.mean_latency_ms)
-        best_p99_latency = min(results, key=lambda r: r.p99_latency_ms)
-        
-        print(f"  Best Throughput: {best_throughput.storage_backend.upper()}+{best_throughput.compute_backend.upper()} "
-              f"({best_throughput.throughput_bps/(1024*1024):.2f} MB/sec)")
-        print(f"  Best Mean Latency: {best_mean_latency.storage_backend.upper()}+{best_mean_latency.compute_backend.upper()} "
-              f"({best_mean_latency.mean_latency_ms/1000:.2f} s)")
-        print(f"  Best P99 Latency: {best_p99_latency.storage_backend.upper()}+{best_p99_latency.compute_backend.upper()} "
-              f"({best_p99_latency.p99_latency_ms/1000:.2f} s)")
-        print()
-
-
-async def run_all_combinations(base_url: str = "http://localhost:8000") -> int:
-    """Run all four backend combinations and display comparison."""
-    combinations = [
-        ("s3", "ecs"),
-        ("s3", "lambda"),
-        ("rds", "ecs"),
-        ("rds", "lambda"),
-    ]
-    
-    results: List[TestResult] = []
-    
-    print("=" * 100)
-    print("RUNNING ALL BACKEND COMBINATIONS")
-    print("=" * 100)
-    print()
-    print("This will test all four combinations:")
-    print("  1. S3 + ECS")
-    print("  2. S3 + Lambda")
-    print("  3. RDS + ECS")
-    print("  4. RDS + Lambda")
-    print()
-    print("⚠️  IMPORTANT: You must restart the server with the correct environment variables")
-    print("   between each test. The script will prompt you before each test.")
-    print()
-    
-    for i, (storage, compute) in enumerate(combinations, 1):
-        print()
-        print("=" * 100)
-        print(f"TEST {i}/4: {storage.upper()} Storage + {compute.upper()} Compute")
-        print("=" * 100)
-        print()
-        print(f"⚠️  Please ensure your server is running with:")
-        print(f"   STORAGE_BACKEND={storage}")
-        print(f"   COMPUTE_BACKEND={compute}")
-        print()
-        input("Press Enter when the server is configured correctly and ready...")
-        print()
-        
-        exit_code, result = await test_load_generator(storage, compute, base_url)
-        
-        if exit_code == 0 and result:
-            results.append(result)
-        else:
-            print(f"✗ Test failed for {storage.upper()}+{compute.upper()}")
-            print()
-    
-    # Display comparison
-    if results:
-        print_comparison_table(results)
-        return 0
-    else:
-        print("✗ No successful test results to compare")
         return 1
 
 
 def main():
     """Parse command-line arguments and run the load generator test."""
     parser = argparse.ArgumentParser(
-        description="Test the performance load generator with configurable storage and compute backends",
+        description="Test the performance load generator with configurable compute backend",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test specific combinations (local environment)
-  python scripts/test_load_generator.py --s3 --ecs --local
-  python scripts/test_load_generator.py --s3 --lambda --local
-  python scripts/test_load_generator.py --rds --ecs --local
-  python scripts/test_load_generator.py --rds --lambda --local
+  # Test with ECS backend (default)
+  python scripts/test_load_generator.py --backend ecs
   
-  # Test specific combinations (production environment)
-  python scripts/test_load_generator.py --s3 --ecs --prod
-  python scripts/test_load_generator.py --s3 --lambda --prod
-  python scripts/test_load_generator.py --rds --ecs --prod
-  python scripts/test_load_generator.py --rds --lambda --prod
+  # Test with Lambda backend
+  python scripts/test_load_generator.py --backend lambda
   
-  # Test all combinations and display comparison
-  python scripts/test_load_generator.py --all --local
-  python scripts/test_load_generator.py --all --prod
+  # Test with custom server URL
+  python scripts/test_load_generator.py --backend lambda --base-url http://localhost:8000
   
-  # Test with custom server URL (overrides --local/--prod)
-  python scripts/test_load_generator.py --s3 --ecs --base-url http://localhost:8000
+  # Compare both backends (run sequentially)
+  python scripts/test_load_generator.py --backend ecs
+  python scripts/test_load_generator.py --backend lambda
 
-Note: The server must be started with the matching environment variables:
-  - STORAGE_BACKEND: 's3' or 'rds'
-  - COMPUTE_BACKEND: 'ecs' or 'lambda'
-  
-  Example (local):
-    $env:STORAGE_BACKEND='s3'; $env:COMPUTE_BACKEND='ecs'; python run_server.py
-  
-  Note: --local defaults to http://localhost:8000
-        --prod uses production API endpoint
-        If neither is specified, defaults to --local
+Note: The server must be started with the matching COMPUTE_BACKEND environment variable:
+  - For ECS: set COMPUTE_BACKEND=ecs (or leave unset, defaults to ecs)
+  - For Lambda: set COMPUTE_BACKEND=lambda
         """
     )
     
-    # Storage backend flags (mutually exclusive)
-    storage_group = parser.add_mutually_exclusive_group()
-    storage_group.add_argument(
-        "--s3",
-        action="store_true",
-        help="Use S3 storage backend"
-    )
-    storage_group.add_argument(
-        "--rds",
-        action="store_true",
-        help="Use RDS storage backend"
-    )
-    
-    # Compute backend flags (mutually exclusive)
-    compute_group = parser.add_mutually_exclusive_group()
-    compute_group.add_argument(
-        "--ecs",
-        action="store_true",
-        help="Use ECS compute backend"
-    )
-    compute_group.add_argument(
-        "--lambda",
-        dest="use_lambda",
-        action="store_true",
-        help="Use Lambda compute backend"
-    )
-    
-    # All combinations flag
     parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Run all four combinations (S3+ECS, S3+Lambda, RDS+ECS, RDS+Lambda) and display comparison"
-    )
-    
-    # Environment flags (mutually exclusive)
-    env_group = parser.add_mutually_exclusive_group()
-    env_group.add_argument(
-        "--local",
-        action="store_true",
-        help="Use local environment (default: http://localhost:8000)"
-    )
-    env_group.add_argument(
-        "--prod",
-        action="store_true",
-        help="Use production environment (https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod)"
+        "--backend",
+        type=str,
+        choices=["ecs", "lambda"],
+        default="ecs",
+        help="Compute backend to test against: 'ecs' (default) or 'lambda'"
     )
     
     parser.add_argument(
         "--base-url",
         type=str,
-        default=None,
-        help="Base URL of the API server (overrides --local/--prod if specified)"
+        default="http://localhost:8000",
+        help="Base URL of the API server (default: http://localhost:8000)"
     )
     
     args = parser.parse_args()
     
-    # Determine storage and compute backends
-    storage_backend = "s3" if args.s3 else ("rds" if args.rds else "s3")  # Default to s3
-    compute_backend = "ecs" if args.ecs else ("lambda" if args.use_lambda else "ecs")  # Default to ecs
-    
-    # RDS cannot be used with --local (RDS is not publicly accessible)
-    if storage_backend == "rds" and args.local:
-        print("Error: --rds cannot be used with --local")
-        print("RDS is not publicly accessible and cannot be accessed from local machine.")
-        print("Use --rds --prod to use the production API endpoint (which can access RDS).")
-        sys.exit(1)
-    
-    # Determine base URL from flags
-    if args.base_url:
-        base_url = args.base_url
-    elif args.prod:
-        base_url = DEFAULT_API_URL
-    elif args.local:
-        base_url = DEFAULT_LOCAL_URL
-    else:
-        # Default to local if neither --prod nor --local is specified (unless using RDS)
-        if storage_backend == "rds":
-            # RDS requires production API
-            base_url = DEFAULT_API_URL
-            print("⚠️  RDS storage selected - defaulting to production API endpoint")
-        else:
-            base_url = DEFAULT_LOCAL_URL
-    
-    # Handle --all flag
-    if args.all:
-        exit_code = asyncio.run(run_all_combinations(base_url=base_url))
-        sys.exit(exit_code)
-    
     # Run the async test
-    exit_code, _ = asyncio.run(test_load_generator(
-        storage_backend=storage_backend,
-        compute_backend=compute_backend,
-        base_url=base_url
-    ))
+    exit_code = asyncio.run(test_load_generator(backend=args.backend, base_url=args.base_url))
     sys.exit(exit_code)
 
 
 if __name__ == "__main__":
     main()
-
