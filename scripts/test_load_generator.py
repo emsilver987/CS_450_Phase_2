@@ -563,6 +563,17 @@ Note: The server must be started with the matching environment variables:
     
     args = parser.parse_args()
     
+    # Determine storage and compute backends
+    storage_backend = "s3" if args.s3 else ("rds" if args.rds else "s3")  # Default to s3
+    compute_backend = "ecs" if args.ecs else ("lambda" if args.use_lambda else "ecs")  # Default to ecs
+    
+    # RDS cannot be used with --local (RDS is not publicly accessible)
+    if storage_backend == "rds" and args.local:
+        print("Error: --rds cannot be used with --local")
+        print("RDS is not publicly accessible and cannot be accessed from local machine.")
+        print("Use --rds --prod to use the production API endpoint (which can access RDS).")
+        sys.exit(1)
+    
     # Determine base URL from flags
     if args.base_url:
         base_url = args.base_url
@@ -571,17 +582,18 @@ Note: The server must be started with the matching environment variables:
     elif args.local:
         base_url = DEFAULT_LOCAL_URL
     else:
-        # Default to local if neither --prod nor --local is specified
-        base_url = DEFAULT_LOCAL_URL
+        # Default to local if neither --prod nor --local is specified (unless using RDS)
+        if storage_backend == "rds":
+            # RDS requires production API
+            base_url = DEFAULT_API_URL
+            print("⚠️  RDS storage selected - defaulting to production API endpoint")
+        else:
+            base_url = DEFAULT_LOCAL_URL
     
     # Handle --all flag
     if args.all:
         exit_code = asyncio.run(run_all_combinations(base_url=base_url))
         sys.exit(exit_code)
-    
-    # Determine storage and compute backends
-    storage_backend = "s3" if args.s3 else ("rds" if args.rds else "s3")  # Default to s3
-    compute_backend = "ecs" if args.ecs else ("lambda" if args.use_lambda else "ecs")  # Default to ecs
     
     # Run the async test
     exit_code, _ = asyncio.run(test_load_generator(

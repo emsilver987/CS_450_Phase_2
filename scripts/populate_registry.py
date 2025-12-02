@@ -750,10 +750,7 @@ Examples:
   # S3 storage with production environment
   python scripts/populate_registry.py --s3 --prod
   
-  # RDS storage with local environment
-  python scripts/populate_registry.py --rds --local
-  
-  # RDS storage with production environment
+  # RDS storage with production environment (--local not supported for RDS)
   python scripts/populate_registry.py --rds --prod
         """
     )
@@ -776,15 +773,24 @@ Examples:
     env_group.add_argument(
         "--local",
         action="store_true",
-        help="Use local environment (for future use, currently direct storage writes bypass API)"
+        help="Use local environment (for S3 only - RDS requires --prod)"
     )
     env_group.add_argument(
         "--prod",
         action="store_true",
-        help="Use production environment (for future use, currently direct storage writes bypass API)"
+        help="Use production environment (required for RDS, optional for S3)"
     )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # RDS cannot be used with --local (RDS is not publicly accessible)
+    if args.rds and args.local:
+        print("Error: --rds cannot be used with --local")
+        print("RDS is not publicly accessible and cannot be accessed from local machine.")
+        print("Use --rds --prod to use the production API endpoint (which can access RDS).")
+        sys.exit(1)
+    
+    return args
 
 
 def get_api_base_url(args: argparse.Namespace) -> str:

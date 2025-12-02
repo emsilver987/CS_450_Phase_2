@@ -5475,12 +5475,16 @@ async def upload_artifact_model_to_rds(
         pass
     
     try:
-        # Check if RDS is configured
-        storage_backend = os.getenv("STORAGE_BACKEND", "s3").lower()
-        if storage_backend != "rds":
+        # Check if RDS credentials are available (this endpoint always uses RDS)
+        rds_endpoint = os.getenv("RDS_ENDPOINT")
+        rds_database = os.getenv("RDS_DATABASE")
+        rds_username = os.getenv("RDS_USERNAME")
+        rds_password = os.getenv("RDS_PASSWORD")
+        
+        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
             raise HTTPException(
-                status_code=400,
-                detail=f"RDS upload endpoint requires STORAGE_BACKEND=rds, but current backend is {storage_backend}"
+                status_code=500,
+                detail="RDS upload endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
             )
         
         # Read file content
