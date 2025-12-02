@@ -141,7 +141,7 @@ jobs:
           ps aux | grep uvicorn || echo "No uvicorn process found"
 
       - name: Upload server logs
-        if: always
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: server-logs
@@ -149,7 +149,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Stop server
-        if: always
+        if: always()
         run: |
           if [ -f server.pid ]; then
             kill $(cat server.pid) || true
