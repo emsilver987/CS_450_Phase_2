@@ -3246,6 +3246,45 @@ resource "aws_api_gateway_integration" "artifact_model_id_upload_post" {
   }
 }
 
+# /artifact/model/{id}/check-rds
+resource "aws_api_gateway_resource" "artifact_model_id_check_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "check-rds"
+}
+
+# GET /artifact/model/{id}/check-rds
+resource "aws_api_gateway_method" "artifact_model_id_check_rds_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_check_rds.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_check_rds_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_check_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_check_rds_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/check-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
 # GET /artifact/model/{id}/download
 resource "aws_api_gateway_method" "artifact_model_id_download_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -3965,6 +4004,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_model_id_upload_rds_from_s3_post,
     aws_api_gateway_integration.artifact_model_id_download_get,
     aws_api_gateway_integration.artifact_model_id_download_rds_get,
+    aws_api_gateway_integration.artifact_model_id_check_rds_get,
     aws_api_gateway_integration.artifact_ingest_get,
     aws_api_gateway_integration.artifact_ingest_post,
     aws_api_gateway_integration.artifact_directory_get,
@@ -4042,6 +4082,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.artifact_model_id_upload_rds_from_s3.id,
       aws_api_gateway_resource.artifact_model_id_download.id,
       aws_api_gateway_resource.artifact_model_id_download_rds.id,
+      aws_api_gateway_resource.artifact_model_id_check_rds.id,
       aws_api_gateway_resource.artifact_ingest.id,
       aws_api_gateway_resource.artifact_directory.id,
       aws_api_gateway_resource.artifact_byname.id,
@@ -4084,6 +4125,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_method.artifact_model_id_download_get.id,
       aws_api_gateway_method.artifact_model_id_download_rds_get.id,
+      aws_api_gateway_method.artifact_model_id_check_rds_get.id,
       aws_api_gateway_method.artifact_ingest_get.id,
       aws_api_gateway_method.artifact_ingest_post.id,
       aws_api_gateway_method.artifact_directory_get.id,
@@ -4127,6 +4169,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_integration.artifact_model_id_download_get.id,
       aws_api_gateway_integration.artifact_model_id_download_rds_get.id,
+      aws_api_gateway_integration.artifact_model_id_check_rds_get.id,
       aws_api_gateway_integration.artifact_ingest_get.id,
       aws_api_gateway_integration.artifact_ingest_post.id,
       aws_api_gateway_integration.artifact_directory_get.id,

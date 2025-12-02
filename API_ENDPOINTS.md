@@ -50,6 +50,9 @@ This document lists all available API endpoints, their HTTP methods, and payload
 | `/artifact/model/{id}/download` | GET | Query parameters: `version` (default: "main"), `component` (default: "full"), `path_prefix` (default: "models") |
 | `/artifact/model/{id}/download-rds` | GET | Query parameters: `version` (default: "main"), `component` (default: "full"), `path_prefix` (default: "models") |
 | `/artifact/model/{id}/upload-rds` | POST | Multipart form data: `file` (required), Query parameters: `version` (default: "main"), `path_prefix` (default: "models") |
+| `/artifact/model/{id}/upload-rds-url` | GET | Query parameters: `version` (default: "main"), `path_prefix` (default: "performance"), `expires_in` (default: 3600) |
+| `/artifact/model/{id}/upload-rds-from-s3` | POST | Query parameters: `s3_key` (required), `version` (default: "main"), `path_prefix` (default: "performance") |
+| `/artifact/model/{id}/check-rds` | GET | Query parameters: `version` (default: "main"), `path_prefix` (default: "performance") |
 
 ## Package Endpoints
 

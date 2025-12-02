@@ -5886,6 +5886,100 @@ async def download_artifact_model_from_rds(
     except Exception as e:
         logger.error(f"RDS download failed for {id} v{version}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"RDS download failed: {str(e)}")
+
+
+@app.get("/artifact/model/{id}/check-rds")
+async def check_model_in_rds(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Check if a model exists in RDS. Useful for debugging.
+    Returns information about the model if found, or 404 if not found.
+    """
+    try:
+        from .services.rds_service import get_connection_pool
+        
+        # Check if RDS credentials are available
+        rds_endpoint = os.getenv("RDS_ENDPOINT")
+        rds_database = os.getenv("RDS_DATABASE")
+        rds_username = os.getenv("RDS_USERNAME")
+        rds_password = os.getenv("RDS_PASSWORD")
+        
+        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
+            raise HTTPException(
+                status_code=500,
+                detail="RDS check endpoint requires RDS credentials to be configured"
+            )
+        
+        use_performance_path = (path_prefix.lower() == "performance")
+        expected_path = "performance" if use_performance_path else "models"
+        
+        pool = get_connection_pool()
+        conn = pool.getconn()
+        cursor = conn.cursor()
+        
+        try:
+            # Check if model exists
+            cursor.execute("""
+                SELECT model_id, version, component, path_prefix, file_size, created_at
+                FROM model_files
+                WHERE model_id = %s AND version = %s AND path_prefix = %s
+            """, (id, version, expected_path))
+            
+            results = cursor.fetchall()
+            
+            if not results:
+                # Also check what models exist with similar names
+                cursor.execute("""
+                    SELECT model_id, version, component, path_prefix, file_size
+                    FROM model_files
+                    WHERE model_id LIKE %s AND path_prefix = %s
+                    LIMIT 10
+                """, (f"%{id}%", expected_path))
+                
+                similar = cursor.fetchall()
+                
+                return {
+                    "found": False,
+                    "model_id": id,
+                    "version": version,
+                    "path_prefix": expected_path,
+                    "message": f"Model {id} version {version} not found in RDS ({expected_path}/)",
+                    "similar_models": [{"model_id": r[0], "version": r[1], "component": r[2], "path_prefix": r[3], "file_size": r[4]} for r in similar] if similar else []
+                }
+            
+            # Return all matching records
+            models = []
+            for row in results:
+                models.append({
+                    "model_id": row[0],
+                    "version": row[1],
+                    "component": row[2],
+                    "path_prefix": row[3],
+                    "file_size": row[4],
+                    "created_at": str(row[5]) if len(row) > 5 else None
+                })
+            
+            return {
+                "found": True,
+                "model_id": id,
+                "version": version,
+                "path_prefix": expected_path,
+                "models": models
+            }
+        finally:
+            pool.putconn(conn)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RDS check failed for {id} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS check failed: {str(e)}")
+
+
 # @app.get("/admin")
 # def get_admin(request: Request):
 #    try:

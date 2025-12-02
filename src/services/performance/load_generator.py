@@ -8,7 +8,7 @@ import aiohttp
 import time
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 import os
 
@@ -132,6 +132,55 @@ class LoadGenerator:
             url += "?" + "&".join(params)
         
         return url
+
+    async def check_model_exists(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """
+        Check if the model exists in the storage backend before starting load generation.
+        For RDS, uses the check-rds endpoint. For S3, assumes it exists.
+        
+        Returns:
+            (exists: bool, info: Optional[dict]) - True if model exists, False otherwise.
+            info contains details about the model or similar models if not found.
+        """
+        if self.storage_backend != "rds":
+            # For S3, we assume the model exists (or let the download fail)
+            return (True, None)
+        
+        # For RDS, check using the check-rds endpoint
+        sanitized_model_id = (
+            self.model_id.replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        path_prefix = "performance" if self.use_performance_path else "models"
+        check_url = f"{self.base_url}/artifact/model/{sanitized_model_id}/check-rds?version={self.version}&path_prefix={path_prefix}"
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=10, connect=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {}
+                if self.auth_token:
+                    headers["X-Authorization"] = self.auth_token
+                
+                async with session.get(check_url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        exists = data.get("found", False)
+                        return (exists, data)
+                    else:
+                        error_text = await response.text()
+                        logger.warning(f"Model check failed: HTTP {response.status} - {error_text[:200]}")
+                        return (False, {"error": f"HTTP {response.status}", "detail": error_text[:200]})
+        except Exception as e:
+            logger.warning(f"Model check error: {str(e)}")
+            return (False, {"error": str(e)})
 
     def _download_from_rds_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
         """
@@ -439,6 +488,19 @@ class LoadGenerator:
             f"Starting load generator: run_id={self.run_id}, "
             f"num_clients={self.num_clients}, model_id={self.model_id}"
         )
+
+        # Check if model exists before starting (for RDS backend)
+        if self.storage_backend == "rds":
+            logger.info(f"Checking if model {self.model_id} exists in RDS...")
+            exists, info = await self.check_model_exists()
+            if not exists:
+                error_msg = f"Model {self.model_id} not found in RDS"
+                if info and "similar_models" in info and info["similar_models"]:
+                    error_msg += f". Similar models found: {[m['model_id'] for m in info['similar_models']]}"
+                elif info and "message" in info:
+                    error_msg += f". {info['message']}"
+                raise ValueError(error_msg)
+            logger.info(f"✓ Model {self.model_id} found in RDS")
 
         self.start_time = time.time()
 

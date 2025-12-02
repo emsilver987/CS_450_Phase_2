@@ -115,6 +115,27 @@ async def test_load_generator(compute_backend: str = "ecs", storage_backend: str
     
     # Run the load generator
     try:
+        # Check if model exists before starting (for RDS backend)
+        if storage_backend == "rds":
+            print("Checking if model exists in RDS...")
+            exists, info = await generator.check_model_exists()
+            if not exists:
+                print(f"✗ Error: Model {model_id} not found in RDS")
+                if info:
+                    if "similar_models" in info and info["similar_models"]:
+                        print(f"  Similar models found: {[m['model_id'] for m in info['similar_models']]}")
+                    elif "message" in info:
+                        print(f"  {info['message']}")
+                print()
+                print("Please run: python scripts/populate_registry.py --rds")
+                print("to populate the RDS registry before running load tests.")
+                return 1
+            print(f"✓ Model {model_id} found in RDS")
+            if info and "models" in info:
+                for model in info["models"]:
+                    print(f"  - {model['model_id']} v{model['version']} ({model['component']}) - {model['file_size']} bytes")
+            print()
+        
         await generator.run()
         
         # Get results
