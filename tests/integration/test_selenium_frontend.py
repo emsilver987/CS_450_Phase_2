@@ -204,6 +204,26 @@ def sample_upload_zip(tmp_path):
         f"Path string must resolve to same file: {absolute_path_str}"
     )
 
+    # CRITICAL: Verify file still exists and is accessible before returning
+    # This helps catch cleanup issues early and ensures file system sync
+    if not verify_path.exists():
+        raise AssertionError(
+            f"File disappeared before fixture returned: {absolute_path_str}"
+        )
+    if not os.access(absolute_path_str, os.R_OK):
+        raise AssertionError(
+            f"File is not readable when fixture returns: {absolute_path_str}"
+        )
+
+    # Verify the path string ends with .zip extension
+    if not absolute_path_str.endswith('.zip'):
+        raise AssertionError(
+            f"File path must end with .zip extension: {absolute_path_str}"
+        )
+
+    # Small delay to ensure file system sync (especially important in CI)
+    time.sleep(0.1)
+
     return absolute_path_str
 
 
@@ -567,8 +587,18 @@ class TestUploadAction:
         Test valid upload flow.
         Creates a dummy zip file and attempts to upload it.
         """
+        # Use the fixture path directly - it already returns absolute path string
+        # Re-resolution can cause path changes in CI environments
+        file_path_str = sample_upload_zip
+
+        # Verify the path string ends with .zip extension
+        if not file_path_str.endswith('.zip'):
+            pytest.fail(
+                f"File path must end with .zip extension. Got: {file_path_str}"
+            )
+
         # Verify the upload file exists before attempting upload
-        upload_file_path = pathlib.Path(sample_upload_zip)
+        upload_file_path = pathlib.Path(file_path_str)
 
         # Resolve to absolute path and verify it exists
         absolute_upload_path = upload_file_path.resolve()
@@ -578,9 +608,6 @@ class TestUploadAction:
         assert absolute_upload_path.is_file(), (
             f"Upload path must be a file, not a directory: {absolute_upload_path}"
         )
-
-        # Get the absolute path as a string - Chrome needs this format
-        file_path_str = str(absolute_upload_path)
 
         # Verify the string path resolves to the same file
         verify_path = pathlib.Path(file_path_str)
@@ -592,19 +619,47 @@ class TestUploadAction:
 
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            # Verify file still exists right before sending to Selenium
-            file_path_check = pathlib.Path(file_path_str)
-            if not file_path_check.exists():
+
+            # CRITICAL: Final verification right before send_keys()
+            # This is the last chance to catch file access issues
+            final_path = pathlib.Path(file_path_str).resolve()
+            if not final_path.exists():
                 pytest.fail(
                     f"File does not exist when attempting upload: {file_path_str}. "
-                    f"Original path: {sample_upload_zip}, "
-                    f"Resolved path: {absolute_upload_path}"
+                    f"Original fixture path: {sample_upload_zip}, "
+                    f"Resolved path: {absolute_upload_path}, "
+                    f"Final resolved path: {final_path}"
+                )
+            if not final_path.is_file():
+                pytest.fail(
+                    f"Path is not a file when attempting upload: {file_path_str}. "
+                    f"Resolved to: {final_path}"
+                )
+            if not file_path_str.endswith('.zip'):
+                pytest.fail(
+                    f"File path missing .zip extension: {file_path_str}"
                 )
             # Ensure file is readable
             if not os.access(file_path_str, os.R_OK):
-                pytest.fail(f"File is not readable: {file_path_str}")
-            # Send the absolute path string to Selenium
-            file_input.send_keys(file_path_str)
+                pytest.fail(
+                    f"File is not readable: {file_path_str}. "
+                    f"File permissions: {oct(final_path.stat().st_mode)}"
+                )
+
+            # Send the absolute path string to Selenium with error handling
+            try:
+                file_input.send_keys(file_path_str)
+            except Exception as e:
+                # Provide detailed error message for debugging
+                error_msg = (
+                    f"Failed to send file path to Selenium: {file_path_str}. "
+                    f"Error: {e}. "
+                    f"File exists: {final_path.exists()}, "
+                    f"File readable: {os.access(file_path_str, os.R_OK)}, "
+                    f"File path ends with .zip: {file_path_str.endswith('.zip')}, "
+                    f"Absolute path: {final_path}"
+                )
+                pytest.fail(error_msg)
 
             # Fill other fields if they exist
             try:
