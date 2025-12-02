@@ -92,7 +92,12 @@ def get_authentication_token(api_base_url: str) -> Optional[str]:
             timeout=10
         )
         if response.status_code == 200:
-            token = response.text.strip('"')
+            # Response is plain text: "bearer <token>" (may or may not have quotes)
+            token = response.text.strip().strip('"').strip("'")
+            # Ensure it starts with "bearer " (the endpoint returns "bearer " + STATIC_TOKEN)
+            if not token.startswith("bearer "):
+                # If somehow it doesn't have "bearer " prefix, add it
+                token = f"bearer {token}" if token else None
             return token
         else:
             print(f"Warning: Authentication failed with status {response.status_code}")
@@ -786,11 +791,41 @@ def ingest_model_rds_via_s3_presigned(api_base_url: str, model_id: str, auth_tok
         
         # Step 1: Get presigned S3 URL
         url_get_presigned = f"{api_base_url}/artifact/model/{sanitized_model_id}/upload-rds-url?version={version}&path_prefix=performance"
+        
+        # Verify we have auth token
+        if not auth_token:
+            print(f"  ✗ Error: No authentication token available for presigned URL request")
+            print(f"  Attempting direct RDS access as fallback...")
+            return ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
+        
+        # Debug: Log the request details (without exposing full token)
+        print(f"  Requesting presigned URL from: {url_get_presigned}")
+        print(f"  Using auth token: {'Yes' if auth_token else 'No'} (length: {len(auth_token) if auth_token else 0})")
+        
         response = requests.get(url_get_presigned, headers=headers, timeout=30)
         
-        if response.status_code != 200:
+        if response.status_code == 403:
+            # API Gateway 403 "Missing Authentication Token" usually means endpoint not deployed
+            # But could also mean auth issue - check response
+            error_text = response.text
+            if "Missing Authentication Token" in error_text:
+                print(f"  ⚠ upload-rds-url endpoint returned 403 'Missing Authentication Token'")
+                print(f"  This usually means the endpoint is not deployed to API Gateway yet.")
+                print(f"  To deploy: cd infra && terraform apply")
+                print(f"  Falling back to direct RDS access...")
+                return ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
+            else:
+                # Different 403 - might be auth issue
+                print(f"✗ Failed to get presigned URL: HTTP 403 - {error_text[:200]}")
+                print(f"  Response headers: {dict(response.headers)}")
+                print(f"  Check authentication token. Falling back to direct RDS access...")
+                return ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
+        elif response.status_code != 200:
             print(f"✗ Failed to get presigned URL: HTTP {response.status_code} - {response.text[:200]}")
-            return (False, "error")
+            print(f"  Response headers: {dict(response.headers)}")
+            # Try direct RDS access as fallback
+            print(f"  Attempting direct RDS access as fallback...")
+            return ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
         
         presigned_data = response.json()
         upload_url = presigned_data["upload_url"]
@@ -972,6 +1007,8 @@ def main():
     auth_token = get_authentication_token(api_base_url)
     if auth_token:
         print("✓ Authentication successful")
+        # Debug: Show token format (first 20 chars only for security)
+        print(f"  Token format: {auth_token[:20]}... (length: {len(auth_token)})")
     else:
         print("✗ Authentication failed - cannot proceed without admin token")
         return 1
