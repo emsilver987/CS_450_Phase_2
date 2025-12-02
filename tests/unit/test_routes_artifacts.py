@@ -300,3 +300,70 @@ class TestArtifactsById:
         assert response.status_code == 404
         data = response.json()
         assert data["detail"] == "Not found"
+
+
+class TestArtifactsPydanticSerialization:
+    """Test Pydantic model serialization paths"""
+
+    def test_ingest_with_pydantic_model_instance(self, client):
+        """Test ingesting using Pydantic model instance directly"""
+        from src.routes.artifacts import Artifact, ArtifactType
+        
+        artifact = Artifact(
+            id="pydantic-test-1",
+            name="pydantic-model",
+            type=ArtifactType.model,
+            version="1.0.0",
+            description="Test with Pydantic model"
+        )
+        
+        # Call the endpoint function directly to test model_dump path
+        from src.routes.artifacts import ingest
+        result = ingest(artifact)
+        assert result["ingested"] == 1
+        
+        # Verify it was stored
+        response = client.get("/api/artifacts/pydantic-test-1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "pydantic-test-1"
+
+    def test_ingest_with_datetime_object(self, client):
+        """Test ingesting with datetime object in Pydantic model"""
+        from src.routes.artifacts import Artifact, ArtifactType
+        from datetime import datetime, UTC
+        
+        artifact = Artifact(
+            id="datetime-test-1",
+            name="datetime-model",
+            type=ArtifactType.model,
+            version="1.0.0",
+            created_at=datetime.now(UTC)
+        )
+        
+        from src.routes.artifacts import ingest
+        result = ingest(artifact)
+        assert result["ingested"] == 1
+        
+        # Verify datetime was serialized
+        response = client.get("/api/artifacts/datetime-test-1")
+        assert response.status_code == 200
+        data = response.json()
+        assert "created_at" in data
+        assert isinstance(data["created_at"], str)  # Should be ISO string
+
+    def test_ingest_dict_with_datetime(self, client):
+        """Test ingesting dict with datetime object"""
+        from datetime import datetime, UTC
+        
+        payload = {
+            "id": "dict-datetime-1",
+            "name": "dict-datetime-model",
+            "type": "model",
+            "version": "1.0.0",
+            "created_at": datetime.now(UTC)
+        }
+        
+        from src.routes.artifacts import ingest
+        result = ingest(payload)
+        assert result["ingested"] == 1

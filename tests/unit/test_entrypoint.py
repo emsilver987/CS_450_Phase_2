@@ -2,7 +2,9 @@
 Unit tests for entrypoint module
 """
 import os
-from unittest.mock import patch
+import sys
+import importlib
+from unittest.mock import patch, MagicMock
 
 
 class TestEntrypointAuthSetup:
@@ -21,83 +23,39 @@ class TestEntrypointAuthSetup:
 
     def test_entrypoint_with_enable_auth_true(self):
         """Test entrypoint with ENABLE_AUTH=true"""
-        from src.index import app
-        
-        # Count existing JWTAuthMiddleware instances before reload
-        initial_count = len([
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' in str(m.cls)
-        ])
-        
-        # Remove existing JWTAuthMiddleware to test fresh addition
-        app.user_middleware = [
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' not in str(m.cls)
-        ]
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
         
         with patch.dict(os.environ, {'ENABLE_AUTH': 'true'}, clear=False):
-            # Remove any existing entrypoint module from cache
-            import sys
-            if 'src.entrypoint' in sys.modules:
-                del sys.modules['src.entrypoint']
-            
-            # Re-import entrypoint to pick up new env vars
-            import importlib
-            import src.entrypoint
-            importlib.reload(src.entrypoint)
-            
-            # Verify middleware was added
-            final_count = len([
-                m for m in app.user_middleware
-                if 'JWTAuthMiddleware' in str(m.cls)
-            ])
-
-            # Middleware should have been added (count should be at least 1)
-            msg = "JWTAuthMiddleware should be added when ENABLE_AUTH=true"
-            assert final_count >= 1, msg
-            # Note: Due to module reload behavior, middleware may be added
-            # multiple times if entrypoint was imported before. The important
-            # thing is that it was added at least once.
+            with patch('src.index.app') as mock_app:
+                # Import the module to trigger execution
+                import src.entrypoint
+                
+                # Verify add_middleware was called
+                from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
+                mock_app.add_middleware.assert_called()
+                args, kwargs = mock_app.add_middleware.call_args
+                assert args[0] == JWTAuthMiddleware
+                assert kwargs['exempt_paths'] == DEFAULT_EXEMPT
 
     def test_entrypoint_with_jwt_secret(self):
         """Test entrypoint with JWT_SECRET set"""
-        from src.index import app
-        
-        # Count existing JWTAuthMiddleware instances before reload
-        initial_count = len([
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' in str(m.cls)
-        ])
-        
-        # Remove existing JWTAuthMiddleware to test fresh addition
-        app.user_middleware = [
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' not in str(m.cls)
-        ]
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
         
         with patch.dict(os.environ, {'JWT_SECRET': 'test-secret-key'}, clear=False):
-            # Remove any existing entrypoint module from cache
-            import sys
-            if 'src.entrypoint' in sys.modules:
-                del sys.modules['src.entrypoint']
-            
-            # Re-import entrypoint to pick up new env vars
-            import importlib
-            import src.entrypoint
-            importlib.reload(src.entrypoint)
-            
-            # Verify middleware was added
-            final_count = len([
-                m for m in app.user_middleware
-                if 'JWTAuthMiddleware' in str(m.cls)
-            ])
-
-            # Middleware should have been added (count should be at least 1)
-            msg = "JWTAuthMiddleware should be added when JWT_SECRET is set"
-            assert final_count >= 1, msg
-            # Note: Due to module reload behavior, middleware may be added
-            # multiple times if entrypoint was imported before. The important
-            # thing is that it was added at least once.
+            with patch('src.index.app') as mock_app:
+                # Import the module to trigger execution
+                import src.entrypoint
+                
+                # Verify add_middleware was called
+                from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
+                mock_app.add_middleware.assert_called()
+                args, kwargs = mock_app.add_middleware.call_args
+                assert args[0] == JWTAuthMiddleware
+                assert kwargs['exempt_paths'] == DEFAULT_EXEMPT
 
     def test_entrypoint_auth_condition_logic(self):
         """Test the auth condition logic (enable_auth OR jwt_secret)"""
@@ -127,6 +85,12 @@ class TestEntrypointAuthSetup:
 
     def test_entrypoint_app_reference(self):
         """Test that entrypoint correctly references the app"""
+        # Ensure we have a clean import of entrypoint with the real app
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        import src.entrypoint
+        
         from src.entrypoint import app
         from src.index import app as index_app
         
@@ -135,6 +99,10 @@ class TestEntrypointAuthSetup:
 
     def test_entrypoint_imports(self):
         """Test that entrypoint imports work correctly"""
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        import src.entrypoint
         from src.entrypoint import app
         from src.middleware.jwt_auth import JWTAuthMiddleware, DEFAULT_EXEMPT
         
@@ -142,57 +110,29 @@ class TestEntrypointAuthSetup:
         assert JWTAuthMiddleware is not None
         assert DEFAULT_EXEMPT is not None
 
-    def test_middleware_not_added_twice(self):
-        """Test that middleware isn't added multiple times on reload"""
-        from src.index import app
+    def test_entrypoint_no_auth_when_disabled(self):
+        """Test that middleware is not added when auth is disabled"""
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
         
-        # Count middleware before any reloads
-        initial_count = len([
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' in str(m.cls)
-        ])
-        
-        # Remove all existing JWTAuthMiddleware to start clean
-        app.user_middleware = [
-            m for m in app.user_middleware
-            if 'JWTAuthMiddleware' not in str(m.cls)
-        ]
-        
-        with patch.dict(os.environ, {'ENABLE_AUTH': 'true'}, clear=False):
-            # First reload
-            import sys
-            if 'src.entrypoint' in sys.modules:
-                del sys.modules['src.entrypoint']
-            
-            import importlib
-            import src.entrypoint
-            importlib.reload(src.entrypoint)
-            
-            first_reload_count = len([
-                m for m in app.user_middleware
-                if 'JWTAuthMiddleware' in str(m.cls)
-            ])
-            
-            # Second reload - should not add another middleware
-            if 'src.entrypoint' in sys.modules:
-                del sys.modules['src.entrypoint']
-            
-            # Import again before reloading
-            import src.entrypoint
-            importlib.reload(src.entrypoint)
-            
-            second_reload_count = len([
-                m for m in app.user_middleware
-                if 'JWTAuthMiddleware' in str(m.cls)
-            ])
-            
-            # After first reload, middleware should exist
-            msg1 = "Middleware should exist after first reload"
-            assert first_reload_count >= 1, msg1
-            # After second reload, middleware should still exist
-            msg2 = "Middleware should exist after second reload"
-            assert second_reload_count >= 1, msg2
-            # Note: Due to module reload behavior, middleware may be added
-            # multiple times. This test verifies middleware exists but
-            # acknowledges the potential duplication issue.
+        with patch.dict(os.environ, {}, clear=True):
+            with patch('src.index.app') as mock_app:
+                # Import the module to trigger execution
+                import src.entrypoint
+                
+                # Verify add_middleware was NOT called
+                mock_app.add_middleware.assert_not_called()
 
+    def test_entrypoint_module_execution(self):
+        """Test that entrypoint module code is actually executed"""
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        # Import to trigger execution
+        import src.entrypoint
+        
+        # Verify the module has the expected attributes
+        assert hasattr(src.entrypoint, 'app')
+        assert src.entrypoint.app is not None

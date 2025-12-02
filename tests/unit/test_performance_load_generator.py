@@ -211,3 +211,340 @@ class TestLoadGeneratorStatistics:
         error_rate = (total_requests - successful_requests) / total_requests * 100
         assert error_rate == 5.0
 
+
+class TestLoadGeneratorClass:
+    """Test LoadGenerator class methods"""
+
+    def test_load_generator_initialization(self):
+        """Test LoadGenerator initialization"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            num_clients=10,
+            model_id="test/model",
+            version="main"
+        )
+        
+        assert generator.run_id == "test-run-1"
+        assert generator.base_url == "https://api.example.com"
+        assert generator.num_clients == 10
+        assert generator.model_id == "test/model"
+        assert generator.version == "main"
+        assert generator.metrics == []
+        assert generator.start_time is None
+        assert generator.end_time is None
+
+    def test_load_generator_with_duration(self):
+        """Test LoadGenerator initialization with duration"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            duration_seconds=60
+        )
+        
+        assert generator.duration_seconds == 60
+
+    def test_load_generator_with_performance_path(self):
+        """Test LoadGenerator with performance path"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            use_performance_path=True
+        )
+        
+        assert generator.use_performance_path is True
+
+    def test_get_download_url(self):
+        """Test _get_download_url method"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model",
+            version="main"
+        )
+        
+        url = generator._get_download_url()
+        assert "models" in url
+        assert "test_model" in url
+        assert "main" in url
+
+    def test_get_download_url_performance_path(self):
+        """Test _get_download_url with performance path"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model",
+            use_performance_path=True
+        )
+        
+        url = generator._get_download_url()
+        assert "performance" in url
+
+    def test_get_download_url_sanitization(self):
+        """Test URL sanitization in _get_download_url"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model:version",
+            version="main"
+        )
+        
+        url = generator._get_download_url()
+        assert ":" not in url
+        assert "_" in url
+
+    def test_get_metrics_empty(self):
+        """Test get_metrics with no metrics"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com"
+        )
+        
+        metrics = generator.get_metrics()
+        assert metrics == []
+
+    def test_get_metrics_with_data(self):
+        """Test get_metrics with collected metrics"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com"
+        )
+        
+        metric = Metric(
+            run_id="test-run-1",
+            client_id=1,
+            request_latency_ms=100.0,
+            bytes_transferred=1024,
+            status_code=200,
+            timestamp=datetime.now(timezone.utc)
+        )
+        generator.metrics.append(metric)
+        
+        metrics = generator.get_metrics()
+        assert len(metrics) == 1
+        assert metrics[0]["run_id"] == "test-run-1"
+        assert metrics[0]["client_id"] == 1
+
+    def test_get_summary_empty(self):
+        """Test get_summary with no metrics"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com"
+        )
+        
+        summary = generator.get_summary()
+        assert summary["total_requests"] == 0
+        assert summary["successful_requests"] == 0
+        assert summary["mean_latency_ms"] == 0
+
+    def test_get_summary_with_metrics(self):
+        """Test get_summary with collected metrics"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com"
+        )
+        
+        generator.start_time = time.time()
+        generator.end_time = generator.start_time + 1.0
+        
+        # Add successful metrics
+        for i in range(5):
+            metric = Metric(
+                run_id="test-run-1",
+                client_id=i + 1,
+                request_latency_ms=100.0 + i * 10,
+                bytes_transferred=1024,
+                status_code=200,
+                timestamp=datetime.now(timezone.utc)
+            )
+            generator.metrics.append(metric)
+        
+        # Add failed metric
+        failed_metric = Metric(
+            run_id="test-run-1",
+            client_id=6,
+            request_latency_ms=50.0,
+            bytes_transferred=0,
+            status_code=500,
+            timestamp=datetime.now(timezone.utc)
+        )
+        generator.metrics.append(failed_metric)
+        
+        summary = generator.get_summary()
+        assert summary["total_requests"] == 6
+        assert summary["successful_requests"] == 5
+        assert summary["failed_requests"] == 1
+        assert summary["mean_latency_ms"] > 0
+        assert summary["throughput_bps"] > 0
+
+    @pytest.mark.asyncio
+    async def test_make_request_success(self):
+        """Test _make_request with successful response"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model"
+        )
+        
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"test content")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_response)
+        
+        metric = await generator._make_request(1, mock_session)
+        
+        assert metric.status_code == 200
+        assert metric.bytes_transferred == len(b"test content")
+        assert metric.client_id == 1
+
+    @pytest.mark.asyncio
+    async def test_make_request_timeout(self):
+        """Test _make_request with timeout"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model"
+        )
+        
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(side_effect=asyncio.TimeoutError())
+        
+        metric = await generator._make_request(1, mock_session)
+        
+        assert metric.status_code == 0
+        assert metric.bytes_transferred == 0
+        assert metric.client_id == 1
+
+    @pytest.mark.asyncio
+    async def test_make_request_exception(self):
+        """Test _make_request with exception"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model"
+        )
+        
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(side_effect=Exception("Network error"))
+        
+        metric = await generator._make_request(1, mock_session)
+        
+        assert metric.status_code == 0
+        assert metric.bytes_transferred == 0
+
+    @pytest.mark.asyncio
+    async def test_run_client_single_request(self):
+        """Test _run_client without duration (single request)"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model"
+        )
+        
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"content")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_response)
+        
+        await generator._run_client(1, mock_session)
+        
+        assert len(generator.metrics) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_client_with_duration(self):
+        """Test _run_client with duration"""
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model",
+            duration_seconds=0.5
+        )
+        
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"content")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_response)
+        
+        await generator._run_client(1, mock_session)
+        
+        # Should make multiple requests within duration
+        assert len(generator.metrics) > 1
+
+    @pytest.mark.asyncio
+    @patch("src.services.performance.load_generator.store_and_publish_metrics")
+    async def test_run_complete(self, mock_store_metrics):
+        """Test complete run method"""
+        mock_store_metrics.return_value = {
+            "dynamodb_stored": 2,
+            "cloudwatch_published": True,
+            "total_metrics": 2
+        }
+        
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model",
+            num_clients=2
+        )
+        
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"content")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session_instance = AsyncMock()
+            mock_session_instance.get = MagicMock(return_value=mock_response)
+            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+            mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_session_class.return_value = mock_session_instance
+            
+            await generator.run()
+        
+        assert generator.start_time is not None
+        assert generator.end_time is not None
+        assert len(generator.metrics) == 2
+        mock_store_metrics.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("src.services.performance.load_generator.store_and_publish_metrics")
+    async def test_run_metrics_storage_error(self, mock_store_metrics):
+        """Test run method handles metrics storage errors"""
+        mock_store_metrics.side_effect = Exception("Storage error")
+        
+        generator = LoadGenerator(
+            run_id="test-run-1",
+            base_url="https://api.example.com",
+            model_id="test/model",
+            num_clients=1
+        )
+        
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"content")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session_instance = AsyncMock()
+            mock_session_instance.get = MagicMock(return_value=mock_response)
+            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+            mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_session_class.return_value = mock_session_instance
+            
+            # Should not raise exception
+            await generator.run()
+        
+        assert len(generator.metrics) == 1
+

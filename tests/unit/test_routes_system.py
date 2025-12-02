@@ -63,3 +63,48 @@ class TestSystemRoutes:
         # Should succeed with proper admin auth
         assert response.status_code == 200
 
+    def test_health_endpoint_direct(self):
+        """Test health endpoint directly from router"""
+        from src.routes.system import health
+        result = health()
+        assert result == {"status": "ok"}
+
+    def test_tracks_endpoint_direct(self):
+        """Test tracks endpoint directly from router"""
+        from src.routes.system import tracks
+        result = tracks()
+        assert "tracks" in result
+        assert isinstance(result["tracks"], list)
+
+    @patch('src.services.auth_service.purge_tokens')
+    @patch('src.services.auth_service.ensure_default_admin')
+    def test_reset_post_direct(self, mock_ensure_admin, mock_purge):
+        """Test POST /reset endpoint directly"""
+        from src.routes.system import reset, _INMEM_DB
+        
+        # Add some artifacts
+        _INMEM_DB["artifacts"] = [{"id": "test-1"}, {"id": "test-2"}]
+        
+        result = reset()
+        
+        assert result == {"status": "ok"}
+        assert len(_INMEM_DB["artifacts"]) == 0
+        mock_purge.assert_called_once()
+        mock_ensure_admin.assert_called_once()
+
+    @patch('src.services.auth_service.purge_tokens')
+    @patch('src.services.auth_service.ensure_default_admin')
+    def test_reset_delete_direct(self, mock_ensure_admin, mock_purge):
+        """Test DELETE /reset endpoint directly"""
+        from src.routes.system import reset_delete, _INMEM_DB
+        
+        # Add some artifacts
+        _INMEM_DB["artifacts"] = [{"id": "test-1"}]
+        
+        result = reset_delete()
+        
+        assert result == {"status": "ok"}
+        assert len(_INMEM_DB["artifacts"]) == 0
+        mock_purge.assert_called_once()
+        mock_ensure_admin.assert_called_once()
+

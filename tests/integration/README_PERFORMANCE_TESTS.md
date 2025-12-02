@@ -13,10 +13,6 @@ Tests are organized into phases corresponding to the development phases:
 - **Phase 5**: `test_performance_component_comparison.py` - Component comparisons
 - **End-to-End**: `test_performance_end_to_end.py` - Complete workflow tests
 
-### Overall Test Orchestrator
-
-- **Master Test**: `test_overall_performance_track.py` - Runs all phases and generates comprehensive summary
-
 ## Running Tests by Phase
 
 ### Phase 1: Workload Setup
@@ -54,14 +50,10 @@ pytest tests/unit/test_performance_*.py -v
 
 ### Overall Performance Track Summary
 ```bash
-# Run all phases and get comprehensive summary
-pytest tests/integration/test_overall_performance_track.py -v -s
+# Run all phases individually to get comprehensive coverage
+pytest tests/integration/test_performance_*.py -v -s
 
-# The summary test will:
-# 1. Run each phase's tests sequentially
-# 2. Collect results for each phase
-# 3. Generate a comprehensive summary report
-# 4. Save results to performance_track_summary.json
+# Results are tracked in performance_track_summary.json
 ```
 
 ## Test-Driven Development (TDD) Approach
