@@ -2,6 +2,7 @@
 Selenium tests for frontend
 """
 import os
+import pathlib
 import socket
 import time
 import zipfile
@@ -145,6 +146,9 @@ def sample_upload_zip(tmp_path):
     Create a dummy zip file used by Selenium upload tests.
     Returns the absolute file path as a string (for Selenium).
     """
+    # Ensure parent directory exists
+    tmp_path.mkdir(parents=True, exist_ok=True)
+
     zip_path = tmp_path / "test_package.zip"
 
     # Create a valid zip file with content
@@ -153,14 +157,20 @@ def sample_upload_zip(tmp_path):
         zf.writestr("dummy.txt", "content for upload test")
 
     # Verify the zip file was created and is valid
-    assert zip_path.exists(), "Zip file should exist after creation"
-    assert zip_path.is_file(), "Zip file should be a file, not a directory"
+    assert zip_path.exists(), f"Zip file should exist after creation at {zip_path}"
+    assert zip_path.is_file(), f"Zip file should be a file, not a directory: {zip_path}"
 
     # Verify it's a valid zip file by trying to read it
     with zipfile.ZipFile(zip_path, "r") as zf:
         assert "dummy.txt" in zf.namelist(), "Zip file should contain dummy.txt"
 
-    return str(zip_path.resolve())
+    # Resolve to absolute path and verify it exists
+    absolute_path = zip_path.resolve()
+    assert absolute_path.exists(), f"Absolute path should exist: {absolute_path}"
+    assert absolute_path.is_file(), f"Absolute path should be a file: {absolute_path}"
+
+    # Return as string for Selenium
+    return str(absolute_path)
 
 
 def test_chromedriver_available():
@@ -523,12 +533,22 @@ class TestUploadAction:
         Test valid upload flow.
         Creates a dummy zip file and attempts to upload it.
         """
+        # Verify the upload file exists before attempting upload
+        upload_file_path = pathlib.Path(sample_upload_zip)
+        assert upload_file_path.exists(), (
+            f"Upload file must exist before test. Expected at: {upload_file_path}"
+        )
+        assert upload_file_path.is_file(), (
+            f"Upload path must be a file, not a directory: {upload_file_path}"
+        )
+
         driver.get(f"{base_url}/upload")
 
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            # Use fixture path for upload
-            file_input.send_keys(sample_upload_zip)
+            # Use fixture path for upload - ensure it's an absolute path string
+            file_path_str = str(upload_file_path.resolve())
+            file_input.send_keys(file_path_str)
 
             # Fill other fields if they exist
             try:
