@@ -28,6 +28,8 @@ import sys
 import uuid
 import argparse
 import os
+import subprocess
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -43,6 +45,53 @@ DEFAULT_LOCAL_URL = "http://localhost:8000"
 
 # Import requests for authentication
 import requests
+
+
+def get_rds_endpoint_from_terraform() -> Optional[str]:
+    """
+    Get RDS endpoint from Terraform output.
+    Returns the RDS endpoint (hostname) or None if not available.
+    """
+    try:
+        # Get Terraform output for RDS endpoint
+        # Navigate to infra/envs/dev directory
+        script_dir = Path(__file__).parent.parent
+        terraform_dir = script_dir / "infra" / "envs" / "dev"
+        
+        if not terraform_dir.exists():
+            return None
+        
+        # Run terraform output -json to get all outputs
+        result = subprocess.run(
+            ["terraform", "output", "-json"],
+            cwd=str(terraform_dir),
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            outputs = json.loads(result.stdout)
+            # Try rds_endpoint first, then rds_address
+            endpoint = None
+            if "rds_endpoint" in outputs and "value" in outputs["rds_endpoint"]:
+                endpoint = outputs["rds_endpoint"]["value"]
+            elif "rds_address" in outputs and "value" in outputs["rds_address"]:
+                endpoint = outputs["rds_address"]["value"]
+            
+            if endpoint:
+                # Remove port if included (e.g., "hostname:5432" -> "hostname")
+                if ":" in endpoint:
+                    endpoint = endpoint.split(":")[0]
+                return endpoint
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
+        # Terraform not available or output not accessible
+        pass
+    except Exception:
+        # Any other error - just return None
+        pass
+    
+    return None
 
 
 def get_authentication_token(api_base_url: str) -> Optional[str]:
@@ -165,36 +214,54 @@ async def test_load_generator(
             print("⚠️  Warning: Authentication failed - requests may fail with 403")
         print()
     
-    print("⚠️  Prerequisites:")
-    if storage_backend == "rds":
-        print(f"  1. Run: python scripts/populate_registry.py --rds --local")
-    else:
-        print(f"  1. Run: python scripts/populate_registry.py --s3 --local")
-    print(f"  2. Ensure Tiny-LLM has full model binary (for performance testing)")
-    print(f"  3. Start API server with correct environment variables:")
-    print(f"     STORAGE_BACKEND={storage_backend}")
-    print(f"     COMPUTE_BACKEND={compute_backend}")
-    print(f"     Example:")
-    print(f"       $env:STORAGE_BACKEND='{storage_backend}'; $env:COMPUTE_BACKEND='{compute_backend}'; python run_server.py")
-    print(f"  4. Verify server is using {storage_backend.upper()} storage and {compute_backend.upper()} compute (check server logs)")
-    if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
-        print(f"  5. ⚠️  LOCAL TESTING NOTE: Local server may struggle with 100 concurrent connections.")
-        print(f"     If you see 'network name is no longer available' errors, the server may be overwhelmed.")
-        print(f"     Consider using --prod for production testing, or ensure your local server is configured")
-        print(f"     to handle high concurrency (e.g., uvicorn with --workers or proper connection limits).")
-    print()
-    
     # For RDS storage, use direct RDS connection if endpoint is available
     use_direct_rds = False
     rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+    
+    # If RDS_ENDPOINT not set, try to get it from Terraform output
+    if storage_backend == "rds" and not rds_endpoint:
+        print("Attempting to get RDS endpoint from Terraform output...")
+        rds_endpoint = get_rds_endpoint_from_terraform()
+        if rds_endpoint:
+            print(f"✓ Found RDS endpoint from Terraform: {rds_endpoint}")
+        else:
+            print(f"⚠️  Could not get RDS endpoint from Terraform output")
     
     if storage_backend == "rds" and rds_endpoint:
         use_direct_rds = True
         print(f"✓ Using direct RDS connection: {rds_endpoint}")
         print(f"  This bypasses the API and directly queries RDS database")
     elif storage_backend == "rds":
-        print(f"⚠️  RDS storage selected but RDS_ENDPOINT not set")
-        print(f"  Will use API endpoint (ensure server has STORAGE_BACKEND=rds)")
+        print(f"⚠️  RDS storage selected but RDS_ENDPOINT not available")
+        print(f"  Options:")
+        print(f"    1. Set RDS_ENDPOINT environment variable")
+        print(f"    2. Run 'terraform output rds_endpoint' in infra/envs/dev/ and set it")
+        print(f"    3. Will use API endpoint (ensure server has STORAGE_BACKEND=rds)")
+    
+    print()
+    print("⚠️  Prerequisites:")
+    if storage_backend == "rds":
+        print(f"  1. Run: python scripts/populate_registry.py --rds --local")
+        if use_direct_rds:
+            print(f"  2. ✓ Direct RDS mode enabled - API server NOT required")
+        else:
+            print(f"  2. Start API server with: STORAGE_BACKEND=rds, COMPUTE_BACKEND={compute_backend}")
+    else:
+        print(f"  1. Run: python scripts/populate_registry.py --s3 --local")
+        print(f"  2. Start API server with correct environment variables:")
+        print(f"     STORAGE_BACKEND={storage_backend}")
+        print(f"     COMPUTE_BACKEND={compute_backend}")
+        print(f"     Example:")
+        print(f"       $env:STORAGE_BACKEND='{storage_backend}'; $env:COMPUTE_BACKEND='{compute_backend}'; python run_server.py")
+    print(f"  3. Ensure Tiny-LLM has full model binary (for performance testing)")
+    if not use_direct_rds:
+        print(f"  4. Verify server is using {storage_backend.upper()} storage and {compute_backend.upper()} compute (check server logs)")
+        if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
+            print(f"  5. ⚠️  LOCAL TESTING NOTE: Local server may struggle with 100 concurrent connections.")
+            print(f"     If you see 'network name is no longer available' errors, the server may be overwhelmed.")
+            print(f"     Consider using --prod for production testing, or ensure your local server is configured")
+            print(f"     to handle high concurrency (e.g., uvicorn with --workers or proper connection limits).")
+    print()
     
     # Create load generator
     # Set use_performance_path=True to use performance/ S3 path instead of models/

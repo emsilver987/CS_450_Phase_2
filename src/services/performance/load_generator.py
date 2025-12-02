@@ -150,10 +150,24 @@ class LoadGenerator:
         
         path_prefix = "performance" if self.use_performance_path else "models"
         
+        # Parse endpoint to extract hostname (remove port if included)
+        rds_host = self.rds_endpoint
+        rds_port = RDS_PORT
+        if ":" in rds_host:
+            # Endpoint includes port (e.g., "hostname:5432")
+            parts = rds_host.split(":")
+            rds_host = parts[0]
+            if len(parts) > 1:
+                try:
+                    rds_port = int(parts[1])
+                except ValueError:
+                    # Invalid port, use default
+                    pass
+        
         # Simple direct connection (no connection pool for simplicity)
         conn = psycopg2.connect(
-            host=self.rds_endpoint,
-            port=RDS_PORT,
+            host=rds_host,
+            port=rds_port,
             database=RDS_DATABASE,
             user=RDS_USERNAME,
             password=RDS_PASSWORD
