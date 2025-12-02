@@ -1,28 +1,32 @@
 """
 Selenium tests for frontend
 """
-import pytest
-from selenium import webdriver
-
-pytestmark = pytest.mark.integration
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import NoSuchElementException
-import time
 import os
-import requests
 import socket
+import time
 import zipfile
 
-from tests.utils.chromedriver import find_chromedriver_path, get_chromedriver_install_instruction
+import pytest
+import requests
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
 from tests.constants import (
     DEFAULT_PORT,
     WEBDRIVER_WAIT_TIMEOUT,
     WEBDRIVER_IMPLICIT_WAIT
 )
+from tests.utils.chromedriver import (
+    find_chromedriver_path,
+    get_chromedriver_install_instruction
+)
+
+pytestmark = pytest.mark.integration
 
 
 def _find_free_port():
@@ -127,6 +131,25 @@ def base_url():
     return base
 
 
+@pytest.fixture
+def sample_upload_zip(tmp_path):
+    """
+    Create a small dummy zip file to use for the upload test.
+    Returns the absolute path as a string (what Selenium expects).
+    """
+    zip_path = tmp_path / "test_package.zip"
+
+    # Create a minimal valid zip archive
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr(
+            "README.txt",
+            "This is a test package used by Selenium upload tests."
+        )
+
+    # Selenium requires a string path
+    return str(zip_path.resolve())
+
+
 def test_chromedriver_available():
     """Verify ChromeDriver is available before running other tests"""
     from selenium.webdriver.chrome.options import Options
@@ -190,17 +213,21 @@ class TestHomePage:
         body_text = body.text
         assert len(body_text) > 0, "Body should have text content"
         assert isinstance(body_text, str), "Body text should be a string"
-        
+
         # Check for specific expected content (headings, navigation links)
         page_source_lower = driver.page_source.lower()
         # Check for common home page elements
         assert any(keyword in page_source_lower for keyword in [
             "welcome", "acme", "registry", "package", "upload", "directory"
         ]), "Home page should contain expected keywords"
-        
+
         # Check for navigation links
-        nav_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/upload'], a[href*='/directory']")
-        assert len(nav_links) > 0, "Home page should have navigation links to upload or directory"
+        nav_links = driver.find_elements(
+            By.CSS_SELECTOR, "a[href*='/upload'], a[href*='/directory']"
+        )
+        assert len(nav_links) > 0, (
+            "Home page should have navigation links to upload or directory"
+        )
 
 
 class TestUploadPage:
@@ -250,7 +277,6 @@ class TestUploadPage:
             assert form is not None, "Form element should exist"
             assert form.is_displayed(), "Form should be visible"
             # Verify form has action and method attributes (if present)
-            form_action = form.get_attribute("action")
             form_method = form.get_attribute("method")
             # Form should have either action attribute or be handled by JavaScript
             # Method should be POST for file uploads (or not specified for JS handling)
@@ -266,7 +292,9 @@ class TestUploadPage:
             accept_attr = file_input.get_attribute("accept")
             # Accept attribute is optional, but if present should be reasonable
             if accept_attr:
-                assert len(accept_attr) > 0, "File input accept attribute should not be empty"
+                assert len(accept_attr) > 0, (
+                    "File input accept attribute should not be empty"
+                )
         else:
             pytest.skip("Upload form not found in page structure")
 
@@ -317,13 +345,14 @@ class TestDirectoryPage:
             assert search_input.is_displayed(), "Search input should be visible"
             # Verify search input is functional
             assert search_input.is_enabled(), "Search input should be enabled"
-            placeholder = search_input.get_attribute("placeholder")
             # Placeholder is optional but good UX practice
             # Verify we can interact with the search input
             try:
                 search_input.send_keys("test")
                 value = search_input.get_attribute("value")
-                assert value == "test", f"Search input should accept input, got '{value}'"
+                assert value == "test", (
+                    f"Search input should accept input, got '{value}'"
+                )
                 # Clear the input
                 search_input.clear()
             except Exception as e:
@@ -447,7 +476,8 @@ class TestUploadAction:
 
             submit_btn.click()
 
-            # Wait for form submission response - either error message appears or page stays
+            # Wait for form submission response - either error message
+            # appears or page stays
             try:
                 # Wait for error message or validation message to appear
                 WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
@@ -475,25 +505,16 @@ class TestUploadAction:
         else:
             pytest.skip("Upload submit button not found")
 
-    def test_valid_upload_simulation(self, driver, base_url, tmp_path):
+    def test_valid_upload_simulation(self, driver, base_url, sample_upload_zip):
         """
         Test valid upload flow.
         Creates a dummy zip file and attempts to upload it.
         """
         driver.get(f"{base_url}/upload")
 
-        # Create dummy zip file in tmp_path (pytest guarantees this directory exists)
-        dummy_zip = tmp_path / "test_package.zip"
-        with zipfile.ZipFile(dummy_zip, 'w') as zf:
-            zf.writestr('package.json', '{"name": "test-pkg", "version": "1.0.0"}')
-
-        # Verify file was created and get absolute path
-        assert dummy_zip.exists(), f"Test file should exist at {dummy_zip}"
-        upload_path = str(dummy_zip.resolve())
-
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            file_input.send_keys(upload_path)
+            file_input.send_keys(sample_upload_zip)
 
             # Fill other fields if they exist
             try:
@@ -519,10 +540,16 @@ class TestUploadAction:
             try:
                 WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
                     lambda d: any([
-                        "success" in d.find_element(By.TAG_NAME, "body").text.lower(),
-                        "error" in d.find_element(By.TAG_NAME, "body").text.lower(),
-                        d.current_url != f"{base_url}/upload",  # Redirect occurred
-                        len(d.find_elements(By.CSS_SELECTOR, ".alert, .message, .notification")) > 0  # Message element appeared
+                        "success" in d.find_element(
+                            By.TAG_NAME, "body"
+                        ).text.lower(),
+                        "error" in d.find_element(
+                            By.TAG_NAME, "body"
+                        ).text.lower(),
+                        d.current_url != f"{base_url}/upload",  # Redirect
+                        len(d.find_elements(
+                            By.CSS_SELECTOR, ".alert, .message, .notification"
+                        )) > 0  # Message element appeared
                     ])
                 )
             except Exception:
@@ -537,7 +564,7 @@ class TestUploadAction:
             page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
             page_source_lower = driver.page_source.lower()
             current_url_lower = driver.current_url.lower()
-            
+
             # Page may show success, error, or stay on upload page
             # All are valid outcomes depending on implementation
             has_success_indicator = any([
@@ -555,7 +582,7 @@ class TestUploadAction:
                 "failed" in page_source_lower
             ])
             still_on_upload_page = "upload" in current_url_lower
-            
+
             assert (
                 has_success_indicator or has_error_indicator or still_on_upload_page
             ), (
@@ -564,14 +591,17 @@ class TestUploadAction:
                 f"Page text contains 'success': {has_success_indicator}, "
                 f"Page text contains 'error': {has_error_indicator}"
             )
-            
+
             # If there's a message element, verify it's visible
             message_elements = driver.find_elements(
-                By.CSS_SELECTOR, ".alert, .message, .notification, .error, .success"
+                By.CSS_SELECTOR,
+                ".alert, .message, .notification, .error, .success"
             )
             if len(message_elements) > 0:
                 message_element = message_elements[0]
-                assert message_element.is_displayed(), "Message element should be visible"
+                assert message_element.is_displayed(), (
+                    "Message element should be visible"
+                )
 
         except NoSuchElementException:
             pytest.skip("Upload form elements not found")
@@ -595,7 +625,8 @@ class TestSearchAction:
             try:
                 search_btn = driver.find_element(
                     By.CSS_SELECTOR,
-                    "button[type='submit'], button.search-btn"
+                    "button[type='submit'], "
+                    "button.search-btn"
                 )
                 search_btn.click()
             except NoSuchElementException:
@@ -607,8 +638,14 @@ class TestSearchAction:
                 WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
                     lambda d: any([
                         "test" in d.current_url.lower(),  # Search term in URL
-                        len(d.find_elements(By.CSS_SELECTOR, ".result, .search-result, table, .list-item")) > 0,  # Results appeared
-                        d.find_element(By.CSS_SELECTOR, "input[type='text'], input[type='search']").get_attribute("value") == "test"  # Input retained value
+                        len(d.find_elements(
+                            By.CSS_SELECTOR,
+                            ".result, .search-result, table, .list-item"
+                        )) > 0,  # Results appeared
+                        d.find_element(
+                            By.CSS_SELECTOR,
+                            "input[type='text'], input[type='search']"
+                        ).get_attribute("value") == "test"  # Input retained
                     ])
                 )
             except Exception:
