@@ -1687,6 +1687,106 @@ def reset_system(request: Request):
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
+@app.delete("/reset-rds")
+def reset_rds_system(request: Request):
+    """
+    Reset RDS database by deleting all model files with performance/ path prefix.
+    This endpoint is separate from the S3 reset endpoint.
+    """
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+
+    # Check admin permissions
+    try:
+        raw = (
+            request.headers.get("authorization")
+            or request.headers.get("x-authorization")
+            or ""
+        )
+        raw = raw.strip()
+
+        if raw.lower().startswith("bearer "):
+            token = raw.split(" ", 1)[1].strip()
+        else:
+            token = raw.strip()
+
+        payload = verify_jwt_token(token)
+        if payload:
+            # Check if user is admin - check roles or username
+            is_admin = (
+                "admin" in payload.get("roles", [])
+                or payload.get("username") == "ece30861defaultadminuser"
+                or payload.get("is_admin", False)
+                or payload.get("sub") == "ece30861defaultadminuser"
+            )
+            if not is_admin:
+                raise HTTPException(
+                    status_code=401,
+                    detail="You do not have permission to reset the RDS registry.",
+                )
+        else:
+            # Allow the public static token issued by /authenticate
+            if token != PUBLIC_STATIC_TOKEN:
+                raise HTTPException(
+                    status_code=401,
+                    detail="You do not have permission to reset the RDS registry.",
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If we can't verify admin status, deny access
+        logger.warning(f"Could not verify admin status for RDS reset: {str(e)}")
+        raise HTTPException(
+            status_code=401, detail="You do not have permission to reset the RDS registry."
+        )
+
+    try:
+        # Check if RDS credentials are available
+        rds_endpoint = os.getenv("RDS_ENDPOINT")
+        rds_database = os.getenv("RDS_DATABASE")
+        rds_username = os.getenv("RDS_USERNAME")
+        rds_password = os.getenv("RDS_PASSWORD")
+        
+        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
+            raise HTTPException(
+                status_code=500,
+                detail="RDS reset endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
+            )
+        
+        # Import RDS service and delete all performance/ path models
+        from .services.rds_service import get_connection_pool
+        import psycopg2
+        
+        pool = get_connection_pool()
+        conn = pool.getconn()
+        cursor = conn.cursor()
+        
+        try:
+            # Delete all rows where path_prefix='performance'
+            cursor.execute("""
+                DELETE FROM model_files
+                WHERE path_prefix = 'performance'
+            """)
+            deleted_count = cursor.rowcount
+            conn.commit()
+            logger.info(f"RDS reset successful: deleted {deleted_count} model files from performance/ path")
+        except Exception as e:
+            conn.rollback()
+            raise
+        finally:
+            pool.putconn(conn)
+        
+        return {"message": "RDS reset successful", "deleted_count": deleted_count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting RDS registry: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS reset failed: {str(e)}")
+
+
 @app.get("/package/{id}")
 def get_package(id: str, request: Request):
     """Alias for /artifact/model/{id} to support autograder"""
@@ -5525,7 +5625,7 @@ async def download_artifact_model(
     path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
 ):
     """
-    Download model file. Supports both models/ and performance/ paths.
+    Download model file from S3. Supports both models/ and performance/ paths.
     This endpoint is used by API Gateway for performance testing.
     """
     # Optional authentication check - verify token if provided
@@ -5545,18 +5645,12 @@ async def download_artifact_model(
         # Determine if we should use performance path
         use_performance_path = (path_prefix.lower() == "performance")
         
-        # Import download function based on storage backend
-        storage_backend = os.getenv("STORAGE_BACKEND", "s3").lower()
+        # Use S3 service for this endpoint
+        from .services.s3_service import download_model as s3_download_model
         
-        logger.info(f"[DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, storage_backend={storage_backend}, use_performance_path={use_performance_path}")
+        logger.info(f"[S3 DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, use_performance_path={use_performance_path}")
         
-        if storage_backend == "rds":
-            from .services.rds_service import download_model as rds_download_model
-            file_content = rds_download_model(id, version, component, use_performance_path=use_performance_path)
-        else:
-            # Default to S3
-            from .services.s3_service import download_model as s3_download_model
-            file_content = s3_download_model(id, version, component, use_performance_path=use_performance_path)
+        file_content = s3_download_model(id, version, component, use_performance_path=use_performance_path)
         
         if file_content:
             from fastapi.responses import Response
@@ -5575,6 +5669,73 @@ async def download_artifact_model(
     except Exception as e:
         logger.error(f"Download failed for {id} v{version}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+
+@app.get("/artifact/model/{id}/download-rds")
+async def download_artifact_model_from_rds(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Download model file from RDS. Supports both models/ and performance/ paths.
+    This endpoint is used by API Gateway for RDS performance testing.
+    """
+    # Optional authentication check - verify token if provided
+    try:
+        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+        if auth_header:
+            if not verify_auth_token(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+                )
+    except ImportError:
+        # If verify_auth_token is not available, skip auth check (for local testing)
+        pass
+    
+    try:
+        # Check if RDS credentials are available
+        rds_endpoint = os.getenv("RDS_ENDPOINT")
+        rds_database = os.getenv("RDS_DATABASE")
+        rds_username = os.getenv("RDS_USERNAME")
+        rds_password = os.getenv("RDS_PASSWORD")
+        
+        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
+            raise HTTPException(
+                status_code=500,
+                detail="RDS download endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
+            )
+        
+        # Determine if we should use performance path
+        use_performance_path = (path_prefix.lower() == "performance")
+        
+        # Use RDS service for this endpoint
+        from .services.rds_service import download_model as rds_download_model
+        
+        logger.info(f"[RDS DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, use_performance_path={use_performance_path}")
+        
+        file_content = rds_download_model(id, version, component, use_performance_path=use_performance_path)
+        
+        if file_content:
+            from fastapi.responses import Response
+            return Response(
+                content=file_content,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
+                    "Content-Length": str(len(file_content))
+                }
+            )
+        else:
+            raise HTTPException(status_code=404, detail=f"Model {id} version {version} not found in RDS")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RDS download failed for {id} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS download failed: {str(e)}")
 # @app.get("/admin")
 # def get_admin(request: Request):
 #    try:

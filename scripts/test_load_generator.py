@@ -24,8 +24,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.services.performance.load_generator import LoadGenerator
 
+# Default URLs
+DEFAULT_API_URL = "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod"
+DEFAULT_LOCAL_URL = "http://localhost:8000"
 
-async def test_load_generator(backend: str = "ecs", base_url: str = "http://localhost:8000"):
+
+async def test_load_generator(compute_backend: str = "ecs", storage_backend: str = "s3", base_url: str = None):
     """
     Test the load generator per ACME Corporation requirements:
     - 100 concurrent clients downloading Tiny-LLM model
@@ -33,18 +37,29 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
     - Measure throughput, mean, median, and 99th percentile latency
     
     Args:
-        backend: Compute backend to test ('ecs' or 'lambda')
-        base_url: Base URL of the API server
+        compute_backend: Compute backend to test ('ecs' or 'lambda')
+        storage_backend: Storage backend to test ('s3' or 'rds')
+        base_url: Base URL of the API server (defaults to production URL)
     
     Prerequisites:
-    1. Ensure 500 models are populated in registry (run populate_registry.py --performance)
+    1. Ensure 500 models are populated in registry (run populate_registry.py --s3 or --rds)
     2. Ensure Tiny-LLM model is fully ingested with binary (required for performance testing)
     3. Start the FastAPI server with COMPUTE_BACKEND environment variable set
     """
-    # Validate backend
-    backend = backend.lower()
-    if backend not in ["ecs", "lambda"]:
-        print(f"✗ Error: Invalid backend '{backend}'. Must be 'ecs' or 'lambda'")
+    # Set default base_url if not provided
+    if base_url is None:
+        base_url = DEFAULT_API_URL
+    
+    # Validate compute backend
+    compute_backend = compute_backend.lower()
+    if compute_backend not in ["ecs", "lambda"]:
+        print(f"✗ Error: Invalid compute backend '{compute_backend}'. Must be 'ecs' or 'lambda'")
+        return 1
+    
+    # Validate storage backend
+    storage_backend = storage_backend.lower()
+    if storage_backend not in ["s3", "rds"]:
+        print(f"✗ Error: Invalid storage backend '{storage_backend}'. Must be 's3' or 'rds'")
         return 1
     
     print("=" * 80)
@@ -59,7 +74,8 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
     
     print(f"Configuration:")
     print(f"  Base URL: {base_url}")
-    print(f"  Compute Backend: {backend.upper()} (feature flag)")
+    print(f"  Storage Backend: {storage_backend.upper()}")
+    print(f"  Compute Backend: {compute_backend.upper()} (feature flag)")
     print(f"  Number of clients: {num_clients} (assignment requirement)")
     print(f"  Model ID: {model_id} (must be fully ingested with binary)")
     print(f"  Expected registry: 500 distinct models")
@@ -67,20 +83,21 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
     print()
     
     print("⚠️  Prerequisites:")
-    print(f"  1. Run: python scripts/populate_registry.py --performance")
+    print(f"  1. Run: python scripts/populate_registry.py --{storage_backend}")
     print(f"  2. Ensure Tiny-LLM has full model binary (for performance testing)")
     print(f"  3. Start API server with correct COMPUTE_BACKEND:")
-    if backend == "lambda":
+    if compute_backend == "lambda":
         print(f"     $env:COMPUTE_BACKEND='lambda'; python run_server.py")
         print(f"     OR: set COMPUTE_BACKEND=lambda && python run_server.py")
     else:
         print(f"     $env:COMPUTE_BACKEND='ecs'; python run_server.py")
         print(f"     OR: set COMPUTE_BACKEND=ecs && python run_server.py")
-    print(f"  4. Verify server is using {backend.upper()} backend (check server logs)")
+    print(f"  4. Verify server is using {compute_backend.upper()} compute backend (check server logs)")
     print()
     
     # Create load generator
-    # Set use_performance_path=True to use performance/ S3 path instead of models/
+    # Set use_performance_path=True to use performance/ path instead of models/
+    # Pass storage_backend to LoadGenerator so it can use the correct endpoint
     generator = LoadGenerator(
         run_id=run_id,
         base_url=base_url,
@@ -89,6 +106,7 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
         version="main",
         duration_seconds=None,  # Single request per client
         use_performance_path=True,  # Use performance/ path for performance testing
+        storage_backend=storage_backend,  # Pass storage backend to use correct endpoint
     )
     
     print("Starting load generation...")
@@ -106,7 +124,8 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
         print()
         print("=" * 80)
         print("Performance Test Results")
-        print(f"Backend: {backend.upper()}")
+        print(f"Storage Backend: {storage_backend.upper()}")
+        print(f"Compute Backend: {compute_backend.upper()}")
         print("=" * 80)
         print()
         print("Request Statistics:")
@@ -164,15 +183,19 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
         print("   - Review API Gateway latency metrics")
         print()
         print("3. Component Comparison:")
-        print("   - Run this script with --backend ecs and --backend lambda")
+        print("   - Run this script with different --s3/--rds and --backend ecs/lambda combinations")
+        print("   - Compare S3 vs RDS performance metrics")
         print("   - Compare Lambda vs ECS performance metrics")
         print("   - Use /health/performance/workload endpoint with different configs")
         print()
-        print(f"✓ Load generator test completed successfully for {backend.upper()} backend!")
+        print(f"✓ Load generator test completed successfully!")
+        print(f"   Storage: {storage_backend.upper()}, Compute: {compute_backend.upper()}")
         print()
         print(f"💡 To compare backends, run:")
-        print(f"   python scripts/test_load_generator.py --backend ecs")
-        print(f"   python scripts/test_load_generator.py --backend lambda")
+        print(f"   python scripts/test_load_generator.py --s3 --backend ecs")
+        print(f"   python scripts/test_load_generator.py --s3 --backend lambda")
+        print(f"   python scripts/test_load_generator.py --rds --backend ecs")
+        print(f"   python scripts/test_load_generator.py --rds --backend lambda")
         print()
         return 0
         
@@ -186,27 +209,51 @@ async def test_load_generator(backend: str = "ecs", base_url: str = "http://loca
 def main():
     """Parse command-line arguments and run the load generator test."""
     parser = argparse.ArgumentParser(
-        description="Test the performance load generator with configurable compute backend",
+        description="Test the performance load generator with configurable storage and compute backends",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test with ECS backend (default)
-  python scripts/test_load_generator.py --backend ecs
+  # Test with S3 storage and ECS compute (default)
+  python scripts/test_load_generator.py --s3 --backend ecs
   
-  # Test with Lambda backend
-  python scripts/test_load_generator.py --backend lambda
+  # Test with S3 storage and Lambda compute
+  python scripts/test_load_generator.py --s3 --backend lambda
+  
+  # Test with RDS storage and ECS compute
+  python scripts/test_load_generator.py --rds --backend ecs
+  
+  # Test with RDS storage and Lambda compute
+  python scripts/test_load_generator.py --rds --backend lambda
+  
+  # Test with local server
+  python scripts/test_load_generator.py --rds --backend lambda --local
   
   # Test with custom server URL
-  python scripts/test_load_generator.py --backend lambda --base-url http://localhost:8000
+  python scripts/test_load_generator.py --rds --backend lambda --base-url http://localhost:3000
   
-  # Compare both backends (run sequentially)
-  python scripts/test_load_generator.py --backend ecs
-  python scripts/test_load_generator.py --backend lambda
+  # Compare all combinations (run sequentially)
+  python scripts/test_load_generator.py --s3 --backend ecs
+  python scripts/test_load_generator.py --s3 --backend lambda
+  python scripts/test_load_generator.py --rds --backend ecs
+  python scripts/test_load_generator.py --rds --backend lambda
 
 Note: The server must be started with the matching COMPUTE_BACKEND environment variable:
   - For ECS: set COMPUTE_BACKEND=ecs (or leave unset, defaults to ecs)
   - For Lambda: set COMPUTE_BACKEND=lambda
         """
+    )
+    
+    # Storage backend flags (mutually exclusive)
+    storage_group = parser.add_mutually_exclusive_group()
+    storage_group.add_argument(
+        "--s3",
+        action="store_true",
+        help="Use S3 storage backend (default)"
+    )
+    storage_group.add_argument(
+        "--rds",
+        action="store_true",
+        help="Use RDS storage backend"
     )
     
     parser.add_argument(
@@ -218,16 +265,33 @@ Note: The server must be started with the matching COMPUTE_BACKEND environment v
     )
     
     parser.add_argument(
+        "--local",
+        action="store_true",
+        help=f"Use local server at {DEFAULT_LOCAL_URL}"
+    )
+    
+    parser.add_argument(
         "--base-url",
         type=str,
-        default="http://localhost:8000",
-        help="Base URL of the API server (default: http://localhost:8000)"
+        default=None,
+        help="Custom API base URL (e.g., http://localhost:8000). Overrides --local if specified."
     )
     
     args = parser.parse_args()
     
+    # Determine base URL: --base-url > --local > default (production)
+    if args.base_url:
+        base_url = args.base_url
+    elif args.local:
+        base_url = DEFAULT_LOCAL_URL
+    else:
+        base_url = DEFAULT_API_URL
+    
+    # Determine storage backend (default to S3)
+    storage_backend = "rds" if args.rds else "s3"
+    
     # Run the async test
-    exit_code = asyncio.run(test_load_generator(backend=args.backend, base_url=args.base_url))
+    exit_code = asyncio.run(test_load_generator(compute_backend=args.backend, storage_backend=storage_backend, base_url=base_url))
     sys.exit(exit_code)
 
 

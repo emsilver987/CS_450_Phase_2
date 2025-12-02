@@ -574,12 +574,24 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/populate_registry.py              # Use remote API (default)
-  python scripts/populate_registry.py --local      # Use local server (localhost:8000)
-  python scripts/populate_registry.py --url http://localhost:3000  # Use custom URL
-  python scripts/populate_registry.py --performance  # Performance mode (stores in performance/ S3 path)
-  python scripts/populate_registry.py --local --performance  # Performance mode (bypasses API, --local ignored)
+  python scripts/populate_registry.py --s3              # Use S3 storage (direct access, default)
+  python scripts/populate_registry.py --rds --local     # Use RDS storage via API (local server)
+  python scripts/populate_registry.py --rds --url http://localhost:8000  # Use RDS storage via API (custom URL)
+  python scripts/populate_registry.py --s3 --local     # Use S3 storage (direct access, local server for metadata)
         """
+    )
+    
+    # Storage backend flags (mutually exclusive)
+    storage_group = parser.add_mutually_exclusive_group()
+    storage_group.add_argument(
+        "--s3",
+        action="store_true",
+        help="Use S3 storage backend (direct S3 access, default)"
+    )
+    storage_group.add_argument(
+        "--rds",
+        action="store_true",
+        help="Use RDS storage backend (via API endpoints)"
     )
     
     # --local and --url are mutually exclusive
@@ -587,20 +599,13 @@ Examples:
     url_group.add_argument(
         "--local",
         action="store_true",
-        help=f"Use local server at {DEFAULT_LOCAL_URL} (ignored in --performance mode)"
+        help=f"Use local server at {DEFAULT_LOCAL_URL} (for RDS mode or metadata)"
     )
     url_group.add_argument(
         "--url",
         type=str,
         metavar="URL",
-        help="Custom API base URL (e.g., http://localhost:8000). Ignored in --performance mode."
-    )
-    
-    # --performance is independent (bypasses API, so --local/--url are ignored)
-    parser.add_argument(
-        "--performance",
-        action="store_true",
-        help="Performance mode: directly upload to S3 at performance/ path (bypasses API, --local/--url ignored)"
+        help="Custom API base URL (e.g., http://localhost:8000). Used for RDS mode."
     )
     
     return parser.parse_args()
@@ -619,22 +624,107 @@ def get_api_base_url(args: argparse.Namespace) -> str:
         return DEFAULT_API_URL
 
 
+def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optional[str], zip_content: bytes, version: str = "main", retry: int = 0, skip_missing: bool = True) -> tuple:
+    """
+    Ingest a single model into RDS via API endpoint.
+    
+    Returns:
+        (success: bool, status: Optional[str]) where status can be:
+        - None: success
+        - "not_found": model doesn't exist on HuggingFace (404)
+        - "error": other error occurred
+    """
+    # Quick check if model exists on HuggingFace (avoid unnecessary API calls)
+    if skip_missing:
+        if not check_model_exists_on_hf(model_id):
+            print(f"⊘ Model not found on HuggingFace: {model_id} (skipping)")
+            return (False, "not_found")
+    
+    try:
+        headers = {}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        # Sanitize model_id for URL (same as S3)
+        sanitized_model_id = (
+            model_id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Use the RDS upload endpoint
+        url = f"{api_base_url}/artifact/model/{sanitized_model_id}/upload-rds?version={version}&path_prefix=performance"
+        
+        # Prepare multipart form data
+        files = {
+            'file': (f"{sanitized_model_id}_{version}.zip", zip_content, 'application/zip')
+        }
+        
+        response = requests.post(url, files=files, headers=headers, timeout=300)
+        
+        if response.status_code in [200, 201, 202]:
+            print(f"✓ Successfully ingested to RDS: {model_id}")
+            return (True, None)
+        elif response.status_code == 409:
+            print(f"⊘ Already exists in RDS: {model_id} (skipping)")
+            return (True, None)  # Consider existing models as success
+        elif response.status_code == 404:
+            error_text = response.text[:200]
+            if "not found on HuggingFace" in error_text or "not found" in error_text.lower():
+                print(f"⊘ Model not found: {model_id} (skipping)")
+                return (False, "not_found")
+            else:
+                print(f"✗ Failed to ingest {model_id}: HTTP {response.status_code} - {error_text}")
+                return (False, "error")
+        else:
+            print(f"✗ Failed to ingest {model_id}: HTTP {response.status_code} - {response.text[:200]}")
+            if retry < MAX_RETRIES:
+                print(f"  Retrying in {RETRY_DELAY}s... (attempt {retry + 1}/{MAX_RETRIES})")
+                time.sleep(RETRY_DELAY)
+                return ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, version, retry + 1, skip_missing=False)
+            return (False, "error")
+            
+    except requests.exceptions.Timeout:
+        print(f"✗ Timeout ingesting {model_id}")
+        if retry < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+            return ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, version, retry + 1, skip_missing=False)
+        return (False, "error")
+    except Exception as e:
+        print(f"✗ Error ingesting {model_id}: {str(e)}")
+        if retry < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+            return ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, version, retry + 1, skip_missing=False)
+        return (False, "error")
+
+
 def main():
     """Main function to populate registry with 500 models"""
     # Parse command-line arguments
     args = parse_arguments()
     
-    # Performance mode: direct S3/DynamoDB writes (bypasses API, ignores --local/--url)
-    if args.performance:
-        if args.local or args.url:
-            print("Note: --performance mode bypasses API, so --local/--url flags are ignored")
+    # Determine storage backend (default to S3)
+    use_rds = args.rds
+    use_s3 = args.s3 or (not args.rds)  # Default to S3 if neither specified
+    
+    # S3 mode: direct S3/DynamoDB writes (bypasses API)
+    if use_s3:
         return main_performance_mode()
     
-    # Normal mode: use API
+    # RDS mode: use API endpoints
     api_base_url = get_api_base_url(args)
     
     print("=" * 80)
     print("ACME Model Registry Population Script")
+    print("RDS MODE (stores in performance/ RDS path via API)")
     print("=" * 80)
     print(f"API Base URL: {api_base_url}")
     if args.local:
@@ -653,7 +743,8 @@ def main():
     if auth_token:
         print("✓ Authentication successful")
     else:
-        print("⊘ No authentication token (some endpoints may fail)")
+        print("✗ Authentication failed - cannot proceed without admin token")
+        return 1
     print()
     
     # Get hardcoded list of 500 models
@@ -668,37 +759,71 @@ def main():
     models = models[:500]  # Ensure exactly 500
     
     print(f"Will ingest {len(models)} models (starting with {REQUIRED_MODEL})")
+    print(f"  - Tiny-LLM: Full model download (including binary - needed for performance testing)")
+    print(f"  - Other models: Essential files only (config, README, etc. - for speed)")
+    print(f"  - All files will be uploaded to performance/ RDS path via API")
     print()
     
-    # Start ingesting models (check existence first to avoid wasting time)
-    print("Starting model ingestion...")
+    # Start ingesting models
+    print("Starting model ingestion (will continue until 500 successful submissions)...")
     print("=" * 80)
     
     successful = 0
     failed = 0
     not_found = 0
     not_found_models = []
+    tiny_llm_ingested = False
+    target_successful = 500
+    models_processed = 0
     
-    for i, model_id in enumerate(models, 1):
-        print(f"[{i}/{len(models)}] Ingesting: {model_id}")
+    for model_id in models:
+        # Stop if we've reached the target
+        if successful >= target_successful:
+            print()
+            print(f"✓ Reached target of {target_successful} successful submissions!")
+            break
         
-        result, status = ingest_model(api_base_url, model_id, auth_token, skip_missing=True)
-        if result:
-            successful += 1
-        elif status == "not_found":
-            not_found += 1
-            not_found_models.append(model_id)
-        else:
+        models_processed += 1
+        print(f"[{models_processed}] Ingesting: {model_id} (Success: {successful}/{target_successful})")
+        
+        # Download from HuggingFace first
+        try:
+            is_tiny_llm = (model_id == REQUIRED_MODEL)
+            if is_tiny_llm:
+                print(f"  Downloading full model from HuggingFace (including model weights for performance testing)...")
+                zip_content = download_from_huggingface(model_id, "main", download_all=True)
+            else:
+                print(f"  Downloading essential files from HuggingFace (config, README, etc.)...")
+                zip_content = download_from_huggingface(model_id, "main", download_all=False)
+            
+            zip_size_mb = len(zip_content) / (1024 * 1024)
+            print(f"  ✓ Downloaded {len(zip_content):,} bytes ({zip_size_mb:.2f} MB) total")
+            
+            # Upload to RDS via API
+            result, status = ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, "main", skip_missing=True)
+            if result:
+                successful += 1
+                if model_id == REQUIRED_MODEL:
+                    tiny_llm_ingested = True
+                print(f"✓ Successfully ingested {model_id} to RDS performance/ path ({successful}/{target_successful})")
+            elif status == "not_found":
+                not_found += 1
+                not_found_models.append(model_id)
+                print(f"  ⊘ Model not found on HuggingFace: {model_id} (skipping)")
+            else:
+                failed += 1
+                print(f"  ✗ Failed to ingest {model_id}")
+        except Exception as e:
             failed += 1
+            print(f"  ✗ Error processing {model_id}: {str(e)}")
         
         # Small delay to avoid rate limiting
-        if i < len(models):
-            time.sleep(0.5)
+        time.sleep(0.5)
         
         # Progress update every 50 models
-        if i % 50 == 0:
+        if models_processed % 50 == 0:
             print()
-            print(f"Progress: {i}/{len(models)} ({successful} successful, {failed} failed, {not_found} not found)")
+            print(f"Progress: {models_processed} processed, {successful} successful/{target_successful} target ({failed} failed, {not_found} not found)")
             print()
     
     # Final summary
@@ -706,33 +831,31 @@ def main():
     print("=" * 80)
     print("Ingestion Summary")
     print("=" * 80)
-    print(f"Total models processed: {len(models)}")
-    print(f"  - Successfully ingested: {successful}")
+    print(f"Total models processed: {models_processed}")
+    print(f"  - Successfully ingested to RDS performance/ path: {successful}")
+    print(f"  - Tiny-LLM ingested: {'✓' if tiny_llm_ingested else '✗'}")
     print(f"  - Not found on HuggingFace: {not_found}")
     print(f"  - Failed (other errors): {failed}")
-    print(f"Total successful: {successful}")
+    print(f"Target: {target_successful} successful submissions")
     print()
     
-    # Report models that don't exist
     if not_found_models:
         print(f"⚠ {len(not_found_models)} models not found on HuggingFace:")
-        print("   These models should be removed from the list:")
-        for model in not_found_models[:20]:  # Show first 20
+        for model in not_found_models[:10]:
             print(f"     - {model}")
-        if len(not_found_models) > 20:
-            print(f"     ... and {len(not_found_models) - 20} more")
+        if len(not_found_models) > 10:
+            print(f"     ... and {len(not_found_models) - 10} more")
         print()
     
-    # Verify Tiny-LLM was in the list
-    if REQUIRED_MODEL in models:
-        print(f"✓ Required model '{REQUIRED_MODEL}' was included in ingestion list")
-    
-    if successful >= 500:
-        print("✓ Registry should have 500+ models")
+    if successful >= target_successful:
+        print(f"✓ Registry populated with {successful} models for performance testing")
+        print("  Note: Models stored in performance/ RDS path (via API)")
         return 0
     else:
-        print(f"⚠ Successfully ingested {successful} models (target: 500)")
-        return 1 if failed > successful else 0
+        print(f"⚠ Only {successful} models successfully ingested (target: {target_successful})")
+        print(f"⚠ Processed {models_processed} models but ran out of models in the list")
+        print(f"⚠ Consider adding more models to the hardcoded list")
+        return 1
 
 
 def main_performance_mode():

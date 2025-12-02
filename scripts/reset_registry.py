@@ -191,6 +191,42 @@ def reset_registry(api_base_url: str, auth_token: Optional[str]) -> bool:
         return False
 
 
+def reset_rds_via_api(api_base_url: str, auth_token: Optional[str]) -> bool:
+    """
+    Reset RDS registry by calling the DELETE /reset-rds endpoint.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        headers = {"Content-Type": "application/json"}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        url = f"{api_base_url}/reset-rds"
+        
+        print(f"Calling DELETE {url}...")
+        response = requests.delete(url, headers=headers, timeout=60)
+        
+        if response.status_code == 200:
+            result = response.json()
+            deleted_count = result.get("deleted_count", 0)
+            print(f"✓ RDS registry reset successful! Deleted {deleted_count} model files from performance/ path")
+            return True
+        else:
+            print(f"✗ RDS reset failed: HTTP {response.status_code}")
+            if response.text:
+                print(f"  Error: {response.text[:500]}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        print("✗ Timeout - RDS reset operation took too long")
+        return False
+    except Exception as e:
+        print(f"✗ Error resetting RDS registry: {str(e)}")
+        return False
+
+
 def parse_arguments():
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
@@ -198,24 +234,38 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/reset_registry.py              # Use remote API (default)
-  python scripts/reset_registry.py --local      # Use local server (localhost:8000)
-  python scripts/reset_registry.py --url http://localhost:3000  # Use custom URL
-  python scripts/reset_registry.py --yes        # Skip confirmation prompt
+  python scripts/reset_registry.py --s3              # Reset S3 storage (direct access, default)
+  python scripts/reset_registry.py --rds --local     # Reset RDS storage via API (local server)
+  python scripts/reset_registry.py --rds --url http://localhost:8000  # Reset RDS storage via API (custom URL)
+  python scripts/reset_registry.py --s3 --yes        # Reset S3 storage, skip confirmation
         """
     )
     
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    # Storage backend flags (mutually exclusive)
+    storage_group = parser.add_mutually_exclusive_group()
+    storage_group.add_argument(
+        "--s3",
+        action="store_true",
+        help="Reset S3 storage backend (direct S3 access, default)"
+    )
+    storage_group.add_argument(
+        "--rds",
+        action="store_true",
+        help="Reset RDS storage backend (via API endpoint)"
+    )
+    
+    # --local and --url are mutually exclusive
+    url_group = parser.add_mutually_exclusive_group()
+    url_group.add_argument(
         "--local",
         action="store_true",
-        help=f"Use local server at {DEFAULT_LOCAL_URL}"
+        help=f"Use local server at {DEFAULT_LOCAL_URL} (for RDS mode)"
     )
-    group.add_argument(
+    url_group.add_argument(
         "--url",
         type=str,
         metavar="URL",
-        help="Custom API base URL (e.g., http://localhost:8000)"
+        help="Custom API base URL (e.g., http://localhost:8000). Used for RDS mode."
     )
     
     parser.add_argument(
@@ -223,11 +273,6 @@ Examples:
         "-y",
         action="store_true",
         help="Skip confirmation prompt (use with caution!)"
-    )
-    parser.add_argument(
-        "--performance",
-        action="store_true",
-        help="Reset only performance/ S3 path (direct S3 access, bypasses API)"
     )
     
     return parser.parse_args()
@@ -267,15 +312,20 @@ def main():
     # Parse command-line arguments
     args = parse_arguments()
     
-    # Performance mode: direct S3 reset
-    if args.performance:
+    # Determine storage backend (default to S3)
+    use_rds = args.rds
+    use_s3 = args.s3 or (not args.rds)  # Default to S3 if neither specified
+    
+    # S3 mode: direct S3 reset
+    if use_s3:
         return main_performance_mode(args)
     
-    # Normal mode: use API
+    # RDS mode: use API endpoint
     api_base_url = get_api_base_url(args)
     
     print("=" * 80)
     print("ACME Model Registry Reset Script")
+    print("RDS MODE (resets performance/ RDS path via API)")
     print("=" * 80)
     print(f"API Base URL: {api_base_url}")
     if args.local:
@@ -290,7 +340,14 @@ def main():
     
     # Confirm reset unless --yes flag is used
     if not args.yes:
-        if not confirm_reset():
+        print()
+        print("⚠️  WARNING: This will DELETE ALL files in the performance/ RDS path!")
+        print("   - All models in performance/ will be deleted from RDS")
+        print("   - This operation CANNOT be undone!")
+        print()
+        
+        response = input("Are you sure you want to continue? (yes/no): ").strip().lower()
+        if response not in ["yes", "y"]:
             print("Reset cancelled.")
             return 0
     
@@ -304,29 +361,29 @@ def main():
         return 1
     print()
     
-    # Reset the registry
-    print("Resetting registry...")
+    # Reset the RDS registry
+    print("Resetting RDS registry...")
     print("=" * 80)
     
-    success = reset_registry(api_base_url, auth_token)
+    success = reset_rds_via_api(api_base_url, auth_token)
     
     print()
     if success:
         print("=" * 80)
-        print("✓ Registry reset completed successfully")
+        print("✓ RDS registry reset completed successfully")
         print("=" * 80)
         return 0
     else:
         print("=" * 80)
-        print("✗ Registry reset failed")
+        print("✗ RDS registry reset failed")
         print("=" * 80)
         return 1
 
 
 def main_performance_mode(args: argparse.Namespace):
-    """Main function for performance mode: direct S3 reset of performance/ path"""
+    """Main function for S3 mode: direct S3 reset of performance/ path"""
     print("=" * 80)
-    print("ACME Registry Reset Script - Performance Mode")
+    print("ACME Registry Reset Script - S3 Mode")
     print("(Resets only performance/ S3 path)")
     print("=" * 80)
     print()

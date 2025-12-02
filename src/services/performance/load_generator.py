@@ -63,6 +63,7 @@ class LoadGenerator:
         auth_token: Optional[str] = None,
         use_direct_rds: bool = False,
         rds_endpoint: Optional[str] = None,
+        storage_backend: str = "s3",
     ):
         """
         Initialize load generator.
@@ -76,6 +77,7 @@ class LoadGenerator:
             duration_seconds: Optional duration limit in seconds
             use_performance_path: If True, use performance/ path instead of models/ path
             auth_token: Optional authentication token to include in requests (for production API)
+            storage_backend: Storage backend to use ('s3' or 'rds')
         """
         self.run_id = run_id
         self.base_url = base_url.rstrip("/")
@@ -87,6 +89,7 @@ class LoadGenerator:
         self.auth_token = auth_token
         self.use_direct_rds = use_direct_rds
         self.rds_endpoint = rds_endpoint or os.getenv("RDS_ENDPOINT", "")
+        self.storage_backend = storage_backend.lower()
 
         # Store metrics
         self.metrics: List[Metric] = []
@@ -109,10 +112,13 @@ class LoadGenerator:
             .replace("|", "_")
         )
         
-        # Use the API Gateway endpoint that actually exists: /artifact/model/{id}/download
-        # This endpoint is configured in API Gateway and supports performance path via query param
+        # Use the appropriate endpoint based on storage backend
         base_url = self.base_url.rstrip("/")
-        url = f"{base_url}/artifact/model/{sanitized_model_id}/download"
+        if self.storage_backend == "rds":
+            url = f"{base_url}/artifact/model/{sanitized_model_id}/download-rds"
+        else:
+            # Default to S3 endpoint
+            url = f"{base_url}/artifact/model/{sanitized_model_id}/download"
         
         # Add query parameters for version, component, and performance path
         params = []
