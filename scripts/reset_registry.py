@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
 Reset Registry Script
-Deletes all models, datasets, codes, and packages from S3 and DynamoDB.
-Or specifically resets performance/ S3 path if --performance flag is used.
+Deletes all models from the performance/ path in S3 or RDS storage.
 
 ⚠️  WARNING: This is a destructive operation that cannot be undone!
 
 Usage:
-    # Use remote API (default):
-    python scripts/reset_registry.py
+    # Reset S3 storage (direct S3 access, default):
+    python scripts/reset_registry.py --s3
     
-    # Use local server:
-    python scripts/reset_registry.py --local
+    # Reset RDS storage via API (production):
+    python scripts/reset_registry.py --rds
     
-    # Use custom URL:
-    python scripts/reset_registry.py --url http://localhost:8000
+    # Reset RDS storage via API (local server):
+    python scripts/reset_registry.py --rds --local
     
-    # Reset only performance/ S3 path (direct S3 access, bypasses API):
-    python scripts/reset_registry.py --performance
+    # Reset RDS storage via API (custom URL):
+    python scripts/reset_registry.py --rds --url http://localhost:8000
     
     # Skip confirmation prompt (for automation):
-    python scripts/reset_registry.py --yes
+    python scripts/reset_registry.py --s3 --yes
 """
 import sys
 import os
@@ -37,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 DEFAULT_API_URL = "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod"
 DEFAULT_LOCAL_URL = "http://localhost:8000"
 
-# AWS Configuration (for performance mode)
+# AWS Configuration (for S3 mode)
 REGION = os.getenv("AWS_REGION", "us-east-1")
 ACCESS_POINT_NAME = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
 ARTIFACTS_TABLE = os.getenv("DDB_TABLE_ARTIFACTS", "artifacts")
@@ -71,7 +70,7 @@ def get_authentication_token(api_base_url: str) -> Optional[str]:
 
 
 def get_s3_client_and_arn():
-    """Get S3 client and access point ARN for performance mode"""
+    """Get S3 client and access point ARN for S3 storage mode"""
     try:
         sts = boto3.client("sts", region_name=REGION)
         account_id = sts.get_caller_identity()["Account"]

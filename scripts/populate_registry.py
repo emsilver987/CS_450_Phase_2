@@ -4,22 +4,23 @@ Populate Registry with 500 Real HuggingFace Models
 
 This script populates the ACME Model Registry with 500 real models from HuggingFace,
 including the required Tiny-LLM model for performance testing.
+All models are stored in the performance/ path by default.
 
 Usage:
-    # Use remote API (default):
-    python scripts/populate_registry.py
+    # Use S3 storage (direct S3 access, default):
+    python scripts/populate_registry.py --s3
     
-    # Use local server:
-    python scripts/populate_registry.py --local
+    # Use RDS storage via API (production):
+    python scripts/populate_registry.py --rds
     
-    # Use custom URL:
-    python scripts/populate_registry.py --url http://localhost:8000
+    # Use RDS storage via API (local server):
+    python scripts/populate_registry.py --rds --local
     
-    # Performance mode (stores in performance/ S3 path, bypasses API):
-    python scripts/populate_registry.py --performance
+    # Use RDS storage via API (custom URL):
+    python scripts/populate_registry.py --rds --url http://localhost:8000
     
     # Or with environment variable:
-    API_BASE_URL=http://localhost:3000 python scripts/populate_registry.py
+    API_BASE_URL=http://localhost:3000 python scripts/populate_registry.py --rds
 """
 import sys
 import os
@@ -145,7 +146,7 @@ def check_model_exists_on_hf(model_id: str) -> bool:
 
 
 def get_s3_client_and_arn():
-    """Get S3 client and access point ARN for performance mode"""
+    """Get S3 client and access point ARN for S3 storage mode"""
     try:
         sts = boto3.client("sts", region_name=REGION)
         account_id = sts.get_caller_identity()["Account"]
@@ -161,7 +162,7 @@ def get_s3_client_and_arn():
 
 
 def get_dynamodb_table():
-    """Get DynamoDB artifacts table for performance mode"""
+    """Get DynamoDB artifacts table for S3 storage mode"""
     try:
         dynamodb = boto3.resource("dynamodb", region_name=REGION)
         table = dynamodb.Table(ARTIFACTS_TABLE)
@@ -421,7 +422,7 @@ def create_dummy_model_metadata(table, model_id: str, version: str = "main") -> 
 
 def ingest_model_performance_mode(s3, ap_arn: str, table, model_id: str, version: str = "main", skip_missing: bool = True, skip_existing: bool = True) -> tuple:
     """
-    Ingest model in performance mode: download from HF and upload to S3 at performance/ path.
+    Ingest model in S3 mode: download from HF and upload to S3 at performance/ path.
     - Tiny-LLM: Downloads full model including binary (needed for performance testing)
     - Other models: Downloads only essential files (config, README, etc.) for speed
     
@@ -859,10 +860,10 @@ def main():
 
 
 def main_performance_mode():
-    """Main function for performance mode: direct S3/DynamoDB writes"""
+    """Main function for S3 mode: direct S3/DynamoDB writes"""
     print("=" * 80)
     print("ACME Model Registry Population Script")
-    print("PERFORMANCE MODE (stores in performance/ S3 path)")
+    print("S3 MODE (stores in performance/ S3 path)")
     print("=" * 80)
     print()
     

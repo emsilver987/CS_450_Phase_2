@@ -89,7 +89,9 @@ resource "aws_api_gateway_integration_response" "root_get_200" {
         model_lineage           = "/artifact/model/{id}/lineage"
         model_license_check     = "/artifact/model/{id}/license-check"
         model_download          = "/artifact/model/{id}/download"
+        model_download_rds      = "/artifact/model/{id}/download-rds"
         model_upload_rds        = "/artifact/model/{id}/upload-rds"
+        reset_rds               = "/reset-rds"
         artifact_ingest         = "/artifact/ingest"
         artifact_directory      = "/artifact/directory"
         upload                  = "/upload"
@@ -173,6 +175,12 @@ resource "aws_api_gateway_resource" "reset" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
   path_part   = "reset"
+}
+
+resource "aws_api_gateway_resource" "reset_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
+  path_part   = "reset-rds"
 }
 
 resource "aws_api_gateway_resource" "authenticate" {
@@ -311,6 +319,13 @@ resource "aws_api_gateway_resource" "artifact_model_id_upload_rds" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_resource.artifact_model_id.id
   path_part   = "upload-rds"
+}
+
+# /artifact/model/{id}/download-rds
+resource "aws_api_gateway_resource" "artifact_model_id_download_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "download-rds"
 }
 
 # /artifact/ingest
@@ -876,6 +891,94 @@ resource "aws_api_gateway_integration_response" "reset_delete_403" {
   depends_on = [
     aws_api_gateway_integration.reset_delete,
     aws_api_gateway_method_response.reset_delete_403,
+  ]
+}
+
+# DELETE /reset-rds
+resource "aws_api_gateway_method" "reset_rds_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.reset_rds.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "reset_rds_delete" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+
+  integration_http_method = "DELETE"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/reset-rds"
+}
+
+resource "aws_api_gateway_method_response" "reset_rds_delete_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "reset_rds_delete_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = aws_api_gateway_method_response.reset_rds_delete_200.status_code
+
+  depends_on = [aws_api_gateway_integration.reset_rds_delete]
+}
+
+# Method responses for DELETE /reset-rds
+resource "aws_api_gateway_method_response" "reset_rds_delete_401" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "401"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "reset_rds_delete_403" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "403"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+# Integration responses for DELETE /reset-rds
+resource "aws_api_gateway_integration_response" "reset_rds_delete_401" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.reset_rds.id
+  http_method       = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code       = aws_api_gateway_method_response.reset_rds_delete_401.status_code
+  selection_pattern = "401"
+
+  depends_on = [
+    aws_api_gateway_integration.reset_rds_delete,
+    aws_api_gateway_method_response.reset_rds_delete_401,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "reset_rds_delete_403" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.reset_rds.id
+  http_method       = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code       = aws_api_gateway_method_response.reset_rds_delete_403.status_code
+  selection_pattern = "403"
+
+  depends_on = [
+    aws_api_gateway_integration.reset_rds_delete,
+    aws_api_gateway_method_response.reset_rds_delete_403,
   ]
 }
 
@@ -3199,6 +3302,34 @@ resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_post" {
   }
 }
 
+# GET /artifact/model/{id}/download-rds
+resource "aws_api_gateway_method" "artifact_model_id_download_rds_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_download_rds.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_download_rds_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_download_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_download_rds_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/download-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
 # GET /artifact/ingest
 resource "aws_api_gateway_method" "artifact_ingest_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -3724,6 +3855,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_get,
     aws_api_gateway_integration.artifacts_post,
     aws_api_gateway_integration.reset_delete,
+    aws_api_gateway_integration.reset_rds_delete,
     aws_api_gateway_integration.authenticate_put,
     aws_api_gateway_integration.package_id_get,
     aws_api_gateway_integration.tracks_get,
@@ -3748,6 +3880,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_model_id_upload_post,
     aws_api_gateway_integration.artifact_model_id_upload_rds_post,
     aws_api_gateway_integration.artifact_model_id_download_get,
+    aws_api_gateway_integration.artifact_model_id_download_rds_get,
     aws_api_gateway_integration.artifact_ingest_get,
     aws_api_gateway_integration.artifact_ingest_post,
     aws_api_gateway_integration.artifact_directory_get,
@@ -3800,6 +3933,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.artifacts_type.id,
       aws_api_gateway_resource.artifacts_type_id.id,
       aws_api_gateway_resource.reset.id,
+      aws_api_gateway_resource.reset_rds.id,
       aws_api_gateway_resource.authenticate.id,
       aws_api_gateway_resource.package.id,
       aws_api_gateway_resource.package_id.id,
@@ -3821,6 +3955,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.artifact_model_id_upload.id,
       aws_api_gateway_resource.artifact_model_id_upload_rds.id,
       aws_api_gateway_resource.artifact_model_id_download.id,
+      aws_api_gateway_resource.artifact_model_id_download_rds.id,
       aws_api_gateway_resource.artifact_ingest.id,
       aws_api_gateway_resource.artifact_directory.id,
       aws_api_gateway_resource.artifact_byname.id,
@@ -3834,6 +3969,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_get.id,
       aws_api_gateway_method.artifacts_post.id,
       aws_api_gateway_method.reset_delete.id,
+      aws_api_gateway_method.reset_rds_delete.id,
       aws_api_gateway_method.authenticate_put.id,
       aws_api_gateway_method.tracks_get.id,
       aws_api_gateway_method.admin_get.id,
@@ -3861,6 +3997,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_model_id_upload_post.id,
       aws_api_gateway_method.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_method.artifact_model_id_download_get.id,
+      aws_api_gateway_method.artifact_model_id_download_rds_get.id,
       aws_api_gateway_method.artifact_ingest_get.id,
       aws_api_gateway_method.artifact_ingest_post.id,
       aws_api_gateway_method.artifact_directory_get.id,
@@ -3884,6 +4021,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_get.id,
       aws_api_gateway_integration.artifacts_post.id,
       aws_api_gateway_integration.reset_delete.id,
+      aws_api_gateway_integration.reset_rds_delete.id,
       aws_api_gateway_integration.authenticate_put.id,
       aws_api_gateway_integration.package_id_get.id,
       aws_api_gateway_integration.tracks_get.id,
@@ -3902,6 +4040,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_model_id_upload_post.id,
       aws_api_gateway_integration.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_integration.artifact_model_id_download_get.id,
+      aws_api_gateway_integration.artifact_model_id_download_rds_get.id,
       aws_api_gateway_integration.artifact_ingest_get.id,
       aws_api_gateway_integration.artifact_ingest_post.id,
       aws_api_gateway_integration.artifact_directory_get.id,
@@ -4251,9 +4390,11 @@ output "api_endpoints" {
     artifact_cost      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
     artifact_lineage   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
     artifact_license   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
-    artifact_upload    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
-    artifact_upload_rds = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
-    artifact_download  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_upload       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
+    artifact_upload_rds    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
+    artifact_download      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_download_rds  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download-rds"
+    reset_rds              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset-rds"
     artifact_audit     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
     artifact_by_name   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
     artifact_by_regex  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
