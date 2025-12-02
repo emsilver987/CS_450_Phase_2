@@ -527,6 +527,7 @@ class TestUploadAction:
 
         try:
             file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
+            # Use fixture path for upload
             file_input.send_keys(sample_upload_zip)
 
             # Fill other fields if they exist
