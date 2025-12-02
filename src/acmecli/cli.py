@@ -19,7 +19,7 @@ def setup_logging():
     try:
         log_level = int(raw_level)
     except ValueError:
-        log_level = 0
+        log_level = None
 
     level_map = {
         0: logging.CRITICAL + 1,

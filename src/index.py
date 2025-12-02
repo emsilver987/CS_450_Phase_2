@@ -5572,6 +5572,7 @@ def get_model_lineage(id: str, request: Request):
 
         # Try to get lineage from config - try multiple versions
         result = None
+        last_error = None
         versions_to_try = ["1.0.0", "main", "latest"]
 
         for version in versions_to_try:
@@ -5583,18 +5584,23 @@ def get_model_lineage(id: str, request: Request):
                 if "error" not in test_result:
                     result = test_result
                     break
+                else:
+                    last_error = test_result
                 # If sanitized name fails, try with original name
                 if sanitized_model_name != model_name:
                     test_result = get_model_lineage_from_config(model_name, version)
                     if "error" not in test_result:
                         result = test_result
                         break
+                    else:
+                        last_error = test_result
             except Exception:
                 continue
 
         # If all versions failed, return empty lineage instead of error
         if not result or "error" in result:
-            error_msg = result.get("error", "").lower() if result else ""
+            error_result = result if result and "error" in result else last_error
+            error_msg = error_result.get("error", "").lower() if error_result else ""
             if (
                 "not found" in error_msg
                 or "does not exist" in error_msg

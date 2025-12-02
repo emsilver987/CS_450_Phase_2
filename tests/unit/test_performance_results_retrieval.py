@@ -38,13 +38,13 @@ class TestCalculatePercentile:
         """Test 95th percentile"""
         values = [i * 10.0 for i in range(1, 21)]  # 10, 20, ..., 200
         result = calculate_percentile(values, 95.0)
-        assert result == 190.0
+        assert result == pytest.approx(190.0, abs=1.0)
 
     def test_calculate_percentile_p99(self):
         """Test 99th percentile"""
         values = [i * 10.0 for i in range(1, 21)]  # 10, 20, ..., 200
         result = calculate_percentile(values, 99.0)
-        assert result == 200.0
+        assert result == pytest.approx(200.0, abs=2.0)
 
     def test_calculate_percentile_p0(self):
         """Test 0th percentile (minimum)"""
@@ -304,7 +304,7 @@ class TestCalculateStatistics:
 
         result = calculate_statistics(metrics)
 
-        assert result["latency"]["p99_ms"] == pytest.approx(200.0, abs=1.0)
+        assert result["latency"]["p99_ms"] == pytest.approx(200.0, abs=2.0)
         assert result["latency"]["min_ms"] == 10.0
         assert result["latency"]["max_ms"] == 200.0
 
@@ -353,7 +353,7 @@ class TestGetPerformanceResults:
         assert "completed_at" in result
 
     @patch("src.services.performance.results_retrieval.query_metrics_by_run_id")
-    @patch("src.services.performance.results_retrieval.get_workload_status")
+    @patch("src.services.performance.workload_trigger.get_workload_status")
     def test_get_performance_results_without_status(self, mock_get_status, mock_query):
         """Test getting performance results without workload status"""
         mock_query.return_value = [

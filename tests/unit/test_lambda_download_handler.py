@@ -198,8 +198,9 @@ class TestLambdaDownloadHandler:
         }
         context = MagicMock()
         
-        with pytest.raises(ClientError):
-            lambda_handler(event, context)
+        response = lambda_handler(event, context)
+        assert response["statusCode"] == 500
+        assert "Internal server error" in response["body"]
 
     @patch.object(download_handler_module, "s3")
     @patch.object(download_handler_module, "sts")

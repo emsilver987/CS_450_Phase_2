@@ -290,8 +290,11 @@ class TestLoadGeneratorClass:
         )
         
         url = generator._get_download_url()
-        assert ":" not in url
-        assert "_" in url
+        # Check that the model_id part (after the base URL) doesn't contain ':'
+        # The URL will be: https://api.example.com/models/test_model_version/main/model.zip
+        model_part = url.split("/models/")[-1] if "/models/" in url else url.split("/performance/")[-1]
+        assert ":" not in model_part
+        assert "_" in model_part
 
     def test_get_metrics_empty(self):
         """Test get_metrics with no metrics"""
@@ -480,7 +483,7 @@ class TestLoadGeneratorClass:
         assert len(generator.metrics) > 1
 
     @pytest.mark.asyncio
-    @patch("src.services.performance.load_generator.store_and_publish_metrics")
+    @patch("src.services.performance.metrics_storage.store_and_publish_metrics")
     async def test_run_complete(self, mock_store_metrics):
         """Test complete run method"""
         mock_store_metrics.return_value = {
@@ -518,7 +521,7 @@ class TestLoadGeneratorClass:
         mock_store_metrics.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("src.services.performance.load_generator.store_and_publish_metrics")
+    @patch("src.services.performance.metrics_storage.store_and_publish_metrics")
     async def test_run_metrics_storage_error(self, mock_store_metrics):
         """Test run method handles metrics storage errors"""
         mock_store_metrics.side_effect = Exception("Storage error")

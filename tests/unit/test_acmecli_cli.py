@@ -151,7 +151,7 @@ class TestProcessUrl:
 
     @patch("src.acmecli.cli.REGISTRY", [])
     @patch("src.acmecli.cli.compute_net_score")
-    def test_process_url_github(self, mock_compute_net_score, mock_registry):
+    def test_process_url_github(self, mock_compute_net_score):
         """Test processing GitHub URL"""
         mock_compute_net_score.return_value = (0.5, 100)
         mock_github_handler = MagicMock()
@@ -176,7 +176,7 @@ class TestProcessUrl:
 
     @patch("src.acmecli.cli.REGISTRY", [])
     @patch("src.acmecli.cli.compute_net_score")
-    def test_process_url_huggingface(self, mock_compute_net_score, mock_registry):
+    def test_process_url_huggingface(self, mock_compute_net_score):
         """Test processing HuggingFace URL"""
         mock_compute_net_score.return_value = (0.5, 100)
         mock_github_handler = MagicMock()
@@ -200,7 +200,7 @@ class TestProcessUrl:
         mock_hf_handler.fetch_meta.assert_called_once()
 
     @patch("src.acmecli.cli.REGISTRY", [])
-    def test_process_url_unsupported(self, mock_registry):
+    def test_process_url_unsupported(self):
         """Test processing unsupported URL type"""
         mock_github_handler = MagicMock()
         mock_hf_handler = MagicMock()
@@ -217,7 +217,7 @@ class TestProcessUrl:
 
     @patch("src.acmecli.cli.REGISTRY", [])
     @patch("src.acmecli.cli.compute_net_score")
-    def test_process_url_no_meta(self, mock_compute_net_score, mock_registry):
+    def test_process_url_no_meta(self, mock_compute_net_score):
         """Test processing URL when handler returns None"""
         mock_github_handler = MagicMock()
         mock_github_handler.fetch_meta.return_value = None
@@ -233,29 +233,27 @@ class TestProcessUrl:
 
         assert result is None
 
-    @patch("src.acmecli.cli.REGISTRY", [])
     @patch("src.acmecli.cli.compute_net_score")
-    def test_process_url_metric_error(self, mock_compute_net_score, mock_registry):
+    def test_process_url_metric_error(self, mock_compute_net_score):
         """Test processing URL when metric computation fails"""
         mock_compute_net_score.return_value = (0.5, 100)
         mock_metric = MagicMock()
         mock_metric.name = "test_metric"
         mock_metric.score.side_effect = Exception("Metric error")
-        mock_registry.__iter__.return_value = [mock_metric]
+        with patch("src.acmecli.cli.REGISTRY", [mock_metric]):
+            mock_github_handler = MagicMock()
+            mock_github_handler.fetch_meta.return_value = {"name": "test-repo"}
+            mock_hf_handler = MagicMock()
+            mock_cache = MagicMock()
 
-        mock_github_handler = MagicMock()
-        mock_github_handler.fetch_meta.return_value = {"name": "test-repo"}
-        mock_hf_handler = MagicMock()
-        mock_cache = MagicMock()
+            result = process_url(
+                "https://github.com/user/repo",
+                mock_github_handler,
+                mock_hf_handler,
+                mock_cache,
+            )
 
-        result = process_url(
-            "https://github.com/user/repo",
-            mock_github_handler,
-            mock_hf_handler,
-            mock_cache,
-        )
-
-        assert result is not None
+            assert result is not None
 
 
 class TestMain:

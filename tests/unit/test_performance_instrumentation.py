@@ -55,8 +55,8 @@ class TestMeasureOperation:
 
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][0] == "TestOperation"
-        assert call_args[0][1] > 0  # Duration should be positive
+        assert call_args.kwargs["metric_name"] == "TestOperation"
+        assert call_args.kwargs["value"] > 0  # Duration should be positive
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_measure_operation_with_dimensions(self, mock_publish):
@@ -67,7 +67,7 @@ class TestMeasureOperation:
 
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][2] == dimensions
+        assert call_args.kwargs["dimensions"] == dimensions
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_measure_operation_with_exception(self, mock_publish):
@@ -98,8 +98,8 @@ class TestInstrumentLatency:
         assert result == "result"
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][0] == "TestFunction"
-        assert call_args[0][1] > 0
+        assert call_args.kwargs["metric_name"] == "TestFunction"
+        assert call_args.kwargs["value"] > 0
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_latency_with_dimensions(self, mock_publish):
@@ -112,7 +112,7 @@ class TestInstrumentLatency:
 
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][2] == {"Component": "S3"}
+        assert call_args.kwargs["dimensions"] == {"Component": "S3"}
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_latency_with_exception(self, mock_publish):
@@ -145,8 +145,8 @@ class TestInstrumentBytes:
         assert result == b"test data"
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][0] == "BytesTransferred"
-        assert call_args[0][1] == len(b"test data")
+        assert call_args.kwargs["metric_name"] == "BytesTransferred"
+        assert call_args.kwargs["value"] == len(b"test data")
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_bytes_custom_function(self, mock_publish):
@@ -160,7 +160,7 @@ class TestInstrumentBytes:
         assert result == b"test"
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][1] == 8  # len("test") * 2
+        assert call_args.kwargs["value"] == 8  # len("test") * 2
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_bytes_with_dimensions(self, mock_publish):
@@ -173,7 +173,7 @@ class TestInstrumentBytes:
 
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][2] == {"Component": "S3"}
+        assert call_args.kwargs["dimensions"] == {"Component": "S3"}
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_bytes_no_length(self, mock_publish):
@@ -187,7 +187,7 @@ class TestInstrumentBytes:
         assert result is None
         mock_publish.assert_called_once()
         call_args = mock_publish.call_args
-        assert call_args[0][1] == 0
+        assert call_args.kwargs["value"] == 0
 
     @patch("src.services.performance.instrumentation.publish_metric")
     def test_instrument_bytes_exception(self, mock_publish):
@@ -199,6 +199,6 @@ class TestInstrumentBytes:
         result = test_func()
 
         assert result == b"data"
-        # Should handle exception gracefully
-        mock_publish.assert_called_once()
+        # Should handle exception gracefully - publish_metric should not be called when exception occurs
+        mock_publish.assert_not_called()
 

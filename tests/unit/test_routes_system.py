@@ -76,8 +76,8 @@ class TestSystemRoutes:
         assert "tracks" in result
         assert isinstance(result["tracks"], list)
 
-    @patch('src.services.auth_service.purge_tokens')
-    @patch('src.services.auth_service.ensure_default_admin')
+    @patch('src.routes.system.purge_tokens')
+    @patch('src.routes.system.ensure_default_admin')
     def test_reset_post_direct(self, mock_ensure_admin, mock_purge):
         """Test POST /reset endpoint directly"""
         from src.routes.system import reset, _INMEM_DB
@@ -92,8 +92,8 @@ class TestSystemRoutes:
         mock_purge.assert_called_once()
         mock_ensure_admin.assert_called_once()
 
-    @patch('src.services.auth_service.purge_tokens')
-    @patch('src.services.auth_service.ensure_default_admin')
+    @patch('src.routes.system.purge_tokens')
+    @patch('src.routes.system.ensure_default_admin')
     def test_reset_delete_direct(self, mock_ensure_admin, mock_purge):
         """Test DELETE /reset endpoint directly"""
         from src.routes.system import reset_delete, _INMEM_DB

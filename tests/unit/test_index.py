@@ -1467,11 +1467,12 @@ class TestGetPackageRate:
 
     def test_get_package_rate_success(self, mock_auth):
         """Test successful rate retrieval"""
-        with patch("src.index.get_model_rate") as mock_rate:
-            mock_rate.return_value = {"score": 0.8}
-            
-            response = client.get("/artifact/model/test-id/rate")
-            assert response.status_code == 200
+        with patch("src.index.analyze_model_content") as mock_analyze:
+            mock_analyze.return_value = {"score": 0.8}
+            with patch("src.index.get_generic_artifact_metadata", return_value={"type": "model", "name": "test-model"}):
+                with patch("src.index._get_model_name_for_s3", return_value="test-model"):
+                    response = client.get("/artifact/model/test-id/rate")
+                    assert response.status_code == 200
 
 
 class TestDeleteArtifactEndpoint:
@@ -2531,17 +2532,19 @@ class TestAdditionalCoverage:
                 with patch("src.index.get_model_lineage_from_config") as mock_lineage:
                     mock_get.return_value = {
                         "type": "model",
-                        "id": "test-id"
+                        "id": "test-id",
+                        "name": "test-model"
                     }
                     mock_lineage.return_value = {"error": "not found"}
                     with patch("src.index.list_models") as mock_list:
                         mock_list.return_value = {"models": [{"name": "test-model"}]}
-                        response = client.get("/artifact/model/test-id/lineage")
-                        # Should return 200 with empty lineage when error is "not found"
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "nodes" in data
-                        assert "edges" in data
+                        with patch("src.index.sanitize_model_id_for_s3", return_value="test-model"):
+                            response = client.get("/artifact/model/test-id/lineage")
+                            # Should return 200 with empty lineage when error is "not found"
+                            assert response.status_code == 200
+                            data = response.json()
+                            assert "nodes" in data
+                            assert "edges" in data
 
     def test_get_model_lineage_with_base_model(self, mock_auth):
         """Test get_model_lineage with base model"""
@@ -2810,7 +2813,7 @@ class TestAdditionalCoverage:
                     with patch("src.index.ensure_default_admin"):
                         with patch("src.index.verify_auth_token", return_value=True):
                             with patch("src.index.verify_jwt_token", return_value=None):
-                                with patch("src.services.auth_public.STATIC_TOKEN", "test-token"):
+                                with patch("src.index.PUBLIC_STATIC_TOKEN", "test-token"):
                                     response = client.delete(
                                         "/reset",
                                         headers={"Authorization": "Bearer test-token"}
