@@ -5449,20 +5449,63 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
-# @app.get("/artifact/model/{id}/download")
-# def download_artifact_model(id: str, version: str = "1.0.0", component: str = "full"):
-#    try:
-#        file_content = download_model(id, version, component)
-#        if file_content:
-#            return Response(
-#                content=file_content,
-#                media_type="application/zip",
-#                headers={"Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip"}
-#            )
-#        else:
-#            raise HTTPException(status_code=404, detail=f"Failed to download {id} v{version}")
-#    except Exception as e:
-#        return {"error": f"Download failed: {str(e)}"}, 500
+@app.get("/artifact/model/{id}/download")
+async def download_artifact_model(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Download model file. Supports both models/ and performance/ paths.
+    This endpoint is used by API Gateway for performance testing.
+    """
+    # Optional authentication check - verify token if provided
+    try:
+        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+        if auth_header:
+            if not verify_auth_token(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+                )
+    except ImportError:
+        # If verify_auth_token is not available, skip auth check (for local testing)
+        pass
+    
+    try:
+        # Determine if we should use performance path
+        use_performance_path = (path_prefix.lower() == "performance")
+        
+        # Import download function based on storage backend
+        storage_backend = os.getenv("STORAGE_BACKEND", "s3").lower()
+        
+        if storage_backend == "rds":
+            from .services.rds_service import download_model as rds_download_model
+            file_content = rds_download_model(id, version, component, use_performance_path=use_performance_path)
+        else:
+            # Default to S3
+            from .services.s3_service import download_model as s3_download_model
+            file_content = s3_download_model(id, version, component, use_performance_path=use_performance_path)
+        
+        if file_content:
+            from fastapi.responses import Response
+            return Response(
+                content=file_content,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
+                    "Content-Length": str(len(file_content))
+                }
+            )
+        else:
+            raise HTTPException(status_code=404, detail=f"Model {id} version {version} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download failed for {id} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 # @app.get("/admin")
 # def get_admin(request: Request):
 #    try:

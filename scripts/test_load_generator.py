@@ -4,16 +4,23 @@ Simple script to test the load generator directly
 Useful for quick testing without running the full API server
 
 Usage:
-    # Test specific combinations
-    python scripts/test_load_generator.py --s3 --ecs
-    python scripts/test_load_generator.py --s3 --lambda
-    python scripts/test_load_generator.py --rds --ecs
-    python scripts/test_load_generator.py --rds --lambda
+    # Test specific combinations (local environment)
+    python scripts/test_load_generator.py --s3 --ecs --local
+    python scripts/test_load_generator.py --s3 --lambda --local
+    python scripts/test_load_generator.py --rds --ecs --local
+    python scripts/test_load_generator.py --rds --lambda --local
+    
+    # Test specific combinations (production environment)
+    python scripts/test_load_generator.py --s3 --ecs --prod
+    python scripts/test_load_generator.py --s3 --lambda --prod
+    python scripts/test_load_generator.py --rds --ecs --prod
+    python scripts/test_load_generator.py --rds --lambda --prod
     
     # Test all combinations and display comparison
-    python scripts/test_load_generator.py --all
+    python scripts/test_load_generator.py --all --local
+    python scripts/test_load_generator.py --all --prod
     
-    # Test with custom base URL
+    # Test with custom base URL (overrides --local/--prod)
     python scripts/test_load_generator.py --s3 --ecs --base-url http://localhost:8000
 """
 import asyncio
@@ -29,6 +36,45 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.services.performance.load_generator import LoadGenerator
+
+# Default URLs
+DEFAULT_API_URL = "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod"
+DEFAULT_LOCAL_URL = "http://localhost:8000"
+
+# Import requests for authentication
+import requests
+
+
+def get_authentication_token(api_base_url: str) -> Optional[str]:
+    """Get authentication token for API requests"""
+    try:
+        response = requests.put(
+            f"{api_base_url}/authenticate",
+            json={
+                "user": {
+                    "name": "ece30861defaultadminuser",
+                    "is_admin": True
+                },
+                "secret": {
+                    "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+                }
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            token = response.text.strip().strip('"')
+            # The token should already include "bearer " prefix from the API
+            # But ensure it's properly formatted
+            if not token.lower().startswith("bearer "):
+                # If somehow it doesn't have bearer prefix, add it
+                token = f"bearer {token}"
+            return token
+        else:
+            print(f"Warning: Authentication failed with status {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Warning: Could not authenticate: {e}")
+        return None
 
 
 @dataclass
@@ -108,11 +154,22 @@ async def test_load_generator(
     print(f"  Run ID: {run_id}")
     print()
     
+    # Authenticate if using production API
+    auth_token = None
+    if base_url != DEFAULT_LOCAL_URL and "localhost" not in base_url:
+        print("Authenticating with production API...")
+        auth_token = get_authentication_token(base_url)
+        if auth_token:
+            print("✓ Authentication successful")
+        else:
+            print("⚠️  Warning: Authentication failed - requests may fail with 403")
+        print()
+    
     print("⚠️  Prerequisites:")
     if storage_backend == "rds":
-        print(f"  1. Run: python scripts/populate_registry.py --rds --performance")
+        print(f"  1. Run: python scripts/populate_registry.py --rds --local")
     else:
-        print(f"  1. Run: python scripts/populate_registry.py --performance")
+        print(f"  1. Run: python scripts/populate_registry.py --s3 --local")
     print(f"  2. Ensure Tiny-LLM has full model binary (for performance testing)")
     print(f"  3. Start API server with correct environment variables:")
     print(f"     STORAGE_BACKEND={storage_backend}")
@@ -120,6 +177,11 @@ async def test_load_generator(
     print(f"     Example:")
     print(f"       $env:STORAGE_BACKEND='{storage_backend}'; $env:COMPUTE_BACKEND='{compute_backend}'; python run_server.py")
     print(f"  4. Verify server is using {storage_backend.upper()} storage and {compute_backend.upper()} compute (check server logs)")
+    if base_url == DEFAULT_LOCAL_URL or "localhost" in base_url:
+        print(f"  5. ⚠️  LOCAL TESTING NOTE: Local server may struggle with 100 concurrent connections.")
+        print(f"     If you see 'network name is no longer available' errors, the server may be overwhelmed.")
+        print(f"     Consider using --prod for production testing, or ensure your local server is configured")
+        print(f"     to handle high concurrency (e.g., uvicorn with --workers or proper connection limits).")
     print()
     
     # Create load generator
@@ -132,6 +194,7 @@ async def test_load_generator(
         version="main",
         duration_seconds=None,  # Single request per client
         use_performance_path=True,  # Use performance/ path for performance testing
+        auth_token=auth_token,  # Include auth token for production API
     )
     
     print("Starting load generation...")
@@ -314,24 +377,35 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test specific combinations
-  python scripts/test_load_generator.py --s3 --ecs
-  python scripts/test_load_generator.py --s3 --lambda
-  python scripts/test_load_generator.py --rds --ecs
-  python scripts/test_load_generator.py --rds --lambda
+  # Test specific combinations (local environment)
+  python scripts/test_load_generator.py --s3 --ecs --local
+  python scripts/test_load_generator.py --s3 --lambda --local
+  python scripts/test_load_generator.py --rds --ecs --local
+  python scripts/test_load_generator.py --rds --lambda --local
+  
+  # Test specific combinations (production environment)
+  python scripts/test_load_generator.py --s3 --ecs --prod
+  python scripts/test_load_generator.py --s3 --lambda --prod
+  python scripts/test_load_generator.py --rds --ecs --prod
+  python scripts/test_load_generator.py --rds --lambda --prod
   
   # Test all combinations and display comparison
-  python scripts/test_load_generator.py --all
+  python scripts/test_load_generator.py --all --local
+  python scripts/test_load_generator.py --all --prod
   
-  # Test with custom server URL
+  # Test with custom server URL (overrides --local/--prod)
   python scripts/test_load_generator.py --s3 --ecs --base-url http://localhost:8000
 
 Note: The server must be started with the matching environment variables:
   - STORAGE_BACKEND: 's3' or 'rds'
   - COMPUTE_BACKEND: 'ecs' or 'lambda'
   
-  Example:
+  Example (local):
     $env:STORAGE_BACKEND='s3'; $env:COMPUTE_BACKEND='ecs'; python run_server.py
+  
+  Note: --local defaults to http://localhost:8000
+        --prod uses production API endpoint
+        If neither is specified, defaults to --local
         """
     )
     
@@ -369,18 +443,42 @@ Note: The server must be started with the matching environment variables:
         help="Run all four combinations (S3+ECS, S3+Lambda, RDS+ECS, RDS+Lambda) and display comparison"
     )
     
+    # Environment flags (mutually exclusive)
+    env_group = parser.add_mutually_exclusive_group()
+    env_group.add_argument(
+        "--local",
+        action="store_true",
+        help="Use local environment (default: http://localhost:8000)"
+    )
+    env_group.add_argument(
+        "--prod",
+        action="store_true",
+        help="Use production environment (https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod)"
+    )
+    
     parser.add_argument(
         "--base-url",
         type=str,
-        default="http://localhost:8000",
-        help="Base URL of the API server (default: http://localhost:8000)"
+        default=None,
+        help="Base URL of the API server (overrides --local/--prod if specified)"
     )
     
     args = parser.parse_args()
     
+    # Determine base URL from flags
+    if args.base_url:
+        base_url = args.base_url
+    elif args.prod:
+        base_url = DEFAULT_API_URL
+    elif args.local:
+        base_url = DEFAULT_LOCAL_URL
+    else:
+        # Default to local if neither --prod nor --local is specified
+        base_url = DEFAULT_LOCAL_URL
+    
     # Handle --all flag
     if args.all:
-        exit_code = asyncio.run(run_all_combinations(base_url=args.base_url))
+        exit_code = asyncio.run(run_all_combinations(base_url=base_url))
         sys.exit(exit_code)
     
     # Determine storage and compute backends
@@ -391,7 +489,7 @@ Note: The server must be started with the matching environment variables:
     exit_code, _ = asyncio.run(test_load_generator(
         storage_backend=storage_backend,
         compute_backend=compute_backend,
-        base_url=args.base_url
+        base_url=base_url
     ))
     sys.exit(exit_code)
 

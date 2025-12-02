@@ -53,6 +53,7 @@ class LoadGenerator:
         version: str = "main",
         duration_seconds: Optional[int] = None,
         use_performance_path: bool = False,
+        auth_token: Optional[str] = None,
     ):
         """
         Initialize load generator.
@@ -65,6 +66,7 @@ class LoadGenerator:
             version: Model version (default: "main")
             duration_seconds: Optional duration limit in seconds
             use_performance_path: If True, use performance/ path instead of models/ path
+            auth_token: Optional authentication token to include in requests (for production API)
         """
         self.run_id = run_id
         self.base_url = base_url.rstrip("/")
@@ -73,6 +75,7 @@ class LoadGenerator:
         self.version = version
         self.duration_seconds = duration_seconds
         self.use_performance_path = use_performance_path
+        self.auth_token = auth_token
 
         # Store metrics
         self.metrics: List[Metric] = []
@@ -94,9 +97,24 @@ class LoadGenerator:
             .replace(">", "_")
             .replace("|", "_")
         )
-        # Use performance/ path if specified, otherwise models/
-        path_prefix = "performance" if self.use_performance_path else "models"
-        return f"{self.base_url}/{path_prefix}/{sanitized_model_id}/{self.version}/model.zip"
+        
+        # Use the API Gateway endpoint that actually exists: /artifact/model/{id}/download
+        # This endpoint is configured in API Gateway and supports performance path via query param
+        base_url = self.base_url.rstrip("/")
+        url = f"{base_url}/artifact/model/{sanitized_model_id}/download"
+        
+        # Add query parameters for version, component, and performance path
+        params = []
+        if self.version and self.version != "main":
+            params.append(f"version={self.version}")
+        params.append("component=full")
+        if self.use_performance_path:
+            params.append("path_prefix=performance")
+        
+        if params:
+            url += "?" + "&".join(params)
+        
+        return url
 
     async def _make_request(
         self, client_id: int, session: aiohttp.ClientSession
@@ -156,6 +174,30 @@ class LoadGenerator:
                 timestamp=timestamp,
             )
 
+        except aiohttp.ClientConnectorError as e:
+            # Connection errors (server not available, connection refused, etc.)
+            end_time = time.time()
+            latency_ms = (end_time - start_time) * 1000
+            
+            error_msg = str(e)
+            # Windows-specific error message handling
+            if "network name is no longer available" in error_msg.lower() or "WinError 64" in error_msg:
+                logger.warning(
+                    f"Connection reset for client_id={client_id}: "
+                    f"Server may be overwhelmed or connection limit reached. "
+                    f"Consider reducing concurrent clients for local testing."
+                )
+            else:
+                logger.error(f"Connection error for client_id={client_id}: {error_msg}")
+            
+            return Metric(
+                run_id=self.run_id,
+                client_id=client_id,
+                request_latency_ms=latency_ms,
+                bytes_transferred=0,
+                status_code=0,  # 0 indicates error
+                timestamp=timestamp,
+            )
         except Exception as e:
             end_time = time.time()
             latency_ms = (end_time - start_time) * 1000
@@ -217,10 +259,24 @@ class LoadGenerator:
             connect=60,  # 1 minute to establish connection
             sock_read=300  # 5 minute timeout for reading data
         )
-        connector = aiohttp.TCPConnector(limit=self.num_clients)
+        # Configure connector with connection limits and keep-alive
+        # For local testing, use smaller connection pool to avoid overwhelming server
+        # For production, use larger pool to match concurrent clients
+        connector = aiohttp.TCPConnector(
+            limit=self.num_clients,  # Total connection pool size
+            limit_per_host=self.num_clients,  # Max connections per host
+            ttl_dns_cache=300,  # DNS cache TTL
+            force_close=False,  # Keep connections alive for reuse
+            enable_cleanup_closed=True,  # Clean up closed connections
+        )
+
+        # Prepare headers with auth token if provided
+        headers = {}
+        if self.auth_token:
+            headers["X-Authorization"] = self.auth_token
 
         async with aiohttp.ClientSession(
-            timeout=timeout, connector=connector
+            timeout=timeout, connector=connector, headers=headers
         ) as session:
             # Create tasks for all clients (client_id is 1-based)
             tasks = [

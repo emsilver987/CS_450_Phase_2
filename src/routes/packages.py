@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from typing import Optional
 import io
@@ -271,6 +271,7 @@ def _invoke_lambda_download(model_id: str, version: str, component: str) -> byte
 
 @router.get("/performance/{model_id}/{version}/model.zip")
 async def download_performance_model_file(
+    request: Request,
     model_id: str,
     version: str,
     component: str = Query(
@@ -280,7 +281,24 @@ async def download_performance_model_file(
     """
     Download model from performance/ S3 path for performance testing.
     Supports both ECS (FastAPI) and Lambda compute backends based on COMPUTE_BACKEND env var.
+    Authentication is optional but recommended for production API Gateway.
     """
+    # Optional authentication check - verify token if provided
+    # This allows the endpoint to work with API Gateway that requires auth
+    try:
+        from src.index import verify_auth_token
+        # Only check auth if token is provided (don't fail if no token for local testing)
+        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+        if auth_header:
+            if not verify_auth_token(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+                )
+    except ImportError:
+        # If verify_auth_token is not available, skip auth check (for local testing)
+        pass
+    
     try:
         print(f"[PERF] Received download request: model_id={model_id}, version={version}, backend={COMPUTE_BACKEND}")
         
