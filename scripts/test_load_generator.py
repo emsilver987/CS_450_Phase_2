@@ -216,16 +216,20 @@ async def test_load_generator(
     
     # For RDS storage, use direct RDS connection if endpoint is available
     use_direct_rds = False
-    rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+    rds_endpoint = None
     
-    # If RDS_ENDPOINT not set, try to get it from Terraform output
-    if storage_backend == "rds" and not rds_endpoint:
-        print("Attempting to get RDS endpoint from Terraform output...")
-        rds_endpoint = get_rds_endpoint_from_terraform()
-        if rds_endpoint:
-            print(f"✓ Found RDS endpoint from Terraform: {rds_endpoint}")
-        else:
-            print(f"⚠️  Could not get RDS endpoint from Terraform output")
+    # Only check for RDS endpoint if RDS storage is selected
+    if storage_backend == "rds":
+        rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+        
+        # If RDS_ENDPOINT not set, try to get it from Terraform output
+        if not rds_endpoint:
+            print("Attempting to get RDS endpoint from Terraform output...")
+            rds_endpoint = get_rds_endpoint_from_terraform()
+            if rds_endpoint:
+                print(f"✓ Found RDS endpoint from Terraform: {rds_endpoint}")
+            else:
+                print(f"⚠️  Could not get RDS endpoint from Terraform output")
     
     if storage_backend == "rds" and rds_endpoint:
         # For production API, RDS is likely not publicly accessible

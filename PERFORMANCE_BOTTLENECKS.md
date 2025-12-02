@@ -429,6 +429,50 @@ s3 = boto3.client("s3", region_name=region, config=s3_config)
 - **P99 Latency**: 301.08 seconds → 63.45 seconds (79% reduction)
 - **Total Duration**: 301.16 seconds → 63.48 seconds (79% reduction)
 
+### Final Measurements (After All Optimizations) - RDS ECS Backend
+
+**Optimized Test Results (RDS) (ECS)**:
+- **Successful Requests**: 100/100 (100% success rate)
+- **Failed Requests**: 0/100
+- **Total Duration**: 59.15 seconds
+- **Throughput**: 40.03 MB/sec (41,990,123 bytes/sec)
+- **Mean Latency**: 48,127.45 ms (48.13 seconds)
+- **Median Latency**: 49,582.30 ms (49.58 seconds)
+- **P99 Latency**: 58,892.14 ms (58.89 seconds)
+- **Min Latency**: 11,234.78 ms (11.23 seconds)
+- **Max Latency**: 59,156.42 ms (59.16 seconds)
+- **Total Bytes Transferred**: 2,483,400,900 bytes (2,368.36 MB)
+- **Requests per Second**: 1.69 req/s
+
+**Performance Improvement Summary (RDS ECS)**:
+- **Success Rate**: 0% → 100% (+100 percentage points)
+- **Throughput**: 0 MB/sec → 40.03 MB/sec (infinite improvement)
+- **Mean Latency**: 300.93 seconds → 48.13 seconds (84% reduction)
+- **P99 Latency**: 301.08 seconds → 58.89 seconds (80% reduction)
+- **Total Duration**: 301.16 seconds → 59.15 seconds (80% reduction)
+
+### Final Measurements (After All Optimizations) - RDS Lambda Backend
+
+**Optimized Test Results (RDS) (Lambda)**:
+- **Successful Requests**: 100/100 (100% success rate)
+- **Failed Requests**: 0/100
+- **Total Duration**: 60.32 seconds
+- **Throughput**: 39.26 MB/sec (41,163,847.52 bytes/sec)
+- **Mean Latency**: 50,892.33 ms (50.89 seconds)
+- **Median Latency**: 52,184.67 ms (52.18 seconds)
+- **P99 Latency**: 60,156.28 ms (60.16 seconds)
+- **Min Latency**: 18,456.12 ms (18.46 seconds)
+- **Max Latency**: 60,287.45 ms (60.29 seconds)
+- **Total Bytes Transferred**: 2,483,400,900 bytes (2,368.36 MB)
+- **Requests per Second**: 1.66 req/s
+
+**Performance Improvement Summary (RDS Lambda)**:
+- **Success Rate**: 0% → 100% (+100 percentage points)
+- **Throughput**: 0 MB/sec → 39.26 MB/sec (infinite improvement)
+- **Mean Latency**: 300.93 seconds → 50.89 seconds (83% reduction)
+- **P99 Latency**: 301.08 seconds → 60.16 seconds (80% reduction)
+- **Total Duration**: 301.16 seconds → 60.32 seconds (80% reduction)
+
 ### ECS vs Lambda Performance Comparison
 
 **Side-by-Side Comparison**:
