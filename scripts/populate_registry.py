@@ -419,6 +419,77 @@ def create_dummy_model_metadata(table, model_id: str, version: str = "main") -> 
         return False
 
 
+def ingest_model_rds_mode(model_id: str, version: str = "main", skip_missing: bool = True, skip_existing: bool = True) -> tuple:
+    """
+    Ingest model in RDS mode: download from HF and upload to RDS.
+    - Tiny-LLM: Downloads full model including binary (needed for performance testing)
+    - Other models: Downloads only essential files (config, README, etc.) for speed
+    
+    Args:
+        skip_existing: If True, skip models that already exist in RDS (avoids re-uploading)
+    
+    Returns:
+        (success: bool, status: Optional[str]) where status can be:
+        - None: success
+        - "already_exists": model already exists in RDS (skipped)
+        - "not_found": model doesn't exist on HuggingFace (404)
+        - "error": other error occurred
+    """
+    # Import RDS service here to avoid import errors if RDS is not configured
+    try:
+        # Path is already added at top of file
+        from src.services.rds_service import upload_model as rds_upload, model_exists as rds_model_exists
+    except ImportError as e:
+        print(f"  ✗ Failed to import RDS service: {e}")
+        print("  Make sure psycopg2-binary is installed and RDS environment variables are set")
+        return (False, "error")
+    
+    # Check if model already exists in RDS (skip to avoid re-uploading)
+    if skip_existing:
+        try:
+            if rds_model_exists(model_id, version, "full", use_performance_path=True):
+                print(f"  ⊘ Model already exists in RDS: {model_id} (skipping)")
+                return (True, "already_exists")
+        except Exception as e:
+            print(f"  ⚠ Error checking RDS for existing model: {e}")
+    
+    # Check if model exists on HuggingFace first
+    if skip_missing:
+        if not check_model_exists_on_hf(model_id):
+            print(f"  ⊘ Model not found on HuggingFace: {model_id} (skipping)")
+            return (False, "not_found")
+    
+    # Full ingestion: download and upload to RDS
+    try:
+        # Tiny-LLM needs the full model (including binary) for performance testing
+        # Other models only need essential files for registry population
+        is_tiny_llm = (model_id == REQUIRED_MODEL)
+        
+        if is_tiny_llm:
+            print(f"  Downloading full model from HuggingFace (including model weights for performance testing)...")
+            zip_content = download_from_huggingface(model_id, version, download_all=True)
+        else:
+            print(f"  Downloading essential files from HuggingFace (config, README, etc.)...")
+            zip_content = download_from_huggingface(model_id, version, download_all=False)
+        
+        zip_size_mb = len(zip_content) / (1024 * 1024)
+        print(f"  ✓ Downloaded {len(zip_content):,} bytes ({zip_size_mb:.2f} MB) total")
+        
+        print(f"  Uploading to RDS at performance/ path...")
+        result = rds_upload(zip_content, model_id, version, use_performance_path=True)
+        print(f"  ✓ Uploaded to RDS: {result.get('path', 'performance/')}")
+        
+        return (True, None)
+    except Exception as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "404" in error_msg:
+            print(f"  ⊘ Model not found: {model_id} (skipping)")
+            return (False, "not_found")
+        else:
+            print(f"  ✗ Failed: {error_msg}")
+            return (False, "error")
+
+
 def ingest_model_performance_mode(s3, ap_arn: str, table, model_id: str, version: str = "main", skip_missing: bool = True, skip_existing: bool = True) -> tuple:
     """
     Ingest model in performance mode: download from HF and upload to S3 at performance/ path.
@@ -577,8 +648,10 @@ Examples:
   python scripts/populate_registry.py              # Use remote API (default)
   python scripts/populate_registry.py --local      # Use local server (localhost:8000)
   python scripts/populate_registry.py --url http://localhost:3000  # Use custom URL
-  python scripts/populate_registry.py --performance  # Performance mode (stores in performance/ S3 path)
-  python scripts/populate_registry.py --local --performance  # Performance mode (bypasses API, --local ignored)
+    python scripts/populate_registry.py --performance  # Performance mode (stores in performance/ S3 path)
+    python scripts/populate_registry.py --local --performance  # Performance mode (bypasses API, --local ignored)
+    python scripts/populate_registry.py --rds  # RDS mode (stores in RDS PostgreSQL)
+    python scripts/populate_registry.py --rds --performance  # RDS mode with performance path
         """
     )
     
@@ -603,6 +676,13 @@ Examples:
         help="Performance mode: directly upload to S3 at performance/ path (bypasses API, --local/--url ignored)"
     )
     
+    # --rds flag for RDS storage backend
+    parser.add_argument(
+        "--rds",
+        action="store_true",
+        help="Use RDS storage backend instead of S3 (requires RDS environment variables to be set)"
+    )
+    
     return parser.parse_args()
 
 
@@ -623,6 +703,12 @@ def main():
     """Main function to populate registry with 500 models"""
     # Parse command-line arguments
     args = parse_arguments()
+    
+    # RDS mode: direct RDS writes (bypasses API, ignores --local/--url)
+    if args.rds:
+        if args.local or args.url:
+            print("Note: --rds mode bypasses API, so --local/--url flags are ignored")
+        return main_rds_mode()
     
     # Performance mode: direct S3/DynamoDB writes (bypasses API, ignores --local/--url)
     if args.performance:
@@ -846,6 +932,128 @@ def main_performance_mode():
     if successful >= target_successful:
         print(f"✓ Registry populated with {successful} models for performance testing")
         print("  Note: Models stored in performance/ S3 path (not models/)")
+        return 0
+    else:
+        print(f"⚠ Only {successful} models successfully ingested (target: {target_successful})")
+        print(f"⚠ Processed {models_processed} models but ran out of models in the list")
+        print(f"⚠ Consider adding more models to the hardcoded list")
+        return 1
+
+
+def main_rds_mode():
+    """Main function for RDS mode: direct RDS writes"""
+    print("=" * 80)
+    print("ACME Model Registry Population Script")
+    print("RDS MODE (stores in RDS PostgreSQL)")
+    print("=" * 80)
+    print()
+    
+    # Check RDS environment variables
+    rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+    rds_password = os.getenv("RDS_PASSWORD", "")
+    
+    if not rds_endpoint or not rds_password:
+        print("✗ RDS configuration missing!")
+        print("  Required environment variables:")
+        print("    - RDS_ENDPOINT (RDS hostname)")
+        print("    - RDS_PASSWORD (RDS password)")
+        print("  Optional:")
+        print("    - RDS_DATABASE (default: acme)")
+        print("    - RDS_USERNAME (default: acme)")
+        print("    - RDS_PORT (default: 5432)")
+        return 1
+    
+    print(f"✓ RDS Endpoint: {rds_endpoint}")
+    print(f"✓ RDS Database: {os.getenv('RDS_DATABASE', 'acme')}")
+    print()
+    
+    # Get all available models
+    all_models = get_hardcoded_models(count=None)
+    
+    # Ensure REQUIRED_MODEL is first
+    if REQUIRED_MODEL in all_models:
+        all_models.remove(REQUIRED_MODEL)
+    all_models.insert(0, REQUIRED_MODEL)
+    
+    print(f"Loaded {len(all_models)} models from hardcoded list")
+    print(f"  - Tiny-LLM: Full model download (including binary - needed for performance testing)")
+    print(f"  - Other models: Essential files only (config, README, etc. - for speed)")
+    print(f"  - All files will be uploaded to RDS with performance/ path prefix")
+    print(f"  - Will continue until 500 successful submissions")
+    print()
+    
+    # Start processing
+    print("Starting model ingestion (will continue until 500 successful submissions)...")
+    print("=" * 80)
+    
+    successful = 0
+    failed = 0
+    not_found = 0
+    not_found_models = []
+    tiny_llm_ingested = False
+    target_successful = 500
+    models_processed = 0
+    
+    for model_id in all_models:
+        # Stop if we've reached the target
+        if successful >= target_successful:
+            print()
+            print(f"✓ Reached target of {target_successful} successful submissions!")
+            break
+        
+        models_processed += 1
+        print(f"[{models_processed}] Ingesting: {model_id} (Success: {successful}/{target_successful})")
+        
+        result, status = ingest_model_rds_mode(model_id, "main", skip_missing=True, skip_existing=True)
+        if result:
+            successful += 1
+            if model_id == REQUIRED_MODEL:
+                tiny_llm_ingested = True
+            if status == "already_exists":
+                print(f"⊘ Already exists (skipped): {model_id} ({successful}/{target_successful})")
+            else:
+                print(f"✓ Successfully ingested {model_id} to RDS ({successful}/{target_successful})")
+        elif status == "not_found":
+            not_found += 1
+            not_found_models.append(model_id)
+            print(f"  ⊘ Model not found on HuggingFace: {model_id} (skipping)")
+        else:
+            failed += 1
+            print(f"  ✗ Failed to ingest {model_id}")
+        
+        # Small delay to avoid rate limiting
+        time.sleep(0.5)
+        
+        # Progress update every 50 models
+        if models_processed % 50 == 0:
+            print()
+            print(f"Progress: {models_processed} processed, {successful} successful/{target_successful} target ({failed} failed, {not_found} not found)")
+            print()
+    
+    # Final summary
+    print()
+    print("=" * 80)
+    print("Ingestion Summary")
+    print("=" * 80)
+    print(f"Total models processed: {models_processed}")
+    print(f"  - Successfully ingested to RDS: {successful}")
+    print(f"  - Tiny-LLM ingested: {'✓' if tiny_llm_ingested else '✗'}")
+    print(f"  - Not found on HuggingFace: {not_found}")
+    print(f"  - Failed (other errors): {failed}")
+    print(f"Target: {target_successful} successful submissions")
+    print()
+    
+    if not_found_models:
+        print(f"⚠ {len(not_found_models)} models not found on HuggingFace:")
+        for model in not_found_models[:10]:
+            print(f"     - {model}")
+        if len(not_found_models) > 10:
+            print(f"     ... and {len(not_found_models) - 10} more")
+        print()
+    
+    if successful >= target_successful:
+        print(f"✓ Registry populated with {successful} models in RDS for performance testing")
+        print("  Note: Models stored in RDS with performance/ path prefix")
         return 0
     else:
         print(f"⚠ Only {successful} models successfully ingested (target: {target_successful})")

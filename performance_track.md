@@ -46,17 +46,17 @@ This document tracks remaining tasks for the Performance Track requirements. The
   - [x] Create Lambda module in `infra/modules/lambda/`
   - [x] Configure Lambda integration (IAM permissions for ECS to invoke Lambda)
   - [x] Add feature flag/configuration to switch between ECS and Lambda (via COMPUTE_BACKEND env var)
-- [ ] Run performance tests with Lambda backend
-  - [ ] Run same workload (100 concurrent clients, Tiny-LLM download)
-  - [ ] Measure latency (mean, median, P99)
-  - [ ] Measure throughput
-  - [ ] Compare to ECS baseline measurements
-- [ ] Document Lambda vs ECS comparison
-  - [ ] Document latency differences
-  - [ ] Document throughput differences
-  - [ ] Document cold start impact (if any)
-  - [ ] Document cost trade-offs
-  - [ ] Create comparison table/section
+- [x] Run performance tests with Lambda backend
+  - [x] Run same workload (100 concurrent clients, Tiny-LLM download)
+  - [x] Measure latency (mean, median, P99)
+  - [x] Measure throughput
+  - [x] Compare to ECS baseline measurements
+- [x] Document Lambda vs ECS comparison
+  - [x] Document latency differences
+  - [x] Document throughput differences
+  - [x] Document cold start impact (if any)
+  - [x] Document cost trade-offs
+  - [x] Create comparison table/section
 
 **Estimated Effort**: 2-3 days
 

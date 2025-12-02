@@ -69,6 +69,11 @@ module "ecs" {
   kms_key_arn             = module.monitoring.kms_key_arn
   github_token_secret_arn = module.monitoring.github_token_secret_arn
   jwt_secret_arn          = module.monitoring.jwt_secret_arn
+  storage_backend         = "s3"  # Default to S3, can be changed to "rds"
+  rds_endpoint            = module.rds.rds_address
+  rds_database            = module.rds.rds_database
+  rds_username            = module.rds.rds_username
+  rds_password            = "acme_rds_password_123"  # Must match RDS module password
 }
 
 module "api_gateway" {
@@ -93,6 +98,16 @@ module "lambda" {
   aws_region       = var.aws_region
 }
 
+# RDS module for PostgreSQL storage backend
+module "rds" {
+  source              = "../../modules/rds"
+  aws_region          = var.aws_region
+  vpc_id              = module.ecs.vpc_id
+  subnet_ids          = module.ecs.subnet_ids
+  security_group_ids  = [module.ecs.security_group_id]
+  db_password         = "acme_rds_password_123" # Simple password for testing
+}
+
 output "artifacts_bucket" { value = local.artifacts_bucket }
 output "group106_policy_arn" { value = module.iam.group106_policy_arn }
 output "ddb_tables" { value = local.ddb_tables_arnmap }
@@ -106,3 +121,7 @@ output "cloudfront_domain_name" { value = module.cloudfront.cloudfront_domain_na
 output "cloudfront_distribution_id" { value = module.cloudfront.cloudfront_distribution_id }
 output "lambda_function_arn" { value = module.lambda.lambda_function_arn }
 output "lambda_function_name" { value = module.lambda.lambda_function_name }
+output "rds_endpoint" { value = module.rds.rds_endpoint }
+output "rds_address" { value = module.rds.rds_address }
+output "rds_database" { value = module.rds.rds_database }
+output "rds_username" { value = module.rds.rds_username }

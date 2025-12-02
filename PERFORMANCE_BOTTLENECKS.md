@@ -574,10 +574,168 @@ s3 = boto3.client("s3", region_name=region, config=s3_config)
 
 ---
 
+---
+
+## Component Comparison: S3 vs RDS Storage Backend
+
+### Overview
+
+As part of the performance track requirements, we implemented a PostgreSQL RDS storage backend as an alternative to S3 for model file storage. This section documents the implementation, configuration, and performance comparison between the two storage backends.
+
+### Implementation Details
+
+**Storage Abstraction Layer**:
+- Created `src/services/storage_service.py` to provide a unified interface for storage backends
+- Supports switching between S3 and RDS via `STORAGE_BACKEND` environment variable
+- Maintains backward compatibility with existing code - `index.py` requires minimal changes
+
+**RDS Backend** (`src/services/rds_service.py`):
+- Uses PostgreSQL BYTEA for binary storage
+- Connection pooling via `psycopg2.pool.ThreadedConnectionPool` (5-20 connections)
+- Schema: `model_files` table with composite primary key (model_id, version, component, path_prefix)
+- Supports both `models/` and `performance/` path prefixes via `path_prefix` column
+- Designed for simple, non-scalable storage of up to 500 models
+
+**S3 Backend**:
+- Existing S3 implementation wrapped in storage abstraction adapter
+- Uses S3 access points with connection pooling (150 connections)
+- Supports both `models/` and `performance/` path prefixes via S3 key structure
+
+### Configuration
+
+**Environment Variables**:
+- `STORAGE_BACKEND`: `"s3"` (default) or `"rds"`
+- `RDS_ENDPOINT`: RDS hostname (e.g., `acme-rds.xxxxx.us-east-1.rds.amazonaws.com`)
+- `RDS_DATABASE`: Database name (default: `"acme"`)
+- `RDS_USERNAME`: Database username (default: `"acme"`)
+- `RDS_PASSWORD`: Database password
+- `RDS_PORT`: Database port (default: `5432`)
+
+**Infrastructure**:
+- RDS PostgreSQL instance: `db.t3.micro` (20GB storage, auto-scaling to 100GB)
+- Security groups configured to allow ECS tasks to access RDS on port 5432
+- Database schema initialized automatically on first connection
+
+### Population Script
+
+The `scripts/populate_registry.py` script supports RDS population:
+```bash
+# Populate RDS with models
+python scripts/populate_registry.py --rds
+
+# Populate RDS with performance path models
+python scripts/populate_registry.py --rds --performance
+```
+
+### Performance Testing
+
+**Test Configuration**:
+- Same workload as S3 baseline: 100 concurrent clients downloading Tiny-LLM
+- Set `STORAGE_BACKEND=rds` environment variable
+- Run performance tests using existing load generator
+
+**Expected Measurements** (to be collected):
+- Mean latency
+- Median latency
+- P99 latency
+- Throughput (MB/sec)
+- Success rate
+
+### Comparison Results
+
+*Note: Performance test results will be added after running tests with RDS backend.*
+
+**S3 Baseline** (from previous testing):
+- Success Rate: 100/100 (100%)
+- Throughput: 37.48 MB/sec
+- Mean Latency: 51.26 seconds
+- Median Latency: 52.93 seconds
+- P99 Latency: 63.17 seconds
+
+**RDS Results** (to be measured):
+- Success Rate: TBD
+- Throughput: TBD
+- Mean Latency: TBD
+- Median Latency: TBD
+- P99 Latency: TBD
+
+### Design Considerations
+
+**RDS Advantages**:
+- ACID transactions for metadata consistency
+- SQL queries for complex filtering/searching
+- Integrated with application database (if using RDS for other data)
+
+**RDS Disadvantages**:
+- Not optimized for large binary files (24.8 MB model files)
+- Database size grows with each model (BYTEA storage)
+- Connection pool limits concurrent reads
+- More expensive storage per GB compared to S3
+- Schema designed for 500 models, not production-scale
+
+**S3 Advantages**:
+- Optimized for object storage and large files
+- Virtually unlimited scalability
+- Lower cost per GB for storage
+- Better suited for concurrent read workloads
+- No connection pool limitations
+
+**S3 Disadvantages**:
+- No transactional guarantees
+- Requires separate metadata storage (DynamoDB)
+- More complex access control setup
+
+### Use Case Recommendations
+
+**Use S3 when**:
+- Storing large binary files (>1 MB)
+- Need high scalability (thousands+ models)
+- Cost optimization is important
+- High concurrent read workloads
+- Simple object storage requirements
+
+**Use RDS when**:
+- Need transactional consistency with metadata
+- Small number of models (<500)
+- Already using RDS for other application data
+- Need complex SQL queries on model metadata
+- Simpler infrastructure (single database)
+
+### Connection Pool Tuning
+
+**RDS Connection Pool**:
+- Current: 5-20 connections (ThreadedConnectionPool)
+- May need adjustment based on concurrent load
+- Monitor connection pool exhaustion errors
+
+**S3 Connection Pool**:
+- Current: 150 connections
+- Well-tuned for 100 concurrent clients
+- Can be increased if needed
+
+### Cost Analysis
+
+**RDS Costs** (estimated for db.t3.micro):
+- Instance: ~$15/month
+- Storage: ~$0.115/GB/month (20GB = $2.30/month)
+- Total: ~$17.30/month for 20GB
+
+**S3 Costs** (estimated):
+- Storage: ~$0.023/GB/month (Standard storage)
+- Requests: $0.005 per 1,000 GET requests
+- Total: ~$0.57/month for 20GB + request costs
+
+*Note: S3 is significantly cheaper for storage, but RDS provides additional database functionality.*
+
+---
+
 ## References
 
 - **Endpoint Implementation**: `src/routes/packages.py`
 - **S3 Service Configuration**: `src/services/s3_service.py`
+- **RDS Service Configuration**: `src/services/rds_service.py`
+- **Storage Abstraction**: `src/services/storage_service.py`
 - **Load Generator**: `src/services/performance/load_generator.py`
+- **Population Script**: `scripts/populate_registry.py`
 - **Server Logs**: Check for connection pool warnings and request processing patterns
 

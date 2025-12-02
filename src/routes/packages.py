@@ -31,9 +31,11 @@ if COMPUTE_BACKEND == "lambda":
         print(f"[PERF] Warning: Failed to initialize Lambda client: {e}, falling back to ECS")
         COMPUTE_BACKEND = "ecs"
 
-from ..services.s3_service import (
-    upload_model,
+from ..services.storage_service import (
     download_model,
+    upload_model,
+)
+from ..services.s3_service import (
     list_models,
     reset_registry,
     sync_model_lineage_to_neptune,
