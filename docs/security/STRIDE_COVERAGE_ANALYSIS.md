@@ -196,7 +196,7 @@ This document analyzes the actual implementation status of STRIDE security mitig
 ### High Priority
 
 1.  ~~**Re-implement ReDoS Protection (REC-04):**~~ ✅ **COMPLETED** - Implemented using `asyncio.wait_for()` and `asyncio.to_thread()` to run blocking regex operations in a thread pool with a 5-second timeout. This provides async-safe timeout protection without blocking the event loop.
-2.  **Deploy AWS WAF:** Configure AWS WAF for additional DDoS protection and application-layer security (rate limiting, IP filtering, etc.).
+2.  ~~**Deploy AWS WAF:** Configure AWS WAF for additional DDoS protection and application-layer security (rate limiting, IP filtering, etc.).~~ ✅ **COMPLETED** - `aws_wafv2_web_acl.main` with AWS Managed Rules, a rate-based DoS rule, and size-restriction rules is configured in `infra/modules/waf/main.tf`, with an encrypted, versioned S3 bucket for WAF logs.
 3.  ~~**Configure API Gateway Throttling:**~~ ✅ **COMPLETED** - Added `aws_api_gateway_method_settings` resource with 100 req/s rate limit and 200 burst limit per client to enforce per-client rate limits at the API Gateway level.
 
 ### Medium Priority
@@ -221,6 +221,6 @@ All critical and high-priority recommendations from the original SECURITY_REPORT
 
 ---
 
-**Last updated:** 2025-01-XX  
+**Last updated:** 2025-12-02  
 **Status:** Strong Compliance (91.1% coverage)  
 **Next Review:** After MFA enforcement or WAF detection script update

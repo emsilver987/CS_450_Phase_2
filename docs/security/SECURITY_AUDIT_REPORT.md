@@ -15,13 +15,12 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 **Key Findings:**
 
-- ✅ **Fully Implemented:** Well-documented STRIDE analysis, IAM least-privilege, encryption, logging, security headers, CloudTrail, CloudWatch alarms, S3 versioning, JWT secret in Secrets Manager
+- ✅ **Fully Implemented:** Well-documented STRIDE analysis, IAM least-privilege, encryption, logging, security headers, CloudTrail, CloudWatch alarms, S3 versioning, JWT secret in Secrets Manager, token use-count enforcement, upload event logging
 - ⚠️ **Partially Implemented:**
   - API Gateway throttling (logging enabled, throttling limits not configured)
-  - Upload event logging (function exists but not called in upload endpoints)
   - AWS Config (module ready but not enabled in dev environment)
   - WAF (module exists but not deployed)
-- ❌ **Missing:** SSRF protection, Admin MFA enforcement, Token use-count enforcement
+- ❌ **Missing:** SSRF protection, Admin MFA enforcement
 
 ---
 
@@ -75,8 +74,11 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 4. **Token Lifecycle**
    - Documentation mentions "10h or 1,000 uses max"
-   - Code shows expiration checking (`verify_exp: True`)
-   - **Missing:** Token use-count tracking implementation not found in code review
+   - Code shows expiration checking (`verify_exp: True`) and **token use-count tracking**
+   - `create_jwt_token()` and `store_token()` in `src/services/auth_service.py` create a DynamoDB record with `remaining_uses`
+   - `consume_token_use()` in `src/services/auth_service.py` decrements `remaining_uses` and deletes exhausted tokens
+   - `JWTAuthMiddleware` in `src/middleware/jwt_auth.py` calls `consume_token_use()` using the token `jti` claim
+   - **Status:** Token time-based expiry and use-count limits are both enforced
 
 ### ❌ What Is Missing
 
@@ -138,8 +140,8 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 3. **Token Use-Count Tracking**
    - **Documented:** "1,000 uses max" for tokens
-   - **Code:** Only expiration checked, no use-count
-   - **Action:** Implement use-count tracking in DynamoDB or remove from documentation
+   - **Code:** Use-count tracking implemented in DynamoDB via `remaining_uses` and `consume_token_use()`
+   - **Status:** Implemented and enforced; documentation and implementation now aligned
 
 ---
 
@@ -153,14 +155,15 @@ This audit evaluates the current security posture of the Phase 2 project against
    - ✅ Middleware implementation (`src/middleware/jwt_auth.py`)
    - ✅ Token expiration validation
    - ✅ Algorithm verification (HS256)
+   - ✅ Token use-count enforcement via `consume_token_use()` and `remaining_uses` in DynamoDB
 
 2. **IAM Group Isolation**
    - ✅ `group106_project_policy` restricts team members
    - ✅ Least-privilege policies per service
 
 3. **Token Replay Prevention**
-   - ✅ Token consumption logged to DynamoDB
-   - ⚠️ Partial: Code shows logging, but use-count enforcement not found
+   - ✅ Token consumption and remaining uses tracked in DynamoDB (`tokens` table)
+   - ✅ Middleware enforces use-count limits and deletes exhausted tokens
 
 #### ❌ Threats Missed
 
@@ -175,11 +178,6 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Threat:** Admin accounts can be compromised without MFA
    - **Missing:** IAM policy requiring MFA for admin users
    - **Severity:** High
-
-3. **Token Use-Count Not Enforced**
-   - **Threat:** Tokens can be reused indefinitely within expiration
-   - **Missing:** Actual implementation of 1,000 use limit
-   - **Severity:** Medium
 
 #### 🔍 Trust Boundary Crossings Needing Analysis
 
@@ -259,9 +257,9 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** ✅ Resolved
 
 3. **Upload Event Logging**
-   - ⚠️ **FUNCTION EXISTS BUT NOT CALLED**: `log_upload_event()` function exists in `src/services/validator_service.py`
-   - ❌ **NOT INTEGRATED**: Function not called in `src/services/package_service.py` upload endpoints (init, commit, abort)
-   - **Impact:** Medium - Upload event logging capability exists but not used
+   - ✅ **IMPLEMENTED AND INTEGRATED**: `log_upload_event()` function exists in `src/services/validator_service.py`
+   - ✅ **INTEGRATED**: Function is called from `src/routes/packages.py` and `src/routes/frontend.py` on successful uploads
+   - **Impact:** ✅ Resolved - Upload event logging enabled for non-repudiation
 
 #### 🔍 Trust Boundary Crossings Needing Analysis
 
@@ -415,7 +413,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 | OWASP Issue                        | Did I do it? | Evidence Found                                                                                                                                                     | Missing Work                                                                                  | Severity |
 | ---------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | -------- |
-| **A01: Broken Access Control**     | ⚠️ Partially | ✅ JWT auth middleware<br>✅ RBAC checks<br>✅ IAM least-privilege                                                                                                 | ❌ Admin MFA not enforced<br>❌ Token use-count not enforced                                  | High     |
+| **A01: Broken Access Control**     | ⚠️ Partially | ✅ JWT auth middleware<br>✅ RBAC checks<br>✅ IAM least-privilege<br>✅ Token use-count enforced via DynamoDB token table                                         | ❌ Admin MFA not enforced                                                                     | High     |
 | **A02: Cryptographic Failures**    | ✅ Yes       | ✅ S3 SSE-KMS<br>✅ SHA-256 hashing<br>✅ HTTPS presigned URLs<br>✅ JWT secret in Secrets Manager (KMS)                                                           | ✅ All secrets encrypted                                                                      | Low      |
 | **A03: Injection**                 | ⚠️ Partial   | ✅ Pydantic models for validation<br>✅ Safe globals in validator                                                                                                  | ❌ No explicit SSRF protection<br>❌ No SQL injection tests (DynamoDB uses NoSQL, lower risk) | Medium   |
 | **A04: Insecure Design**           | ⚠️ Partial   | ✅ STRIDE threat model<br>✅ Security architecture documented<br>✅ Security headers implemented (2025-11-17)<br>✅ API Gateway throttling configured (2025-11-17) | ❌ No WAF                                                                                     | Medium   |
@@ -436,7 +434,7 @@ This audit evaluates the current security posture of the Phase 2 project against
 - ✅ RBAC checks for sensitive packages
 - ✅ IAM least-privilege policies
 - ❌ **Missing:** Admin MFA enforcement
-- ❌ **Missing:** Token use-count enforcement (documented but not implemented)
+- ❌ **Missing:** Cross-tenant access controls (if multi-tenant)
 - ❌ **Missing:** Cross-tenant access controls (if multi-tenant)
 
 #### A02: Cryptographic Failures
@@ -558,7 +556,6 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 2. **Mitigation Verification**
    - ⚠️ Some mitigations documented but not implemented (MFA, WAF)
-   - ⚠️ Token use-count documented but not implemented
 
 3. **Testing**
    - ⚠️ Unit tests exist for authentication, validator timeout
@@ -626,21 +623,18 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 ### 🟠 High Risks (Fix Soon)
 
-5. **API Gateway Throttling Missing** ✅ **RESOLVED** (2025-11-17)
+5. **API Gateway Throttling Missing**
    - **Risk:** DoS attacks can bypass application rate limiting
    - **Likelihood:** Medium
    - **Impact:** High (service unavailability)
-   - **Mitigation:** ✅ API Gateway throttling configured via `aws_api_gateway_method_settings` in `infra/modules/api-gateway/main.tf`
-     - Rate limit: 2000 req/s
-     - Burst limit: 5000
+   - **Current State:** `aws_api_gateway_method_settings` in `infra/modules/api-gateway/main.tf` enables logging and metrics, but **does not configure** `throttle_rate_limit` or `throttle_burst_limit`
+   - **Mitigation:** Add throttling settings to API Gateway method settings
    - **Testable:** Yes (load testing)
 
-6. **Token Use-Count Not Enforced**
-   - **Risk:** Tokens can be reused indefinitely within expiration
-   - **Likelihood:** Low (requires token capture)
-   - **Impact:** High (unauthorized access)
-   - **Mitigation:** Implement use-count tracking or remove from documentation
-   - **Testable:** Yes (functional testing)
+6. ~~**Token Use-Count Not Enforced**~~ ✅ **RESOLVED**
+   - **Risk (previous):** Tokens could be reused indefinitely within expiration
+   - **Mitigation:** Use-count tracking implemented via `consume_token_use()` in `src/services/auth_service.py` and enforced by `JWTAuthMiddleware`
+   - **Status:** Tokens now have both time-based expiry and use-count limits
 
 7. **Security Headers Missing** ✅ **RESOLVED** (2025-11-17)
    - **Risk:** Browser vulnerabilities (XSS, clickjacking) not mitigated
@@ -686,14 +680,13 @@ This audit evaluates the current security posture of the Phase 2 project against
       - CloudWatch dashboard configured
     - **Testable:** Yes (configuration review)
 
-11. **Upload Event Logging Missing** ⚠️ **PARTIALLY IMPLEMENTED**
-    - **Risk:** Cannot prove who uploaded what package
+11. **Upload Event Logging** ✅ **IMPLEMENTED**
+    - **Risk (previous):** Cannot prove who uploaded what package
     - **Likelihood:** Low
     - **Impact:** Medium (non-repudiation)
-    - **Mitigation:** ⚠️ `log_upload_event()` function exists in `src/services/validator_service.py` but not called in `src/services/package_service.py`
-      - Function ready but not integrated into upload workflow
-      - Needs integration at init, commit, and abort stages
-    - **Testable:** Yes (functional testing after integration)
+    - **Mitigation:** ✅ `log_upload_event()` function exists in `src/services/validator_service.py` and is called from `src/routes/packages.py` and `src/routes/frontend.py` on successful uploads
+      - Upload events include artifact metadata, user_id, status, and timestamp
+    - **Testable:** Yes (functional testing and DynamoDB inspection)
 
 12. **AWS Config Not Configured** ⚠️ **MODULE READY BUT NOT DEPLOYED**
     - **Risk:** Cannot detect policy drift or configuration changes
@@ -724,12 +717,12 @@ This audit evaluates the current security posture of the Phase 2 project against
 
 ### Risk Summary
 
-| Severity | Count | Mitigation Status                                                                                                |
-| -------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
-| Critical | 4     | ⚠️ 2 mitigated (JWT secret ✅, S3 versioning ✅), 2 remaining (WAF, SSRF)                                        |
-| High     | 4     | ✅ 3 mitigated (API Gateway throttling ✅, Security headers ✅, S3 versioning ✅), 1 remaining (Token use-count) |
-| Medium   | 4     | ✅ 4 mitigated (CloudTrail ✅, CloudWatch alarms ✅, AWS Config ✅, Log archiving ✅)                            |
-| Low      | 2     | ✅ 2 mitigated (encryption, logging)                                                                             |
+| Severity | Count | Mitigation Status                                                                                        |
+| -------- | ----- | -------------------------------------------------------------------------------------------------------- |
+| Critical | 4     | ⚠️ 2 mitigated (JWT secret ✅, S3 versioning ✅), 2 remaining (WAF, SSRF; Admin MFA still outstanding)   |
+| High     | 4     | ✅ 3 mitigated (Security headers ✅, S3 versioning ✅, token use-count ✅), 1 remaining (API throttling) |
+| Medium   | 4     | ✅ 4 mitigated (CloudTrail ✅, CloudWatch alarms ✅, AWS Config module ✅, Log archiving ✅)             |
+| Low      | 2     | ✅ 2 mitigated (encryption, logging)                                                                     |
 
 **Total Identified Risks:** 14  
 **Mitigated:** 8 (fully)  
@@ -886,8 +879,8 @@ While you have the required 4 vulnerabilities documented, consider adding:
 ### ❌ Missing (Must Complete)
 
 1. **Critical Security Controls**
-   - ❌ AWS WAF configuration
-   - ✅ API Gateway throttling (configured 2025-11-17)
+   - ❌ AWS WAF configuration (module exists but not deployed)
+   - ❌ API Gateway throttling (logging enabled, throttling limits not configured)
    - ✅ Security headers middleware (implemented 2025-11-17)
    - ✅ JWT secret in Secrets Manager/KMS (implemented via `src/utils/jwt_secret.py`)
    - ❌ Admin MFA enforcement
@@ -924,7 +917,7 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [ ] Associate WAF with API Gateway
   - [ ] Test WAF functionality
 
-- [ ] **Migrate JWT Secret to Secrets Manager**
+- [x] **Migrate JWT Secret to Secrets Manager**
   - [ ] Create secret in Secrets Manager
   - [ ] Update IAM policies for API service
   - [ ] Update code to retrieve from Secrets Manager
@@ -944,8 +937,8 @@ While you have the required 4 vulnerabilities documented, consider adding:
 
 - [ ] **Configure API Gateway Throttling** ⚠️ PARTIAL
   - [x] Method settings resource exists
-  - [ ] Add throttle_rate_limit and throttle_burst_limit settings
-  - [ ] Configure burst limits (2000 req/s, 5000 burst)
+  - [ ] Add `throttle_rate_limit` and `throttle_burst_limit` settings in the `settings` block
+  - [ ] Choose appropriate rate and burst limits
   - [ ] Test throttling functionality
 
 - [x] **Add Security Headers Middleware** ✅ (2025-11-17)
@@ -953,11 +946,10 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [x] Add Content-Security-Policy, Referrer-Policy, Permissions-Policy
   - [x] Test headers in responses
 
-- [ ] **Implement Token Use-Count Tracking**
-  - [ ] Add use-count to DynamoDB tokens table
-  - [ ] Decrement on each use
-  - [ ] Enforce 1,000 use limit
-  - [ ] OR: Remove from documentation if not implementing
+- [x] **Implement Token Use-Count Tracking**
+  - [x] Add use-count to DynamoDB tokens table via `remaining_uses` attribute
+  - [x] Decrement on each use in `consume_token_use()` (deletes token when exhausted)
+  - [x] Enforce 1,000 use limit via `JWT_MAX_USES` and middleware integration
 
 - [x] **Enable S3 Versioning** ✅ (2025-11-17)
   - [x] Add versioning configuration to Terraform (`infra/modules/s3/main.tf`)
@@ -977,13 +969,6 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [x] Create alarms for memory utilization
   - [x] Create alarms for task count
   - [x] Configure CloudWatch dashboard
-
-- [ ] **Add Upload Event Logging** ⚠️ PARTIAL
-  - [x] Function exists in `src/services/validator_service.py`
-  - [ ] Integrate `log_upload_event()` calls in `src/services/package_service.py`
-  - [ ] Call at init, complete, and abort stages
-  - [ ] Include user_id, timestamp, package info, event_type, status, size_bytes, sha256_hash
-  - [ ] Update documentation
 
 - [ ] **Configure AWS Config** ⚠️ MODULE READY
   - [x] Module configured in `infra/modules/config/main.tf`
@@ -1103,11 +1088,10 @@ While you have the required 4 vulnerabilities documented, consider adding:
 To reach **90/100**, you need to:
 
 1. **Fix remaining Critical risks** (+3 points)
-   - WAF, SSRF (JWT secret ✅, S3 versioning ✅ already fixed)
+   - WAF, SSRF, Admin MFA enforcement (JWT secret ✅, S3 versioning ✅ already fixed)
 
 2. **Fix remaining High-priority risks** (+1 point)
-   - Token use-count tracking OR remove from documentation
-   - (API Gateway throttling ✅, Security headers ✅, S3 versioning ✅ already fixed)
+   - Configure API Gateway throttling (Security headers ✅, S3 versioning ✅, token use-count ✅ already fixed)
 
 3. **Complete documentation** (+1 point)
    - Risk matrix, fix discrepancies
@@ -1191,8 +1175,7 @@ This audit report was verified against the actual repository state. Key discrepa
 
 2. **Upload Event Logging**
    - ⚠️ Function exists: `src/services/validator_service.py` lines 202-236
-   - ❌ Not called: Function not invoked in `src/services/package_service.py` upload endpoints
-   - ❌ Missing integration: No calls to `log_upload_event()` in init, commit, or abort functions
+   - ✅ Integrated: Function is called from `src/routes/packages.py` and `src/routes/frontend.py` on successful uploads
 
 3. **AWS Config**
    - ⚠️ Module exists: `infra/modules/config/main.tf` (fully configured)
@@ -1217,9 +1200,9 @@ This audit report was verified against the actual repository state. Key discrepa
    - ❌ Only documentation mentions MFA requirement
 
 3. **Token Use-Count Enforcement**
-   - ⚠️ Code exists: `src/middleware/jwt_auth.py` lines 107-120 calls `consume_token_use()`
-   - ⚠️ Function exists: `src/services/auth_service.py` (referenced but implementation not verified)
-   - ⚠️ Status: Partial implementation found, needs verification
+   - ✅ Code exists: `src/middleware/jwt_auth.py` lines 107-120 calls `consume_token_use()`
+   - ✅ Function implemented in: `src/services/auth_service.py` (`consume_token_use` manages `remaining_uses` in DynamoDB)
+   - ✅ Status: Verified as implemented and enforced
 
 ### Recommendations
 
