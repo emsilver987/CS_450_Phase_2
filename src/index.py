@@ -5619,6 +5619,149 @@ async def upload_artifact_model_to_rds(
         raise HTTPException(status_code=500, detail=f"RDS upload failed: {str(e)}")
 
 
+@app.get("/artifact/model/{id}/upload-rds-url")
+async def get_rds_upload_url(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'"),
+    expires_in: int = Query(3600, description="URL expiration time in seconds")
+):
+    """
+    Generate presigned S3 URL for large file uploads to RDS.
+    Client uploads file directly to S3 (bypasses API Gateway 10MB limit),
+    then calls /artifact/model/{id}/upload-rds-from-s3 to move from S3 to RDS.
+    """
+    try:
+        from .services.s3_service import s3, ap_arn, aws_available
+        
+        if not aws_available:
+            raise HTTPException(
+                status_code=503,
+                detail="AWS services not available. Please check your AWS configuration."
+            )
+        
+        # Sanitize model_id for S3 key (same as RDS)
+        sanitized_id = (
+            id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Use a temporary S3 key for RDS uploads (will be moved to RDS)
+        s3_key = f"rds-uploads/{sanitized_id}/{version}/model.zip"
+        
+        url = s3.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": ap_arn, "Key": s3_key, "ContentType": "application/zip"},
+            ExpiresIn=expires_in,
+        )
+        
+        return {
+            "upload_url": url,
+            "model_id": id,
+            "s3_key": s3_key,
+            "version": version,
+            "path_prefix": path_prefix,
+            "expires_in": expires_in,
+            "next_step": f"After uploading to S3, call POST /artifact/model/{id}/upload-rds-from-s3 with s3_key={s3_key}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate RDS upload URL for {id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {str(e)}")
+
+
+@app.post("/artifact/model/{id}/upload-rds-from-s3")
+async def upload_rds_from_s3(
+    id: str,
+    request: Request,
+    s3_key: str = Query(..., description="S3 key of the uploaded file"),
+    version: str = Query("main", description="Model version"),
+    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Move a file from S3 to RDS. 
+    This endpoint accepts only the S3 key (small payload), so it can go through API Gateway.
+    The actual file was uploaded to S3 via presigned URL (bypassing API Gateway 10MB limit).
+    """
+    try:
+        from .services.s3_service import s3, ap_arn, aws_available
+        from .services.rds_service import upload_model as rds_upload_model
+        
+        if not aws_available:
+            raise HTTPException(
+                status_code=503,
+                detail="AWS services not available. Please check your AWS configuration."
+            )
+        
+        # Check if RDS credentials are available
+        rds_endpoint = os.getenv("RDS_ENDPOINT")
+        rds_database = os.getenv("RDS_DATABASE")
+        rds_username = os.getenv("RDS_USERNAME")
+        rds_password = os.getenv("RDS_PASSWORD")
+        
+        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
+            raise HTTPException(
+                status_code=500,
+                detail="RDS upload endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
+            )
+        
+        # Download file from S3
+        try:
+            response = s3.get_object(Bucket=ap_arn, Key=s3_key)
+            file_content = response['Body'].read()
+        except Exception as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found in S3: {s3_key}. Error: {str(e)}"
+            )
+        
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File content is empty")
+        
+        # Determine if we should use performance path
+        use_performance_path = (path_prefix.lower() == "performance")
+        
+        logger.info(f"[RDS UPLOAD FROM S3] Request: id={id}, version={version}, path_prefix={path_prefix}, s3_key={s3_key}, size={len(file_content)} bytes")
+        
+        # Upload to RDS
+        result = rds_upload_model(file_content, id, version, use_performance_path=use_performance_path)
+        
+        # Optionally delete from S3 after successful RDS upload
+        try:
+            s3.delete_object(Bucket=ap_arn, Key=s3_key)
+            logger.info(f"[RDS UPLOAD FROM S3] Deleted temporary S3 file: {s3_key}")
+        except Exception as e:
+            logger.warning(f"[RDS UPLOAD FROM S3] Failed to delete temporary S3 file {s3_key}: {str(e)}")
+        
+        logger.info(f"[RDS UPLOAD FROM S3] Success: id={id}, version={version}, path_prefix={path_prefix}, stored_path={result.get('path', 'unknown')}")
+        
+        return {
+            "message": "Upload successful",
+            "details": result,
+            "model_id": id,
+            "version": version,
+            "path_prefix": path_prefix,
+            "use_performance_path": use_performance_path,
+            "s3_key": s3_key
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RDS upload from S3 failed for {id} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS upload from S3 failed: {str(e)}")
+
+
 @app.get("/artifact/model/{id}/download")
 async def download_artifact_model(
     id: str,

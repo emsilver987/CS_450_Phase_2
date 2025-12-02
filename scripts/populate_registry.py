@@ -646,7 +646,13 @@ def ingest_model_rds_direct(model_id: str, zip_content: bytes, version: str = "m
     if not rds_endpoint or not rds_password:
         error_msg = "RDS credentials not available locally. Cannot use direct RDS access for large files."
         print(f"✗ {error_msg}")
-        print(f"  Set RDS_ENDPOINT and RDS_PASSWORD environment variables to enable direct RDS access.")
+        print(f"  To enable direct RDS access for files >10MB, set the following environment variables:")
+        print(f"    RDS_ENDPOINT=<your-rds-endpoint>")
+        print(f"    RDS_PASSWORD=acme_rds_password_123  # From infra/envs/dev/main.tf")
+        print(f"    RDS_DATABASE=acme  # Optional, defaults to 'acme'")
+        print(f"    RDS_USERNAME=acme  # Optional, defaults to 'acme'")
+        print(f"  To get the RDS endpoint, run: terraform output -state=infra/envs/dev/terraform.tfstate rds_endpoint")
+        print(f"  Or check the AWS Console: RDS > Databases > acme-rds > Connectivity & security")
         return (False, "no_credentials")
     
     # Quick check if model exists on HuggingFace (avoid unnecessary work)
@@ -739,10 +745,88 @@ def ingest_model_rds_direct(model_id: str, zip_content: bytes, version: str = "m
             return (False, "error")
 
 
+def ingest_model_rds_via_s3_presigned(api_base_url: str, model_id: str, auth_token: Optional[str], zip_content: bytes, version: str = "main", skip_missing: bool = True) -> tuple:
+    """
+    Ingest a large model into RDS using S3 presigned URL approach (bypasses API Gateway 10MB limit).
+    Step 1: Get presigned S3 URL
+    Step 2: Upload file directly to S3
+    Step 3: Call API endpoint to move file from S3 to RDS (small payload, just the S3 key)
+    
+    Returns:
+        (success: bool, status: Optional[str]) where status can be:
+        - None: success
+        - "not_found": model doesn't exist on HuggingFace (404)
+        - "error": other error occurred
+    """
+    # Quick check if model exists on HuggingFace
+    if skip_missing:
+        if not check_model_exists_on_hf(model_id):
+            print(f"⊘ Model not found on HuggingFace: {model_id} (skipping)")
+            return (False, "not_found")
+    
+    try:
+        headers = {}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        # Sanitize model_id for URL
+        sanitized_model_id = (
+            model_id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Step 1: Get presigned S3 URL
+        url_get_presigned = f"{api_base_url}/artifact/model/{sanitized_model_id}/upload-rds-url?version={version}&path_prefix=performance"
+        response = requests.get(url_get_presigned, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"✗ Failed to get presigned URL: HTTP {response.status_code} - {response.text[:200]}")
+            return (False, "error")
+        
+        presigned_data = response.json()
+        upload_url = presigned_data["upload_url"]
+        s3_key = presigned_data["s3_key"]
+        
+        print(f"  ✓ Got presigned S3 URL, uploading {len(zip_content) / (1024*1024):.2f} MB to S3...")
+        
+        # Step 2: Upload file directly to S3 using presigned URL
+        upload_response = requests.put(upload_url, data=zip_content, headers={"Content-Type": "application/zip"}, timeout=600)
+        
+        if upload_response.status_code not in [200, 204]:
+            print(f"✗ Failed to upload to S3: HTTP {upload_response.status_code}")
+            return (False, "error")
+        
+        print(f"  ✓ Uploaded to S3, moving to RDS...")
+        
+        # Step 3: Call API endpoint to move from S3 to RDS (small payload, just the S3 key)
+        url_move_to_rds = f"{api_base_url}/artifact/model/{sanitized_model_id}/upload-rds-from-s3?s3_key={s3_key}&version={version}&path_prefix=performance"
+        move_response = requests.post(url_move_to_rds, headers=headers, timeout=300)
+        
+        if move_response.status_code in [200, 201, 202]:
+            print(f"✓ Successfully ingested to RDS via S3: {model_id}")
+            return (True, None)
+        else:
+            print(f"✗ Failed to move from S3 to RDS: HTTP {move_response.status_code} - {move_response.text[:200]}")
+            return (False, "error")
+            
+    except Exception as e:
+        print(f"✗ Error ingesting {model_id} via S3 presigned URL: {str(e)}")
+        return (False, "error")
+
+
 def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optional[str], zip_content: bytes, version: str = "main", retry: int = 0, skip_missing: bool = True) -> tuple:
     """
     Ingest a single model into RDS via API endpoint.
-    For files >10MB, falls back to direct RDS access to bypass API Gateway limit.
+    For files >10MB, uses S3 presigned URL approach to bypass API Gateway limit.
     
     Returns:
         (success: bool, status: Optional[str]) where status can be:
@@ -751,18 +835,13 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
         - "error": other error occurred
     """
     # API Gateway has a 10MB payload limit
-    # For files larger than 10MB, try direct RDS access if credentials are available
+    # For files larger than 10MB, use S3 presigned URL approach (same as S3 uploads)
     MAX_API_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10MB
     
     if len(zip_content) > MAX_API_PAYLOAD_SIZE:
         print(f"  ⚠ File size ({len(zip_content) / (1024*1024):.2f} MB) exceeds API Gateway 10MB limit")
-        # Try direct RDS access first (if credentials available)
-        result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
-        if result[0] or result[1] != "no_credentials":
-            # Success or error other than missing credentials
-            return result
-        # If credentials not available, still try API (will fail with 413, but we handle it)
-        print(f"  Falling back to API endpoint (will fail with 413, but attempting anyway)...")
+        print(f"  Using S3 presigned URL approach (bypasses API Gateway limit)...")
+        return ingest_model_rds_via_s3_presigned(api_base_url, model_id, auth_token, zip_content, version, skip_missing=skip_missing)
     
     # Quick check if model exists on HuggingFace (avoid unnecessary API calls)
     if skip_missing:
@@ -813,7 +892,7 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
             result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=False)
             if result[1] == "no_credentials":
                 print(f"  ✗ Cannot upload large file: RDS credentials not available locally.")
-                print(f"  To upload files >10MB, set RDS_ENDPOINT and RDS_PASSWORD environment variables.")
+                print(f"  See error message above for instructions on setting RDS credentials.")
                 return (False, "error")
             return result
         elif response.status_code == 404:
@@ -847,7 +926,7 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
             result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=False)
             if result[1] == "no_credentials":
                 print(f"  ✗ Cannot upload large file: RDS credentials not available locally.")
-                print(f"  To upload files >10MB, set RDS_ENDPOINT and RDS_PASSWORD environment variables.")
+                print(f"  See error message above for instructions on setting RDS credentials.")
                 return (False, "error")
             return result
         print(f"✗ Error ingesting {model_id}: {error_str}")
