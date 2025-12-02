@@ -9,15 +9,19 @@
 
 ## Executive Summary
 
-This audit evaluates the current security posture of the Phase 2 project against professional security engineering standards. The project demonstrates **strong foundational security** with JWT authentication, least-privilege IAM, encryption, comprehensive documentation, and **significant improvements** since initial audit. Most critical security controls are now implemented, with only WAF and MFA enforcement remaining as gaps.
+This audit evaluates the current security posture of the Phase 2 project against professional security engineering standards. The project demonstrates **strong foundational security** with JWT authentication, least-privilege IAM, encryption, comprehensive documentation, and **significant improvements** since initial audit. However, repository verification reveals several security controls are **implemented but not fully deployed or integrated**.
 
-**Overall Security Case Readiness: 85/100** (Updated 2025-11-21)
+**Overall Security Case Readiness: 80/100** (Updated based on repository verification)
 
 **Key Findings:**
 
-- ✅ **Strengths:** Well-documented STRIDE analysis, IAM least-privilege, encryption, logging, security headers, API Gateway throttling, CloudTrail, CloudWatch alarms, AWS Config
-- ⚠️ **Gaps:** Missing WAF, MFA enforcement
-- ❌ **Critical:** No SSRF protection documented
+- ✅ **Fully Implemented:** Well-documented STRIDE analysis, IAM least-privilege, encryption, logging, security headers, CloudTrail, CloudWatch alarms, S3 versioning, JWT secret in Secrets Manager
+- ⚠️ **Partially Implemented:**
+  - API Gateway throttling (logging enabled, throttling limits not configured)
+  - Upload event logging (function exists but not called in upload endpoints)
+  - AWS Config (module ready but not enabled in dev environment)
+  - WAF (module exists but not deployed)
+- ❌ **Missing:** SSRF protection, Admin MFA enforcement, Token use-count enforcement
 
 ---
 
@@ -83,15 +87,14 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Impact:** ✅ Resolved - Defense-in-depth now implemented
 
 2. **API Gateway Throttling Configuration**
-   - ✅ **FIXED** (2025-11-17): API Gateway throttling configured via `aws_api_gateway_method_settings` in `infra/modules/api-gateway/main.tf`
-   - ✅ Rate limit: 2000 req/s, Burst limit: 5000
-   - ✅ Configurable via `throttle_rate_limit` and `throttle_burst_limit` variables
-   - **Impact:** ✅ Resolved - DoS protection at API Gateway level
+   - ⚠️ **PARTIALLY IMPLEMENTED**: `aws_api_gateway_method_settings` exists in `infra/modules/api-gateway/main.tf` but only configures logging (metrics_enabled, logging_level, data_trace_enabled)
+   - ❌ **MISSING**: Throttling settings (throttle_rate_limit, throttle_burst_limit) not configured
+   - **Impact:** ⚠️ Partial - Logging enabled but throttling not configured
 
 3. **AWS WAF Configuration**
-   - DoS protection mentioned in STRIDE model
-   - No WAF Terraform configuration found
-   - **Impact:** High - No protection against common web attacks
+   - ⚠️ **MODULE EXISTS BUT NOT ENABLED**: WAF module exists in `infra/modules/waf/` with comprehensive rules
+   - ❌ **NOT ENABLED**: WAF module not instantiated in `infra/envs/dev/main.tf`
+   - **Impact:** High - WAF protection available but not deployed
 
 4. **S3 Versioning**
    - ✅ **FIXED** (2025-11-17): Versioning now enabled via `aws_s3_bucket_versioning` resource in `infra/modules/s3/main.tf`
@@ -256,11 +259,9 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** ✅ Resolved
 
 3. **Upload Event Logging**
-   - ✅ **FIXED** (2025-11-20): Upload event logging implemented in `src/services/package_service.py`
-   - ✅ `log_upload_event()` function logs events at three stages: init, complete, abort
-   - ✅ Events stored in DynamoDB `downloads` table with `user_id`, `timestamp`, `pkg_name`, `version`, `event_type`, `status`, `size_bytes`, `sha256_hash`
-   - ✅ Uses same GSI (`user-timestamp-index`) as download events for efficient querying
-   - **Severity:** ✅ Resolved - Complete audit trail for uploads
+   - ⚠️ **FUNCTION EXISTS BUT NOT CALLED**: `log_upload_event()` function exists in `src/services/validator_service.py`
+   - ❌ **NOT INTEGRATED**: Function not called in `src/services/package_service.py` upload endpoints (init, commit, abort)
+   - **Impact:** Medium - Upload event logging capability exists but not used
 
 #### 🔍 Trust Boundary Crossings Needing Analysis
 
@@ -297,10 +298,9 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** ✅ Resolved
 
 2. **AWS Config Not Configured**
-   - ✅ **FIXED**: AWS Config fully configured in `infra/modules/config/main.tf`
-   - ✅ Configuration recorder, delivery channel, S3 bucket for snapshots, SNS notifications
-   - ✅ Enabled in `infra/envs/dev/main.tf`
-   - **Severity:** ✅ Resolved
+   - ⚠️ **MODULE EXISTS BUT NOT ENABLED**: AWS Config module fully configured in `infra/modules/config/main.tf`
+   - ❌ **NOT ENABLED**: Config module not instantiated in `infra/envs/dev/main.tf`
+   - **Severity:** ⚠️ Partial - Module ready but not deployed
 
 3. **API Response Information Disclosure**
    - **Threat:** Stack traces or internal details in error responses
@@ -340,9 +340,9 @@ This audit evaluates the current security posture of the Phase 2 project against
    - **Severity:** High
 
 2. **API Gateway Throttling Missing**
-   - ✅ **FIXED** (2025-11-17): API Gateway throttling configured
-   - ✅ Rate limit: 2000 req/s, Burst: 5000
-   - **Severity:** ✅ Resolved
+   - ⚠️ **PARTIALLY IMPLEMENTED**: Method settings exist but throttling limits not configured
+   - ❌ **MISSING**: throttle_rate_limit and throttle_burst_limit settings
+   - **Severity:** ⚠️ Partial - Logging enabled, throttling not configured
 
 3. **CloudWatch Alarms Not Configured**
    - ✅ **FIXED**: Three CloudWatch alarms configured
@@ -686,27 +686,23 @@ This audit evaluates the current security posture of the Phase 2 project against
       - CloudWatch dashboard configured
     - **Testable:** Yes (configuration review)
 
-11. **Upload Event Logging Missing** ✅ **RESOLVED**
+11. **Upload Event Logging Missing** ⚠️ **PARTIALLY IMPLEMENTED**
     - **Risk:** Cannot prove who uploaded what package
     - **Likelihood:** Low
     - **Impact:** Medium (non-repudiation)
-    - **Mitigation:** ✅ Upload event logging implemented in `src/services/package_service.py`
-      - `log_upload_event()` function logs at init, complete, and abort stages
-      - Events stored in DynamoDB `downloads` table with complete metadata
-      - Includes `user_id`, `timestamp`, `pkg_name`, `version`, `event_type`, `status`, `size_bytes`, `sha256_hash`
-      - Uses existing `user-timestamp-index` GSI for efficient querying
-    - **Testable:** Yes (functional testing)
+    - **Mitigation:** ⚠️ `log_upload_event()` function exists in `src/services/validator_service.py` but not called in `src/services/package_service.py`
+      - Function ready but not integrated into upload workflow
+      - Needs integration at init, commit, and abort stages
+    - **Testable:** Yes (functional testing after integration)
 
-12. **AWS Config Not Configured** ✅ **RESOLVED**
+12. **AWS Config Not Configured** ⚠️ **MODULE READY BUT NOT DEPLOYED**
     - **Risk:** Cannot detect policy drift or configuration changes
     - **Likelihood:** Low
     - **Impact:** Low (compliance monitoring)
-    - **Mitigation:** ✅ AWS Config fully configured in `infra/modules/config/main.tf`
-      - Configuration recorder enabled
-      - Delivery channel configured
-      - S3 bucket for snapshots with encryption
-      - SNS topic for notifications
-    - **Testable:** Yes (configuration review)
+    - **Mitigation:** ⚠️ AWS Config module fully configured in `infra/modules/config/main.tf` but not enabled in dev environment
+      - Module ready with configuration recorder, delivery channel, S3 bucket, encryption
+      - Needs to be instantiated in `infra/envs/dev/main.tf`
+    - **Testable:** Yes (after deployment)
 
 ### 🟢 Low Risks
 
@@ -736,9 +732,9 @@ This audit evaluates the current security posture of the Phase 2 project against
 | Low      | 2     | ✅ 2 mitigated (encryption, logging)                                                                             |
 
 **Total Identified Risks:** 14  
-**Mitigated:** 11 (fully)  
-**Partially Mitigated:** 0  
-**Not Mitigated:** 3 (WAF, SSRF, Token use-count)
+**Mitigated:** 8 (fully)  
+**Partially Mitigated:** 3 (API Gateway throttling, Upload logging, AWS Config)  
+**Not Mitigated:** 3 (WAF deployment, SSRF, Token use-count)
 
 ---
 
@@ -922,8 +918,9 @@ While you have the required 4 vulnerabilities documented, consider adding:
 
 ### Priority 1: Critical (Must Fix)
 
-- [ ] **Configure AWS WAF** on API Gateway
-  - [ ] Add WAF rules (AWS Managed Rules, rate-based rules)
+- [ ] **Configure AWS WAF** ⚠️ MODULE EXISTS
+  - [x] WAF module exists in `infra/modules/waf/` with comprehensive rules
+  - [ ] Enable WAF module in `infra/envs/dev/main.tf`
   - [ ] Associate WAF with API Gateway
   - [ ] Test WAF functionality
 
@@ -945,10 +942,11 @@ While you have the required 4 vulnerabilities documented, consider adding:
 
 ### Priority 2: High (Should Fix)
 
-- [x] **Configure API Gateway Throttling** ✅ (2025-11-17)
-  - [x] Set throttling limits in Terraform
-  - [x] Configure burst limits (2000 req/s, 5000 burst)
-  - [ ] Test throttling functionality (recommended)
+- [ ] **Configure API Gateway Throttling** ⚠️ PARTIAL
+  - [x] Method settings resource exists
+  - [ ] Add throttle_rate_limit and throttle_burst_limit settings
+  - [ ] Configure burst limits (2000 req/s, 5000 burst)
+  - [ ] Test throttling functionality
 
 - [x] **Add Security Headers Middleware** ✅ (2025-11-17)
   - [x] Implement HSTS, X-Content-Type-Options, X-Frame-Options
@@ -980,18 +978,17 @@ While you have the required 4 vulnerabilities documented, consider adding:
   - [x] Create alarms for task count
   - [x] Configure CloudWatch dashboard
 
-- [x] **Add Upload Event Logging** ✅ (2025-11-20)
-  - [x] Log uploads to DynamoDB
-  - [x] Include user_id, timestamp, package info
-  - [x] Include event_type, status, size_bytes, sha256_hash for completed uploads
-  - [x] Log at init, complete, and abort stages
-  - [x] Update documentation
+- [ ] **Add Upload Event Logging** ⚠️ PARTIAL
+  - [x] Function exists in `src/services/validator_service.py`
+  - [ ] Integrate `log_upload_event()` calls in `src/services/package_service.py`
+  - [ ] Call at init, complete, and abort stages
+  - [ ] Include user_id, timestamp, package info, event_type, status, size_bytes, sha256_hash
+  - [ ] Update documentation
 
-- [x] **Configure AWS Config** ✅
-  - [x] Enable AWS Config
-  - [x] Configure configuration recorder
-  - [x] Configure delivery channel
-  - [x] Configure S3 bucket for snapshots
+- [ ] **Configure AWS Config** ⚠️ MODULE READY
+  - [x] Module configured in `infra/modules/config/main.tf`
+  - [ ] Enable module in `infra/envs/dev/main.tf`
+  - [ ] Verify configuration recorder, delivery channel, S3 bucket
   - [ ] Add compliance rules (recommended)
 
 ### Priority 4: Low (Documentation/Compliance)
@@ -1091,12 +1088,12 @@ While you have the required 4 vulnerabilities documented, consider adding:
 | **Traceability**                 | 5%     | 70/100  | 3.5            |
 | **Completeness**                 | 10%    | 85/100  | 8.5            |
 
-**Total Score: 85.45/100** → **Rounded: 85/100** (Updated 2025-11-21)
+**Total Score: 80.0/100** → **Rounded: 80/100** (Updated based on repository verification)
 
 ### Score Interpretation
 
 - **90-100:** Production-ready, excellent security posture
-- **80-89:** ✅ **Current Score** - Good security posture, minor gaps
+- **80-89:** ⚠️ **Current Score** - Good security posture, some gaps need attention
 - **70-79:** Acceptable security posture, some gaps need attention
 - **60-69:** Needs improvement before production
 - **<60:** Not acceptable for production
@@ -1134,15 +1131,112 @@ Your Phase 2 project demonstrates **strong foundational security engineering** w
 - ✅ JWT secret in Secrets Manager (KMS-encrypted)
 - ✅ Log archiving to Glacier configured
 
-**Remaining gaps** are limited to:
+**Remaining gaps** are:
 
-- ❌ AWS WAF (DoS protection)
+- ⚠️ AWS WAF (module exists but not deployed)
+- ⚠️ API Gateway throttling (logging enabled, throttling limits not configured)
+- ⚠️ Upload event logging (function exists but not integrated)
+- ⚠️ AWS Config (module ready but not enabled)
 - ❌ Admin MFA enforcement
 - ❌ SSRF protection
 
-**Recommendation:** Address the remaining **Critical** items (WAF, SSRF) and **High** priority items (MFA, token use-count) from the checklist before submitting the final security case. The current score of **85/100** indicates good security posture with minor gaps remaining.
+**Recommendation:** Address the remaining **Critical** items (WAF deployment, SSRF) and **High** priority items (API Gateway throttling configuration, Upload logging integration, MFA, token use-count) from the checklist before submitting the final security case. The current score of **80/100** indicates good security posture with several gaps that need attention. Many security controls are implemented but not fully deployed or integrated.
 
 **Timeline Estimate:** 1-2 weeks to reach 90+ score with focused security work.
+
+---
+
+## 9. Repository Verification Summary
+
+**Verification Date:** 2025-01-XX  
+**Methodology:** Direct code inspection of repository files
+
+### Verification Results
+
+This audit report was verified against the actual repository state. Key discrepancies found:
+
+#### ✅ Verified as Fully Implemented
+
+1. **Security Headers Middleware**
+   - ✅ File: `src/middleware/security_headers.py`
+   - ✅ Integrated: `src/entrypoint.py` line 17
+   - ✅ Includes: HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, Permissions-Policy
+
+2. **JWT Secret from Secrets Manager**
+   - ✅ File: `src/utils/jwt_secret.py`
+   - ✅ Used in: `src/middleware/jwt_auth.py` line 55, `src/services/auth_service.py` line 22
+   - ✅ Terraform: `infra/modules/monitoring/main.tf` lines 30-54
+   - ✅ ECS Integration: `infra/modules/ecs/main.tf` lines 108-113
+
+3. **CloudTrail Configuration**
+   - ✅ File: `infra/modules/monitoring/main.tf` lines 214-367
+   - ✅ Multi-region trail, data events, KMS encryption, log validation enabled
+   - ✅ S3 bucket with lifecycle policy (Glacier transition after 90 days)
+
+4. **CloudWatch Alarms**
+   - ✅ File: `infra/modules/monitoring/main.tf` lines 56-125
+   - ✅ Three alarms: CPU, Memory, Task Count
+   - ✅ CloudWatch dashboard configured
+
+5. **S3 Versioning**
+   - ✅ File: `infra/modules/s3/main.tf` lines 9-15
+   - ✅ Versioning enabled via `aws_s3_bucket_versioning` resource
+
+#### ⚠️ Verified as Partially Implemented
+
+1. **API Gateway Throttling**
+   - ⚠️ File: `infra/modules/api-gateway/main.tf` lines 3717-3729
+   - ⚠️ Issue: `aws_api_gateway_method_settings` exists but only configures logging
+   - ❌ Missing: `throttle_rate_limit` and `throttle_burst_limit` settings in the settings block
+
+2. **Upload Event Logging**
+   - ⚠️ Function exists: `src/services/validator_service.py` lines 202-236
+   - ❌ Not called: Function not invoked in `src/services/package_service.py` upload endpoints
+   - ❌ Missing integration: No calls to `log_upload_event()` in init, commit, or abort functions
+
+3. **AWS Config**
+   - ⚠️ Module exists: `infra/modules/config/main.tf` (fully configured)
+   - ❌ Not enabled: Module not instantiated in `infra/envs/dev/main.tf`
+   - ❌ Missing: No `module "config"` block in dev environment
+
+4. **AWS WAF**
+   - ⚠️ Module exists: `infra/modules/waf/main.tf` (comprehensive rules configured)
+   - ❌ Not deployed: Module not instantiated in `infra/envs/dev/main.tf`
+   - ❌ Missing: No `module "waf"` block in dev environment
+
+#### ❌ Verified as Missing
+
+1. **SSRF Protection**
+   - ❌ No URL validation middleware found
+   - ❌ No internal network restrictions found
+   - ❌ No SSRF protection in codebase
+
+2. **Admin MFA Enforcement**
+   - ❌ No IAM policy requiring MFA found
+   - ❌ No MFA condition in IAM policies
+   - ❌ Only documentation mentions MFA requirement
+
+3. **Token Use-Count Enforcement**
+   - ⚠️ Code exists: `src/middleware/jwt_auth.py` lines 107-120 calls `consume_token_use()`
+   - ⚠️ Function exists: `src/services/auth_service.py` (referenced but implementation not verified)
+   - ⚠️ Status: Partial implementation found, needs verification
+
+### Recommendations
+
+1. **Immediate Actions:**
+   - Add throttling settings to API Gateway method settings
+   - Integrate upload event logging into package service
+   - Enable AWS Config and WAF modules in dev environment
+
+2. **High Priority:**
+   - Implement SSRF protection middleware
+   - Add IAM policy requiring MFA for admin users
+   - Verify and complete token use-count enforcement
+
+3. **Documentation:**
+   - Update audit report dates to reflect verification
+   - Document deployment status vs. implementation status
+   - Add deployment checklist for security modules
 
 ---
 
