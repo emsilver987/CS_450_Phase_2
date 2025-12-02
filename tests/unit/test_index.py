@@ -446,9 +446,9 @@ class TestGetModelRate:
 
     def test_get_rate_invalid_id(self, mock_auth):
         response = client.get("/artifact/model/{id}/rate")
-        assert response.status_code == 200
+        assert response.status_code == 404
         data = response.json()
-        assert data["net_score"] == 0.0
+        assert "Artifact does not exist" in data["detail"]
 
     def test_get_rate_not_found(self, mock_auth):
         with patch("src.index.get_generic_artifact_metadata", return_value=None):
@@ -687,7 +687,7 @@ class TestIndexHelperFunctions:
         """Test extracting with various patterns"""
         from src.index import _extract_dataset_code_names_from_readme
 
-        readme = "Trained on coco dataset. Uses tensorflow library."
+        readme = "Trained on https://huggingface.co/datasets/coco dataset. Uses https://github.com/tensorflow/tensorflow library."
         result = _extract_dataset_code_names_from_readme(readme)
         assert result["dataset_name"] is not None or result["code_name"] is not None
 
@@ -798,7 +798,7 @@ class TestIndexHelperFunctions:
 
         with patch("src.index._extract_dataset_code_names_from_readme") as mock_extract:
             with patch("src.index.find_artifacts_by_type") as mock_find:
-                with patch("src.index.update_artifact") as mock_update:
+                with patch("src.index.update_artifact_in_db") as mock_update:
                     mock_extract.return_value = {
                         "dataset_name": "test-dataset",
                         "code_name": "test-code"
@@ -817,7 +817,7 @@ class TestIndexHelperFunctions:
         from src.index import _link_dataset_code_to_models
 
         with patch("src.index.find_models_with_null_link") as mock_find:
-            with patch("src.index.update_artifact") as mock_update:
+            with patch("src.index.update_artifact_in_db") as mock_update:
                 mock_find.return_value = [
                     {"id": "model-id", "name": "test-model", "dataset_name": "test-dataset"}
                 ]
@@ -989,9 +989,9 @@ class TestIndexHelperFunctions:
     def test_get_model_rate_invalid_id(self, mock_auth):
         """Test get model rate with invalid ID format"""
         response = client.get("/artifact/model/{id}/rate")
-        assert response.status_code == 200
+        assert response.status_code == 404
         data = response.json()
-        assert data["net_score"] == 0.0
+        assert "Artifact does not exist" in data["detail"]
 
     def test_get_model_rate_pending_status(self, mock_auth):
         """Test get model rate with pending status"""
@@ -1145,7 +1145,7 @@ class TestUpdateArtifact:
     def test_update_artifact_dataset_success(self, mock_auth):
         """Test update dataset artifact"""
         with patch("src.index.get_artifact_from_db") as mock_get:
-            with patch("src.index.update_artifact") as mock_update:
+            with patch("src.index.update_artifact_in_db") as mock_update:
                 mock_get.return_value = {"type": "dataset", "id": "test-id"}
                 response = client.put(
                     "/artifacts/dataset/test-id",

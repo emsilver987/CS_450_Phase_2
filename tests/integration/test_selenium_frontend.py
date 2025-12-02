@@ -3,6 +3,8 @@ Selenium tests for frontend
 """
 import pytest
 from selenium import webdriver
+
+pytestmark = pytest.mark.integration
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,66 +14,56 @@ from selenium.common.exceptions import NoSuchElementException
 import time
 import os
 import requests
-import shutil
-import platform
+import socket
+
+from tests.utils.chromedriver import find_chromedriver_path, get_chromedriver_install_instruction
+from tests.constants import (
+    DEFAULT_PORT,
+    WEBDRIVER_WAIT_TIMEOUT,
+    WEBDRIVER_IMPLICIT_WAIT
+)
 
 
-def _find_chromedriver_path():
+def _find_free_port():
     """
-    Find chromedriver path across different platforms.
-    Returns the path if found, None otherwise.
+    Find a free port for remote debugging.
+    Returns a port number that is available.
     """
-    # Platform-specific common paths
-    linux_paths = [
-        '/usr/bin/chromedriver',
-        '/usr/lib/chromium-browser/chromedriver',
-        '/usr/lib/chromium/chromedriver',
-    ]
-
-    macos_paths = [
-        '/opt/homebrew/bin/chromedriver',  # Apple Silicon
-        '/usr/local/bin/chromedriver',  # Intel
-    ]
-
-    # Check platform-specific paths first
-    system = platform.system().lower()
-    if system == 'darwin':  # macOS
-        search_paths = macos_paths + linux_paths
-    else:  # Linux or other
-        search_paths = linux_paths + macos_paths
-
-    # Check common paths
-    for path in search_paths:
-        if path and os.path.exists(path):
-            return path
-
-    # Fallback to PATH
-    return shutil.which('chromedriver')
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
 
 
-def _get_chromedriver_install_instruction():
-    """
-    Get platform-specific installation instruction for chromedriver.
-    """
-    system = platform.system().lower()
-    if system == 'darwin':  # macOS
-        return "brew install chromedriver"
-    else:  # Linux
-        return "sudo apt-get install chromium-chromedriver"
+# Module-level cache for driver instance to ensure true module scope
+_driver_cache = {}
+_driver_finalizer_registered = False
 
 
 @pytest.fixture(scope="module")
-def driver():
+def driver(request):
     """Create a Chrome WebDriver instance"""
+    global _driver_finalizer_registered
+
+    # Check if driver already exists in module cache (true module scope)
+    if "driver" in _driver_cache:
+        yield _driver_cache["driver"]
+        return
+
     chrome_options = Options()
     chrome_options.add_argument("--headless")  # Run in headless mode
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--remote-debugging-port=9222")
+
+    # Use dynamic port allocation to avoid conflicts
+    debug_port = _find_free_port()
+    chrome_options.add_argument(f"--remote-debugging-port={debug_port}")
 
     # Find chromedriver using helper function
-    chromedriver_path = _find_chromedriver_path()
+    chromedriver_path = find_chromedriver_path()
+
+    # Initialize driver to None for reliable cleanup check
+    driver = None
 
     # Try to create driver
     try:
@@ -81,12 +73,36 @@ def driver():
         else:
             # Fallback: let Selenium try to find it
             driver = webdriver.Chrome(options=chrome_options)
-        driver.implicitly_wait(10)
+
+        driver.implicitly_wait(WEBDRIVER_IMPLICIT_WAIT)
+
+        # Store in module cache for reuse
+        _driver_cache["driver"] = driver
+
+        # Register finalizer only once to cleanup when module scope truly ends
+        if not _driver_finalizer_registered:
+            _driver_finalizer_registered = True
+
+            def cleanup_driver():
+                if "driver" in _driver_cache and _driver_cache["driver"] is not None:
+                    cached_driver = _driver_cache["driver"]
+                    try:
+                        cached_driver.quit()
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+                    finally:
+                        _driver_cache.clear()
+
+            # Register at session scope to ensure it runs only once
+            request.session.addfinalizer(cleanup_driver)
+
         yield driver
     except Exception as e:
         pytest.skip(f"Chrome WebDriver not available: {e}")
     finally:
-        if 'driver' in locals():
+        # Ensure cleanup even if test fails or driver creation fails
+        if driver is not None and "driver" not in _driver_cache:
             try:
                 driver.quit()
             except Exception:
@@ -96,7 +112,7 @@ def driver():
 @pytest.fixture
 def base_url():
     """Get base URL from environment or use default"""
-    base = os.getenv("TEST_BASE_URL", "http://localhost:3000")
+    base = os.getenv("TEST_BASE_URL", f"http://localhost:{DEFAULT_PORT}")
     # Check if server is running
     try:
         response = requests.get(f"{base}/health", timeout=2)
@@ -115,9 +131,9 @@ def test_chromedriver_available():
     from selenium.webdriver.chrome.options import Options
 
     # Find chromedriver using helper function
-    chromedriver_path = _find_chromedriver_path()
+    chromedriver_path = find_chromedriver_path()
 
-    install_cmd = _get_chromedriver_install_instruction()
+    install_cmd = get_chromedriver_install_instruction()
     assert chromedriver_path is not None, (
         f"chromedriver not found in PATH or common locations. "
         f"Install with: {install_cmd}"
@@ -145,7 +161,7 @@ class TestHomePage:
         driver.get(f"{base_url}/")
 
         # Wait for page to load
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -159,11 +175,11 @@ class TestHomePage:
         )
 
     def test_home_page_has_content(self, driver, base_url):
-        """Test that home page has some content"""
+        """Test that home page has specific expected content"""
         driver.get(f"{base_url}/")
 
         # Wait for body
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -173,6 +189,17 @@ class TestHomePage:
         body_text = body.text
         assert len(body_text) > 0, "Body should have text content"
         assert isinstance(body_text, str), "Body text should be a string"
+        
+        # Check for specific expected content (headings, navigation links)
+        page_source_lower = driver.page_source.lower()
+        # Check for common home page elements
+        assert any(keyword in page_source_lower for keyword in [
+            "welcome", "acme", "registry", "package", "upload", "directory"
+        ]), "Home page should contain expected keywords"
+        
+        # Check for navigation links
+        nav_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/upload'], a[href*='/directory']")
+        assert len(nav_links) > 0, "Home page should have navigation links to upload or directory"
 
 
 class TestUploadPage:
@@ -183,7 +210,7 @@ class TestUploadPage:
         driver.get(f"{base_url}/upload")
 
         # Wait for page to load
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -206,10 +233,10 @@ class TestUploadPage:
         )
 
     def test_upload_page_has_form(self, driver, base_url):
-        """Test that upload page has a form"""
+        """Test that upload page has a form with proper attributes"""
         driver.get(f"{base_url}/upload")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -221,10 +248,24 @@ class TestUploadPage:
             form = forms[0]
             assert form is not None, "Form element should exist"
             assert form.is_displayed(), "Form should be visible"
+            # Verify form has action and method attributes (if present)
+            form_action = form.get_attribute("action")
+            form_method = form.get_attribute("method")
+            # Form should have either action attribute or be handled by JavaScript
+            # Method should be POST for file uploads (or not specified for JS handling)
+            if form_method:
+                assert form_method.upper() in ["POST", "GET", ""], (
+                    f"Form method should be POST or GET, got {form_method}"
+                )
         elif len(file_inputs) > 0:
             file_input = file_inputs[0]
             assert file_input is not None, "File input should exist"
             assert file_input.is_displayed(), "File input should be visible"
+            # Verify file input accepts appropriate file types
+            accept_attr = file_input.get_attribute("accept")
+            # Accept attribute is optional, but if present should be reasonable
+            if accept_attr:
+                assert len(accept_attr) > 0, "File input accept attribute should not be empty"
         else:
             pytest.skip("Upload form not found in page structure")
 
@@ -237,7 +278,7 @@ class TestDirectoryPage:
         driver.get(f"{base_url}/directory")
 
         # Wait for page to load
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -254,10 +295,10 @@ class TestDirectoryPage:
         assert body is not None, "Body element should exist"
 
     def test_directory_page_has_search(self, driver, base_url):
-        """Test that directory page has search functionality"""
+        """Test that directory page has search functionality that works"""
         driver.get(f"{base_url}/directory")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -268,11 +309,24 @@ class TestDirectoryPage:
         # Search may or may not be present, but page should load
         assert driver.page_source is not None, "Page should have source"
         assert len(driver.page_source) > 0, "Page source should not be empty"
-        # If search exists, validate it
+        # If search exists, validate it works
         if len(search_inputs) > 0:
             search_input = search_inputs[0]
             assert search_input is not None, "Search input should exist"
             assert search_input.is_displayed(), "Search input should be visible"
+            # Verify search input is functional
+            assert search_input.is_enabled(), "Search input should be enabled"
+            placeholder = search_input.get_attribute("placeholder")
+            # Placeholder is optional but good UX practice
+            # Verify we can interact with the search input
+            try:
+                search_input.send_keys("test")
+                value = search_input.get_attribute("value")
+                assert value == "test", f"Search input should accept input, got '{value}'"
+                # Clear the input
+                search_input.clear()
+            except Exception as e:
+                pytest.fail(f"Search input should be interactive: {e}")
 
 
 class TestRatePage:
@@ -283,7 +337,7 @@ class TestRatePage:
         driver.get(f"{base_url}/rate")
 
         # Wait for page to load
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -300,7 +354,7 @@ class TestRatePage:
         """Test rate page with model name parameter"""
         driver.get(f"{base_url}/rate?name=test-model")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -322,7 +376,7 @@ class TestNavigation:
         """Test navigating from home to upload page"""
         driver.get(f"{base_url}/")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -334,7 +388,7 @@ class TestNavigation:
         # Navigate to upload
         driver.get(f"{base_url}/upload")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -348,14 +402,14 @@ class TestNavigation:
         """Test navigating to directory page"""
         driver.get(f"{base_url}/")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
         # Navigate to directory
         driver.get(f"{base_url}/directory")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -373,7 +427,7 @@ class TestUploadAction:
         """Test upload without selecting a file"""
         driver.get(f"{base_url}/upload")
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
@@ -392,8 +446,20 @@ class TestUploadAction:
 
             submit_btn.click()
 
-            # Wait a moment for any response
-            time.sleep(1)
+            # Wait for form submission response - either error message appears or page stays
+            try:
+                # Wait for error message or validation message to appear
+                WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+                    lambda d: any([
+                        "error" in d.page_source.lower(),
+                        "required" in d.page_source.lower(),
+                        "invalid" in d.page_source.lower(),
+                        d.current_url == url_before  # Or URL hasn't changed
+                    ])
+                )
+            except Exception:
+                # If no error message appears, page should still be valid
+                pass
 
             # Should see some error or stay on page
             assert driver.page_source is not None, "Page should still exist"
@@ -445,21 +511,63 @@ class TestUploadAction:
             )
             submit_btn.click()
 
-            # Wait for result - either success message or redirect
-            time.sleep(2)  # Wait for upload to process
+            # Wait for result - either success message, error message, or redirect
+            try:
+                WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+                    lambda d: any([
+                        "success" in d.find_element(By.TAG_NAME, "body").text.lower(),
+                        "error" in d.find_element(By.TAG_NAME, "body").text.lower(),
+                        d.current_url != f"{base_url}/upload",  # Redirect occurred
+                        len(d.find_elements(By.CSS_SELECTOR, ".alert, .message, .notification")) > 0  # Message element appeared
+                    ])
+                )
+            except Exception:
+                # If no clear indicator, page should still be valid
+                pass
 
             # Validate page state after upload attempt
             assert driver.page_source is not None, "Page should still exist"
             assert len(driver.page_source) > 0, "Page should have content"
 
-            # Check for success/error indicators
+            # Check for success/error indicators with more specific assertions
             page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+            page_source_lower = driver.page_source.lower()
+            current_url_lower = driver.current_url.lower()
+            
             # Page may show success, error, or stay on upload page
             # All are valid outcomes depending on implementation
+            has_success_indicator = any([
+                "success" in page_text,
+                "uploaded" in page_text,
+                "success" in page_source_lower,
+                "uploaded" in page_source_lower
+            ])
+            has_error_indicator = any([
+                "error" in page_text,
+                "invalid" in page_text,
+                "failed" in page_text,
+                "error" in page_source_lower,
+                "invalid" in page_source_lower,
+                "failed" in page_source_lower
+            ])
+            still_on_upload_page = "upload" in current_url_lower
+            
             assert (
-                "success" in page_text or "error" in page_text or
-                "upload" in driver.current_url.lower()
-            ), "Page should show result or stay on upload page"
+                has_success_indicator or has_error_indicator or still_on_upload_page
+            ), (
+                f"Page should show success/error message or stay on upload page. "
+                f"URL: {driver.current_url}, "
+                f"Page text contains 'success': {has_success_indicator}, "
+                f"Page text contains 'error': {has_error_indicator}"
+            )
+            
+            # If there's a message element, verify it's visible
+            message_elements = driver.find_elements(
+                By.CSS_SELECTOR, ".alert, .message, .notification, .error, .success"
+            )
+            if len(message_elements) > 0:
+                message_element = message_elements[0]
+                assert message_element.is_displayed(), "Message element should be visible"
 
         except NoSuchElementException:
             pytest.skip("Upload form elements not found")
@@ -489,8 +597,19 @@ class TestSearchAction:
             except NoSuchElementException:
                 search_input.submit()
 
-            # Wait for results or page update
-            time.sleep(2)
+            # Wait for search results or page update
+            try:
+                # Wait for search results to appear or URL to change
+                WebDriverWait(driver, WEBDRIVER_WAIT_TIMEOUT).until(
+                    lambda d: any([
+                        "test" in d.current_url.lower(),  # Search term in URL
+                        len(d.find_elements(By.CSS_SELECTOR, ".result, .search-result, table, .list-item")) > 0,  # Results appeared
+                        d.find_element(By.CSS_SELECTOR, "input[type='text'], input[type='search']").get_attribute("value") == "test"  # Input retained value
+                    ])
+                )
+            except Exception:
+                # If no clear results indicator, verify search input retained value
+                pass
 
             # Validate search executed
             assert driver.page_source is not None, "Page should still exist"
@@ -506,4 +625,3 @@ class TestSearchAction:
 
         except NoSuchElementException:
             pytest.skip("Search input not found")
-

@@ -5,15 +5,15 @@ from acmecli.metrics.reviewedness_metric import ReviewednessMetric
 
 def test_no_github_url_returns_minus1():
     m = ReviewednessMetric()
-    # Implementation returns 0.5 when no github_url, not -1.0
+    # Implementation returns -1.0 when no github_url
     result = m.score({})
-    assert result.value == 0.5
+    assert result.value == -1.0
 
 
 def test_no_activity_returns_minus1():
     m = ReviewednessMetric()
     meta = {"github_url": "https://github.com/u/r", "github": {}}
-    # Implementation returns 0.5 when no activity, not -1.0
+    # Implementation returns 0.5 when github_url exists but no activity (no PRs or commits)
     result = m.score(meta)
     assert result.value == 0.5
 

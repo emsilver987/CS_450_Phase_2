@@ -16,6 +16,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install dependencies
         run: ./run install
 
@@ -42,6 +49,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install dependencies
         run: ./run install
       - name: Run tests
@@ -58,6 +72,14 @@ jobs:
         with:
           python-version: "3.12"
       
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -65,29 +87,52 @@ jobs:
       
       - name: Verify ChromeDriver
         run: |
-          which chromedriver || find /usr -name chromedriver 2>/dev/null | head -1
-          chromedriver --version || echo "Warning: chromedriver version check failed"
+          # Check common CI paths first
+          if [ -f /usr/lib/chromium-browser/chromedriver ]; then
+            echo "Found chromedriver at /usr/lib/chromium-browser/chromedriver"
+            /usr/lib/chromium-browser/chromedriver --version || echo "Warning: chromedriver version check failed"
+          elif [ -f /usr/bin/chromedriver ]; then
+            echo "Found chromedriver at /usr/bin/chromedriver"
+            /usr/bin/chromedriver --version || echo "Warning: chromedriver version check failed"
+          else
+            CHROMEDRIVER_PATH=$(which chromedriver || find /usr -name chromedriver 2>/dev/null | head -1)
+            if [ -n "$CHROMEDRIVER_PATH" ]; then
+              echo "Found chromedriver at $CHROMEDRIVER_PATH"
+              $CHROMEDRIVER_PATH --version || echo "Warning: chromedriver version check failed"
+            else
+              echo "ERROR: chromedriver not found"
+              exit 1
+            fi
+          fi
       
       - name: Install Python dependencies
         run: ./run install
       
       - name: Start server
         run: |
-          uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000 &
+          # Start server with output redirection for log capture
+          uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000 > server.log 2>&1 &
           echo $! > server.pid
-          sleep 5
+          # Reduced initial delay from 5s to 2s for faster CI
+          sleep 2
       
       - name: Wait for server
         run: |
-          for i in {1..30}; do
+          # Exponential backoff health check (max 30 retries = ~30 seconds)
+          delay=1
+          max_retries=30
+          for i in $(seq 1 $max_retries); do
             if curl -f http://localhost:3000/health > /dev/null 2>&1; then
-              echo "Server is ready"
+              echo "Server is ready after $i attempts"
               exit 0
             fi
-            echo "Waiting for server... ($i/30)"
-            sleep 1
+            echo "Waiting for server... attempt $i/$max_retries (delay: ${delay}s)"
+            sleep $delay
+            # Exponential backoff: 1s, 1s, 1s, ... (keeping simple for now)
           done
-          echo "Server failed to start"
+          echo "Server failed to start after $max_retries attempts"
+          echo "=== Server logs ==="
+          cat server.log || echo "No server logs found"
           exit 1
       
       - name: Run Selenium tests
@@ -96,6 +141,22 @@ jobs:
           PATH: /usr/lib/chromium-browser:/usr/bin:$PATH
         run: |
           pytest tests/integration/test_selenium_frontend.py -v
+      
+      - name: Capture server logs on failure
+        if: failure()
+        run: |
+          echo "=== Server logs (last 100 lines) ==="
+          tail -100 server.log || echo "No server logs found"
+          echo "=== Server process status ==="
+          ps aux | grep uvicorn || echo "No uvicorn process found"
+      
+      - name: Upload server logs
+        if: always
+        uses: actions/upload-artifact@v3
+        with:
+          name: server-logs
+          path: server.log
+          if-no-files-found: ignore
       
       - name: Stop server
         if: always

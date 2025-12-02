@@ -458,15 +458,33 @@ class TestS3ServiceWithMocks:
     @patch("src.services.s3_service.ap_arn", "test-bucket")
     def test_reset_registry_success(self, mock_s3):
         """Test successful reset_registry"""
-        mock_s3.list_objects_v2.return_value = {
+        # Mock paginator since reset_registry uses get_paginator
+        # The function iterates over 4 prefixes: models/, datasets/, codes/, packages/
+        # We'll return a page with one object only for the first prefix, empty for others
+        mock_paginator = MagicMock()
+        mock_page_with_object = {
             "Contents": [
                 {"Key": "models/test-model/1.0.0/model.zip"},
             ]
         }
+        mock_page_empty = {}  # No Contents key means no objects
+        
+        # Return page with object for first call (models/), empty pages for others
+        call_count = [0]
+        def paginate_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:  # First prefix (models/)
+                return [mock_page_with_object]
+            else:  # Other prefixes (datasets/, codes/, packages/)
+                return [mock_page_empty]
+        
+        mock_paginator.paginate.side_effect = paginate_side_effect
+        mock_s3.get_paginator.return_value = mock_paginator
         mock_s3.delete_object.return_value = {}
 
         result = reset_registry()
         assert result["message"] == "Reset done successfully"
+        # delete_object is called once per object found (1 object in this case)
         mock_s3.delete_object.assert_called_once()
 
     @patch("src.services.s3_service.aws_available", False)
@@ -775,9 +793,15 @@ class TestS3ServiceWithMocks:
         with patch("src.services.s3_service.aws_available", True):
             with patch("src.services.s3_service.s3") as mock_s3:
                 with patch("src.services.s3_service.ap_arn", "test-bucket"):
-                    mock_s3.list_objects_v2.side_effect = Exception("S3 error")
-                    with pytest.raises(HTTPException):
+                    # Mock paginator to raise exception
+                    mock_paginator = MagicMock()
+                    mock_paginator.paginate.side_effect = Exception("S3 error")
+                    mock_s3.get_paginator.return_value = mock_paginator
+                    # reset_registry raises HTTPException on error
+                    with pytest.raises(HTTPException) as exc:
                         reset_registry()
+                    assert exc.value.status_code == 500
+                    assert "Failed to reset registry" in exc.value.detail
 
 
 # Tests for previously untested functions

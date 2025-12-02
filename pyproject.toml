@@ -30,8 +30,15 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-ra -q --strict-markers --disable-warnings"
-testpaths = ["tests/unit"]
+testpaths = ["tests"]
 norecursedirs = ["actions_runner"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "selenium: Selenium frontend tests",
+    "asyncio: Async tests (pytest-asyncio)"
+]
 
 [tool.pylint.'MESSAGES CONTROL']
 disable = [

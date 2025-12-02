@@ -7,6 +7,9 @@ import logging
 from unittest.mock import patch
 import pytest
 
+# Register pytest-asyncio plugin explicitly
+pytest_plugins = ["pytest_asyncio"]
+
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:

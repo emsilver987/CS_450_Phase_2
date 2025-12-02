@@ -223,7 +223,7 @@ class TestPackagesRoutes:
         )
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/zip"
-        mock_download.assert_called_once_with("test-model", "1.0.0", "weights")
+        mock_download.assert_called_once_with("test-model", "1.0.0", "weights", use_performance_path=False)
     
     @patch('src.routes.packages.reset_registry')
     def test_reset_system_via_packages(self, mock_reset, client):

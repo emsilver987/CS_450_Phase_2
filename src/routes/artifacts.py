@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from typing import List, Union
 
@@ -24,7 +24,7 @@ class Artifact(BaseModel):
     type: ArtifactType
     version: str = "1.0.0"
     description: str | None = None
-    created_at: datetime = datetime.utcnow()
+    created_at: datetime = datetime.now(UTC)
 
 
 @router.put("/ingest")
