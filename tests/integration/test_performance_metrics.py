@@ -10,7 +10,7 @@ import os
 import boto3
 import uuid
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch, MagicMock
 
 # Configuration
@@ -147,7 +147,7 @@ class TestBlackBoxMetricsCollection:
         cloudwatch = boto3.client('cloudwatch', region_name=REGION)
         
         # Query for custom metrics in ACME/Performance namespace
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=5)
         
         response = cloudwatch.list_metrics(
@@ -253,7 +253,7 @@ class TestWhiteBoxMetricsCollection:
         cloudwatch = boto3.client('cloudwatch', region_name=REGION)
         
         # Query for DynamoDB metrics
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=1)
         
         response = cloudwatch.get_metric_statistics(

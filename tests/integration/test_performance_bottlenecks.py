@@ -9,7 +9,7 @@ import boto3
 import os
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 # Configuration
@@ -138,7 +138,7 @@ class TestBaselineMeasurement:
         
         # Verify CloudWatch metrics exist
         cloudwatch = boto3.client('cloudwatch', region_name=REGION)
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=10)
         
         # Check for various metric namespaces
@@ -183,7 +183,7 @@ class TestBottleneckDetection:
                 
                 # Analyze component latencies from CloudWatch
                 cloudwatch = boto3.client('cloudwatch', region_name=REGION)
-                end_time = datetime.utcnow()
+                end_time = datetime.now(timezone.utc)
                 start_time = end_time - timedelta(minutes=10)
                 
                 component_latencies = {}
@@ -216,7 +216,7 @@ class TestBottleneckDetection:
         time.sleep(310)
         
         cloudwatch = boto3.client('cloudwatch', region_name=REGION)
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=10)
         
         # Check ECS CPU utilization
@@ -302,7 +302,7 @@ class TestBottleneckDetection:
         time.sleep(310)
         
         cloudwatch = boto3.client('cloudwatch', region_name=REGION)
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=10)
         
         component_metrics = {}

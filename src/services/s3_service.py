@@ -900,6 +900,15 @@ def list_artifacts_from_s3(
 
 
 def extract_config_from_model(model_zip_content: bytes) -> Optional[Dict[str, Any]]:
+    """
+    Extract config.json from a model ZIP file.
+    
+    Args:
+        model_zip_content: The ZIP file content as bytes
+        
+    Returns:
+        Dictionary containing the parsed config.json, or None if not found
+    """
     try:
         with zipfile.ZipFile(io.BytesIO(model_zip_content), "r") as zip_file:
             config_files = [

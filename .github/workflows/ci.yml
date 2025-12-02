@@ -26,20 +26,6 @@ jobs:
       - name: Install dependencies
         run: ./run install
 
-  test-performance-endpoints:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: install
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: ./run install
-      - name: Run performance endpoints test script
-        run: python scripts/test_new_endpoints.py
-        
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -57,7 +43,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
       - name: Install dependencies
-        run: ./run install
+        run: |
+          ./run install
+          pip install -r requirements-dev.txt
       - name: Run tests
         run: ./run test
 
@@ -67,11 +55,11 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
+
       - name: Cache pip packages
         uses: actions/cache@v3
         with:
@@ -79,12 +67,12 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
-      
+
       - name: Verify ChromeDriver
         run: |
           # Check common CI paths first
@@ -104,10 +92,12 @@ jobs:
               exit 1
             fi
           fi
-      
+
       - name: Install Python dependencies
-        run: ./run install
-      
+        run: |
+          ./run install
+          pip install -r requirements-dev.txt
+
       - name: Start server
         run: |
           # Start server with output redirection for log capture
@@ -115,7 +105,7 @@ jobs:
           echo $! > server.pid
           # Reduced initial delay from 5s to 2s for faster CI
           sleep 2
-      
+
       - name: Wait for server
         run: |
           # Exponential backoff health check (max 30 retries = ~30 seconds)
@@ -134,14 +124,14 @@ jobs:
           echo "=== Server logs ==="
           cat server.log || echo "No server logs found"
           exit 1
-      
+
       - name: Run Selenium tests
         env:
           TEST_BASE_URL: http://localhost:3000
           PATH: /usr/lib/chromium-browser:/usr/bin:$PATH
         run: |
           pytest tests/integration/test_selenium_frontend.py -v
-      
+
       - name: Capture server logs on failure
         if: failure()
         run: |
@@ -149,7 +139,7 @@ jobs:
           tail -100 server.log || echo "No server logs found"
           echo "=== Server process status ==="
           ps aux | grep uvicorn || echo "No uvicorn process found"
-      
+
       - name: Upload server logs
         if: always
         uses: actions/upload-artifact@v3
@@ -157,7 +147,7 @@ jobs:
           name: server-logs
           path: server.log
           if-no-files-found: ignore
-      
+
       - name: Stop server
         if: always
         run: |

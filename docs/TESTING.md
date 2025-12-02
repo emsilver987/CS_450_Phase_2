@@ -5,6 +5,7 @@ This guide covers how to run tests locally, set up the testing environment, and 
 ## Overview
 
 The test suite includes:
+
 - **Unit tests**: Fast, isolated tests in `tests/unit/`
 - **Integration tests**: Tests that require a running server, including Selenium frontend tests in `tests/integration/`
 
@@ -49,12 +50,20 @@ pytest -m "not integration"
 
 ### Prerequisites
 
-1. **Python dependencies**: Already in `requirements.txt`
-   - `selenium`
-   - `pytest`
-   - `pytest-asyncio`
+1. **Python dependencies**: Install test dependencies from `requirements-dev.txt`
 
-2. **ChromeDriver**: Must be installed separately
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+   This includes:
+   - `selenium>=4.38.0` - Browser automation framework
+   - `webdriver-manager>=4.0.0` - Automatic driver management
+   - `pytest` - Testing framework
+   - `pytest-asyncio` - Async test support
+   - `httpx` - HTTP client for testing
+
+2. **ChromeDriver**: Must be installed separately (see below)
 
 ### ChromeDriver Installation
 
@@ -103,20 +112,22 @@ pytest tests/integration/test_selenium_frontend.py::test_chromedriver_available 
 ### Running Selenium Tests Locally
 
 1. **Start the server**:
+
    ```bash
    # Set environment variables if needed
    export TEST_BASE_URL=http://localhost:3000
    export ENABLE_AUTH=false  # Or true if testing auth
-   
+
    # Start server
    uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000
    ```
 
 2. **In another terminal, run tests**:
+
    ```bash
    # Set base URL if different from default
    export TEST_BASE_URL=http://localhost:3000
-   
+
    # Run Selenium tests
    pytest tests/integration/test_selenium_frontend.py -v
    ```
@@ -132,7 +143,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 
 1. **install**: Installs dependencies (with pip caching)
 2. **test**: Runs unit tests
-3. **selenium-test**: 
+3. **selenium-test**:
    - Installs system dependencies (chromium-browser, chromium-chromedriver)
    - Starts server in background
    - Waits for server health check
@@ -153,6 +164,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 **Error**: `chromedriver not found in PATH or common locations`
 
 **Solutions**:
+
 1. Install ChromeDriver (see installation instructions above)
 2. Add ChromeDriver to PATH
 3. Verify installation: `chromedriver --version`
@@ -163,6 +175,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 **Error**: `Server at http://localhost:3000 is not running`
 
 **Solutions**:
+
 1. Start the server: `uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000`
 2. Check if port 3000 is already in use: `lsof -i :3000`
 3. Verify health endpoint: `curl http://localhost:3000/health`
@@ -173,6 +186,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 **Error**: `TimeoutException` or tests hang
 
 **Solutions**:
+
 1. Check server logs for errors
 2. Verify server is responding: `curl http://localhost:3000/health`
 3. Increase timeout in `tests/constants.py` (not recommended for CI)
@@ -183,6 +197,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 **Error**: `Address already in use` when starting server
 
 **Solutions**:
+
 1. Find and kill process using port 3000:
    ```bash
    lsof -ti:3000 | xargs kill -9
@@ -210,6 +225,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs tests in three jobs:
 ### Viewing Server Logs in CI
 
 When tests fail in CI:
+
 1. Check the "Capture server logs on failure" step output
 2. Download the "server-logs" artifact
 3. Review logs for errors or warnings
@@ -244,16 +260,101 @@ When tests fail in CI:
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TEST_BASE_URL` | `http://localhost:3000` | Base URL for integration tests |
-| `ENABLE_AUTH` | `false` | Enable JWT authentication middleware |
-| `JWT_SECRET` | (none) | JWT secret key (enables auth if set) |
-| `CI` | (none) | Set to `true` in CI environment |
+| Variable        | Default                 | Description                          |
+| --------------- | ----------------------- | ------------------------------------ |
+| `TEST_BASE_URL` | `http://localhost:3000` | Base URL for integration tests       |
+| `ENABLE_AUTH`   | `false`                 | Enable JWT authentication middleware |
+| `JWT_SECRET`    | (none)                  | JWT secret key (enables auth if set) |
+| `CI`            | (none)                  | Set to `true` in CI environment      |
+
+## Integration Test Documentation
+
+### Running Integration Tests
+
+Integration tests verify the system end-to-end, including:
+
+- Frontend UI functionality (Selenium tests)
+- API endpoint behavior
+- Database interactions
+- File upload/download workflows
+
+#### Prerequisites
+
+1. **Install test dependencies**:
+
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+2. **Start the server**:
+
+   ```bash
+   uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000
+   ```
+
+3. **Run integration tests**:
+
+   ```bash
+   # All integration tests
+   pytest tests/integration/ -v
+
+   # Only Selenium frontend tests
+   pytest tests/integration/test_selenium_frontend.py -v -m selenium
+
+   # Specific test file
+   pytest tests/integration/test_directory.py -v
+   ```
+
+### Test Markers
+
+Tests use pytest markers for organization:
+
+- `@pytest.mark.selenium` - Selenium browser tests
+- `@pytest.mark.integration` - Integration tests requiring server
+- `@pytest.mark.skipif` - Conditional test skipping
+
+Example:
+
+```python
+@pytest.mark.selenium
+def test_home_page_loads(driver, base_url):
+    driver.get(f"{base_url}/")
+    assert "ACME" in driver.title
+```
+
+### Integration Test Structure
+
+```
+tests/integration/
+├── test_selenium_frontend.py    # Frontend UI tests
+├── test_directory.py             # Directory page tests
+├── test_upload.py               # Upload functionality tests
+└── test_package_system.py       # Package management tests
+```
+
+### Best Practices for Integration Tests
+
+1. **Use WebDriverWait**: Always wait for elements instead of using `time.sleep()`
+
+   ```python
+   from selenium.webdriver.support.ui import WebDriverWait
+   from selenium.webdriver.support import expected_conditions as EC
+
+   element = WebDriverWait(driver, 10).until(
+       EC.presence_of_element_located((By.ID, "my-element"))
+   )
+   ```
+
+2. **Check server health**: Tests automatically verify server is running before execution
+
+3. **Clean up resources**: Tests should clean up any created data or resources
+
+4. **Use fixtures**: Leverage pytest fixtures for common setup (driver, base_url, etc.)
+
+5. **Skip gracefully**: Use `pytest.skip()` when dependencies are missing
 
 ## Additional Resources
 
 - [Selenium Python Documentation](https://selenium-python.readthedocs.io/)
 - [Pytest Documentation](https://docs.pytest.org/)
 - [ChromeDriver Downloads](https://chromedriver.chromium.org/downloads)
-

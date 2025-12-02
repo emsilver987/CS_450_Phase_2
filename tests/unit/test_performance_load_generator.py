@@ -6,7 +6,7 @@ import pytest
 import asyncio
 import time
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import the load generator once it's implemented
 from src.services.performance.load_generator import LoadGenerator, Metric, calculate_latency
@@ -23,7 +23,7 @@ class TestLoadGeneratorMetrics:
             request_latency_ms=100.5,
             bytes_transferred=1024,
             status_code=200,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         assert metric.run_id == "test-run-123"
         assert metric.client_id == 1
@@ -46,7 +46,7 @@ class TestLoadGeneratorMetrics:
             request_latency_ms=100.5,
             bytes_transferred=1024,
             status_code=200,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         metric_dict = metric.to_dict()
         assert isinstance(metric_dict, dict)

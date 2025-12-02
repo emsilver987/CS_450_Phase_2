@@ -1,0 +1,19 @@
+# Development and testing dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing framework
+pytest
+pytest-cov
+pytest-asyncio
+coverage>=7.0
+
+# Integration testing (Selenium)
+selenium>=4.38.0
+webdriver-manager>=4.0.0
+
+# HTTP client for testing
+httpx
+
+# Code quality
+black
+
