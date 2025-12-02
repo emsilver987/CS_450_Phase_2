@@ -5598,16 +5598,19 @@ async def upload_artifact_model_to_rds(
         # Import RDS service and upload directly
         from .services.rds_service import upload_model as rds_upload_model
         
-        logger.info(f"[RDS UPLOAD] Request: id={id}, version={version}, path_prefix={path_prefix}, size={len(file_content)} bytes")
+        logger.info(f"[RDS UPLOAD] Request: id={id}, version={version}, path_prefix={path_prefix}, use_performance_path={use_performance_path}, size={len(file_content)} bytes")
         
         result = rds_upload_model(file_content, id, version, use_performance_path=use_performance_path)
+        
+        logger.info(f"[RDS UPLOAD] Success: id={id}, version={version}, path_prefix={path_prefix}, stored_path={result.get('path', 'unknown')}")
         
         return {
             "message": "Upload successful",
             "details": result,
             "model_id": id,
             "version": version,
-            "path_prefix": path_prefix
+            "path_prefix": path_prefix,
+            "use_performance_path": use_performance_path
         }
     except HTTPException:
         raise
@@ -5716,6 +5719,10 @@ async def download_artifact_model_from_rds(
         from .services.rds_service import download_model as rds_download_model
         
         logger.info(f"[RDS DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, use_performance_path={use_performance_path}")
+        
+        # Log the exact query parameters we're using
+        expected_path = "performance" if use_performance_path else "models"
+        logger.info(f"[RDS DOWNLOAD] Querying RDS: model_id='{id}', version='{version}', component='{component}', path_prefix='{expected_path}'")
         
         file_content = rds_download_model(id, version, component, use_performance_path=use_performance_path)
         

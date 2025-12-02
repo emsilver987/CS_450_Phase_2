@@ -625,9 +625,124 @@ def get_api_base_url(args: argparse.Namespace) -> str:
         return DEFAULT_API_URL
 
 
+def ingest_model_rds_direct(model_id: str, zip_content: bytes, version: str = "main", skip_missing: bool = True, skip_existing: bool = True) -> tuple:
+    """
+    Ingest a single model into RDS via direct database connection.
+    Used for large files (>10MB) that exceed API Gateway payload limit.
+    
+    Returns:
+        (success: bool, status: Optional[str]) where status can be:
+        - None: success
+        - "already_exists": model already exists in RDS (skipped)
+        - "not_found": model doesn't exist on HuggingFace (404)
+        - "error": other error occurred
+        - "no_credentials": RDS credentials not available
+    """
+    # Check if RDS credentials are available
+    import os
+    rds_endpoint = os.getenv("RDS_ENDPOINT", "")
+    rds_password = os.getenv("RDS_PASSWORD", "")
+    
+    if not rds_endpoint or not rds_password:
+        error_msg = "RDS credentials not available locally. Cannot use direct RDS access for large files."
+        print(f"✗ {error_msg}")
+        print(f"  Set RDS_ENDPOINT and RDS_PASSWORD environment variables to enable direct RDS access.")
+        return (False, "no_credentials")
+    
+    # Quick check if model exists on HuggingFace (avoid unnecessary work)
+    if skip_missing:
+        if not check_model_exists_on_hf(model_id):
+            print(f"⊘ Model not found on HuggingFace: {model_id} (skipping)")
+            return (False, "not_found")
+    
+    try:
+        # Import RDS service components directly
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from src.services.rds_service import get_connection_pool, model_exists as rds_model_exists
+        import psycopg2
+        from fastapi import HTTPException
+        
+        # Sanitize model_id for RDS (same as API)
+        sanitized_model_id = (
+            model_id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Check if model already exists in RDS
+        if skip_existing:
+            try:
+                if rds_model_exists(sanitized_model_id, version, "full", use_performance_path=True):
+                    print(f"  ⊘ Model already exists in RDS: {model_id} (skipping)")
+                    return (True, "already_exists")
+            except HTTPException as e:
+                # If RDS service raises HTTPException, convert to regular exception
+                if "503" in str(e.status_code) or "configuration missing" in str(e.detail).lower():
+                    raise Exception(f"RDS configuration error: {e.detail}")
+                raise
+        
+        # Upload directly to RDS using performance path
+        path_prefix = "performance"
+        component = "full"
+        
+        pool = get_connection_pool()
+        conn = pool.getconn()
+        cursor = conn.cursor()
+        
+        try:
+            # Insert or update model file
+            cursor.execute("""
+                INSERT INTO model_files (model_id, version, component, path_prefix, file_data, file_size)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (model_id, version, component, path_prefix)
+                DO UPDATE SET
+                    file_data = EXCLUDED.file_data,
+                    file_size = EXCLUDED.file_size,
+                    created_at = CURRENT_TIMESTAMP
+            """, (sanitized_model_id, version, component, path_prefix, psycopg2.Binary(zip_content), len(zip_content)))
+            
+            conn.commit()
+            print(f"✓ Successfully ingested to RDS: {model_id} ({len(zip_content) / (1024*1024):.2f} MB)")
+            return (True, None)
+        except Exception as db_error:
+            conn.rollback()
+            raise db_error
+        finally:
+            pool.putconn(conn)
+        
+    except HTTPException as e:
+        # Convert FastAPI HTTPException to regular exception for script context
+        error_msg = f"{e.status_code}: {e.detail}"
+        if "not found" in error_msg.lower() or "404" in error_msg:
+            print(f"⊘ Model not found: {model_id} (skipping)")
+            return (False, "not_found")
+        else:
+            print(f"✗ Failed: {error_msg}")
+            return (False, "error")
+    except Exception as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower() or "404" in error_msg:
+            print(f"⊘ Model not found: {model_id} (skipping)")
+            return (False, "not_found")
+        else:
+            print(f"✗ Failed: {error_msg}")
+            return (False, "error")
+
+
 def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optional[str], zip_content: bytes, version: str = "main", retry: int = 0, skip_missing: bool = True) -> tuple:
     """
     Ingest a single model into RDS via API endpoint.
+    For files >10MB, falls back to direct RDS access to bypass API Gateway limit.
     
     Returns:
         (success: bool, status: Optional[str]) where status can be:
@@ -635,6 +750,20 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
         - "not_found": model doesn't exist on HuggingFace (404)
         - "error": other error occurred
     """
+    # API Gateway has a 10MB payload limit
+    # For files larger than 10MB, try direct RDS access if credentials are available
+    MAX_API_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+    
+    if len(zip_content) > MAX_API_PAYLOAD_SIZE:
+        print(f"  ⚠ File size ({len(zip_content) / (1024*1024):.2f} MB) exceeds API Gateway 10MB limit")
+        # Try direct RDS access first (if credentials available)
+        result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=skip_missing)
+        if result[0] or result[1] != "no_credentials":
+            # Success or error other than missing credentials
+            return result
+        # If credentials not available, still try API (will fail with 413, but we handle it)
+        print(f"  Falling back to API endpoint (will fail with 413, but attempting anyway)...")
+    
     # Quick check if model exists on HuggingFace (avoid unnecessary API calls)
     if skip_missing:
         if not check_model_exists_on_hf(model_id):
@@ -677,6 +806,16 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
         elif response.status_code == 409:
             print(f"⊘ Already exists in RDS: {model_id} (skipping)")
             return (True, None)  # Consider existing models as success
+        elif response.status_code == 413:
+            # Payload too large - try direct RDS access
+            print(f"  ⚠ HTTP 413: Payload too large for API Gateway (file size: {len(zip_content) / (1024*1024):.2f} MB)")
+            print(f"  Attempting direct RDS access...")
+            result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=False)
+            if result[1] == "no_credentials":
+                print(f"  ✗ Cannot upload large file: RDS credentials not available locally.")
+                print(f"  To upload files >10MB, set RDS_ENDPOINT and RDS_PASSWORD environment variables.")
+                return (False, "error")
+            return result
         elif response.status_code == 404:
             error_text = response.text[:200]
             if "not found on HuggingFace" in error_text or "not found" in error_text.lower():
@@ -700,7 +839,18 @@ def ingest_model_rds_via_api(api_base_url: str, model_id: str, auth_token: Optio
             return ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, version, retry + 1, skip_missing=False)
         return (False, "error")
     except Exception as e:
-        print(f"✗ Error ingesting {model_id}: {str(e)}")
+        error_str = str(e)
+        # Check if it's a payload size error
+        if "413" in error_str or "content length exceeded" in error_str.lower():
+            print(f"  ⚠ Payload too large for API Gateway (file size: {len(zip_content) / (1024*1024):.2f} MB)")
+            print(f"  Attempting direct RDS access...")
+            result = ingest_model_rds_direct(model_id, zip_content, version, skip_missing=False)
+            if result[1] == "no_credentials":
+                print(f"  ✗ Cannot upload large file: RDS credentials not available locally.")
+                print(f"  To upload files >10MB, set RDS_ENDPOINT and RDS_PASSWORD environment variables.")
+                return (False, "error")
+            return result
+        print(f"✗ Error ingesting {model_id}: {error_str}")
         if retry < MAX_RETRIES:
             time.sleep(RETRY_DELAY)
             return ingest_model_rds_via_api(api_base_url, model_id, auth_token, zip_content, version, retry + 1, skip_missing=False)
