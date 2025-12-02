@@ -126,7 +126,12 @@ def base_url():
         response = requests.get(f"{base}/health", timeout=2)
         if response.status_code != 200:
             pytest.skip(f"Server at {base} is not responding correctly")
-    except (requests.exceptions.RequestException, requests.exceptions.Timeout):
+    except requests.exceptions.Timeout:
+        pytest.skip(
+            f"Server at {base} is not running. "
+            f"Start the server with: python -m src.index"
+        )
+    except requests.exceptions.RequestException:
         pytest.skip(
             f"Server at {base} is not running. "
             f"Start the server with: python -m src.index"
