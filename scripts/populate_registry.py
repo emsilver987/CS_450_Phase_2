@@ -708,16 +708,115 @@ def main():
     is_local = args.local
     is_prod = args.prod
     
+    # Production mode: Use API endpoint (env vars are set in ECS, no manual setup needed)
+    if is_prod:
+        api_base_url = DEFAULT_API_URL
+        print("=" * 80)
+        print("ACME Model Registry Population Script")
+        print("PRODUCTION MODE (using production API endpoint)")
+        print("=" * 80)
+        print(f"API Base URL: {api_base_url}")
+        print()
+        print("Note: Production API has storage backend configured via Terraform.")
+        print("      No manual environment variable setup required.")
+        print()
+        
+        # Get authentication token
+        print("Authenticating...")
+        auth_token = get_authentication_token(api_base_url)
+        if auth_token:
+            print("✓ Authentication successful")
+        else:
+            print("⊘ No authentication token (some endpoints may fail)")
+        print()
+        
+        # Get hardcoded list of 500 models
+        print("Loading hardcoded list of 500 HuggingFace models...")
+        models = get_hardcoded_models(count=500)
+        print(f"✓ Loaded {len(models)} models to ingest")
+        
+        # Ensure REQUIRED_MODEL is first
+        if REQUIRED_MODEL in models:
+            models.remove(REQUIRED_MODEL)
+        models.insert(0, REQUIRED_MODEL)
+        models = models[:500]  # Ensure exactly 500
+        
+        print(f"Will ingest {len(models)} models (starting with {REQUIRED_MODEL})")
+        print()
+        
+        # Start ingesting models
+        print("Starting model ingestion via production API...")
+        print("=" * 80)
+        
+        successful = 0
+        failed = 0
+        not_found = 0
+        not_found_models = []
+        
+        for i, model_id in enumerate(models, 1):
+            print(f"[{i}/{len(models)}] Ingesting: {model_id}")
+            
+            result, status = ingest_model(api_base_url, model_id, auth_token, skip_missing=True)
+            if result:
+                successful += 1
+            elif status == "not_found":
+                not_found += 1
+                not_found_models.append(model_id)
+            else:
+                failed += 1
+            
+            # Small delay to avoid rate limiting
+            if i < len(models):
+                time.sleep(0.5)
+            
+            # Progress update every 50 models
+            if i % 50 == 0:
+                print()
+                print(f"Progress: {i}/{len(models)} ({successful} successful, {failed} failed, {not_found} not found)")
+                print()
+        
+        # Final summary
+        print()
+        print("=" * 80)
+        print("Ingestion Summary")
+        print("=" * 80)
+        print(f"Total models processed: {len(models)}")
+        print(f"  - Successfully ingested: {successful}")
+        print(f"  - Not found on HuggingFace: {not_found}")
+        print(f"  - Failed (other errors): {failed}")
+        print(f"Total successful: {successful}")
+        print()
+        
+        # Report models that don't exist
+        if not_found_models:
+            print(f"⚠ {len(not_found_models)} models not found on HuggingFace:")
+            print("   These models should be removed from the list:")
+            for model in not_found_models[:20]:  # Show first 20
+                print(f"     - {model}")
+            if len(not_found_models) > 20:
+                print(f"     ... and {len(not_found_models) - 20} more")
+            print()
+        
+        # Verify Tiny-LLM was in the list
+        if REQUIRED_MODEL in models:
+            print(f"✓ Required model '{REQUIRED_MODEL}' was included in ingestion list")
+        
+        if successful >= 500:
+            print("✓ Registry should have 500+ models")
+            return 0
+        else:
+            print(f"⚠ Successfully ingested {successful} models (target: 500)")
+            return 1 if failed > successful else 0
+    
+    # Local mode: Direct storage writes (requires local env vars)
     # RDS mode: direct RDS writes (bypasses API)
     if use_rds:
-        env_name = "local" if is_local else "production"
-        print(f"Note: --rds mode bypasses API, using {env_name} environment configuration")
+        print(f"Note: --rds --local mode bypasses API, requires local RDS environment variables")
         return main_rds_mode()
     
     # S3 mode: direct S3/DynamoDB writes (bypasses API)
     if use_s3:
-        env_name = "local" if is_local else "production"
-        print(f"Note: --s3 mode bypasses API, using {env_name} environment configuration")
+        print(f"Note: --s3 --local mode bypasses API, uses local AWS credentials")
         return main_performance_mode()
     
     # This should not be reached due to required=True in argument groups
@@ -858,9 +957,11 @@ def main_rds_mode():
     
     if not rds_endpoint or not rds_password:
         print("✗ RDS configuration missing!")
+        print()
         print("  Required environment variables:")
         print("    - RDS_ENDPOINT (RDS hostname)")
         print("    - RDS_PASSWORD (RDS password)")
+        print()
         print("  Optional:")
         print("    - RDS_DATABASE (default: acme)")
         print("    - RDS_USERNAME (default: acme)")

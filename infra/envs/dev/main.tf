@@ -69,11 +69,11 @@ module "ecs" {
   kms_key_arn             = module.monitoring.kms_key_arn
   github_token_secret_arn = module.monitoring.github_token_secret_arn
   jwt_secret_arn          = module.monitoring.jwt_secret_arn
-  storage_backend         = "s3"  # Default to S3, can be changed to "rds"
+  storage_backend         = "s3" # Default to S3, can be changed to "rds"
   rds_endpoint            = module.rds.rds_address
   rds_database            = module.rds.rds_database
   rds_username            = module.rds.rds_username
-  rds_password            = "acme_rds_password_123"  # Must match RDS module password
+  rds_password            = "acme_rds_password_123" # Must match RDS module password
 }
 
 module "api_gateway" {
@@ -100,12 +100,12 @@ module "lambda" {
 
 # RDS module for PostgreSQL storage backend
 module "rds" {
-  source              = "../../modules/rds"
-  aws_region          = var.aws_region
-  vpc_id              = module.ecs.vpc_id
-  subnet_ids          = module.ecs.subnet_ids
-  security_group_ids  = [module.ecs.security_group_id]
-  db_password         = "acme_rds_password_123" # Simple password for testing
+  source             = "../../modules/rds"
+  aws_region         = var.aws_region
+  vpc_id             = module.ecs.vpc_id
+  subnet_ids         = module.ecs.subnet_ids
+  security_group_ids = [module.ecs.security_group_id]
+  db_password        = "acme_rds_password_123" # Simple password for testing
 }
 
 output "artifacts_bucket" { value = local.artifacts_bucket }
