@@ -1,0 +1,101 @@
+---
+alwaysApply: true
+---
+
+Here is a **clean, ready-to-commit `RULES.md`** file you can drop directly into your repo.
+
+---
+
+# **RULES.md**
+
+## **Terraform / AWS / CD Pipeline Rules**
+
+These rules exist because Terraform, AWS infrastructure, and the CD pipeline are extremely state-sensitive.
+Unapproved changes can **break deployments**, **orphan resources**, **increase cost**, and **cause autograder failure**.
+
+---
+
+## **🚫 1. Do NOT Modify Terraform / AWS / CD Pipeline (Unless Absolutely Required)**
+
+You may **NOT** modify any of the following unless it is _absolutely necessary_ to fix a breaking issue:
+
+- Terraform files (`terraform/`)
+- AWS Console resources
+- CD pipeline configuration (`.github/workflows/`)
+- Backend or API Gateway configuration
+- IAM roles, ECS tasks, S3 buckets, DynamoDB tables
+- Any resource defined or managed by Terraform
+
+---
+
+## **🛑 2. Manual AWS Console Changes Are Forbidden**
+
+Do **NOT** click or change anything in the AWS console unless:
+
+- You were explicitly instructed to do so **by the team lead**, AND
+- The action is required to fix a critical production issue.
+
+Manual console changes create **state drift** and resources that **Terraform cannot track or destroy**.
+
+---
+
+## **⚠️ 3. When Changes ARE Allowed**
+
+You may modify Terraform / AWS / CD only when:
+
+1. A deployment is completely blocked and there is no workaround
+2. A critical security or compliance issue requires a fix
+3. The team lead (or designated owner) approves the change
+
+If none of these apply → **Do not touch it.**
+
+---
+
+## **🔄 4. Mandatory Workflow for Any Approved Change**
+
+If a Terraform / AWS / CD change is approved:
+
+1. **Pull latest `main`**
+2. Create a branch:
+
+   ```
+   terraform/<fix-name>
+   ```
+
+3. Make the minimal changes required
+4. Push and open a PR
+5. Include a clear explanation of **why this change was unavoidable**
+6. Wait for review and approval before merging
+
+---
+
+## **🚨 5. Autograder Stability Rule**
+
+The current backend and API Gateway links — stored in the `deploy` file and used by the autograder — must not be changed or overwritten without explicit approval.
+
+Autograder last run: **274/318**
+
+Any unapproved change that reduces this score is subject to **immediate rollback**.
+
+---
+
+## **📌 6. Consequences for Breaking These Rules**
+
+Violating these rules causes serious project instability.
+If unapproved changes are made:
+
+- The change will be **reverted immediately**
+- The person must repair state drift they caused
+- Merge privileges may be temporarily suspended
+- Team work may be blocked until fixed
+
+---
+
+## **📘 7. Summary (Commit-Message Ready)**
+
+- Don’t touch Terraform / AWS / CD unless absolutely required
+- Don’t modify AWS Console manually
+- Always pull `main` first
+- PR + approval required for any infra changes
+- Changing backend or API Gateway without approval = violation
+- Breaking infra = you fix the drift
