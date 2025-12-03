@@ -5,6 +5,7 @@ import os
 import pathlib
 import socket
 import time
+import uuid
 import zipfile
 
 import pytest
@@ -141,17 +142,16 @@ def base_url():
 
 
 @pytest.fixture
-def sample_upload_zip(tmp_path):
+def sample_upload_zip():
     """
     Create a dummy zip file used by Selenium upload tests.
     Returns the absolute file path as a string (for Selenium).
 
-    Creates the file in tmp_path and ensures it's accessible to Chrome/Selenium.
+    Uses /tmp directly to ensure ChromeDriver can access the file in CI environments.
     """
-    # Ensure parent directory exists
-    tmp_path.mkdir(parents=True, exist_ok=True)
-
-    zip_path = tmp_path / "test_package.zip"
+    # Create file in /tmp with unique name to avoid conflicts
+    unique_id = uuid.uuid4().hex[:8]
+    zip_path = f"/tmp/test_package_{unique_id}.zip"
 
     # Create a valid zip file with content
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -159,72 +159,54 @@ def sample_upload_zip(tmp_path):
         zf.writestr("dummy.txt", "content for upload test")
 
     # Verify the zip file was created and is valid
-    assert zip_path.exists(), f"Zip file should exist after creation at {zip_path}"
-    assert zip_path.is_file(), f"Zip file should be a file, not a directory: {zip_path}"
+    assert os.path.exists(zip_path), (
+        f"Zip file should exist after creation at {zip_path}"
+    )
+    assert os.path.isfile(zip_path), (
+        f"Zip file should be a file, not a directory: {zip_path}"
+    )
 
     # Verify it's a valid zip file by trying to read it
     with zipfile.ZipFile(zip_path, "r") as zf:
         assert "dummy.txt" in zf.namelist(), "Zip file should contain dummy.txt"
 
-    # Resolve to absolute path - this is critical for Selenium
-    absolute_path = zip_path.resolve()
-    assert absolute_path.exists(), f"Absolute path should exist: {absolute_path}"
-    assert absolute_path.is_file(), f"Absolute path should be a file: {absolute_path}"
-
     # Ensure file is readable by all (for Chrome/Selenium access)
-    # Also ensure parent directory is accessible
     try:
-        os.chmod(absolute_path, 0o644)
-        # Ensure parent directory is accessible
-        parent_dir = absolute_path.parent
-        if parent_dir.exists():
-            os.chmod(parent_dir, 0o755)
+        os.chmod(zip_path, 0o644)
     except Exception:
         # If chmod fails, continue - permissions might already be fine
         pass
 
-    # Flush any pending writes and ensure file is fully written
-    try:
-        absolute_path.resolve().stat()
-    except Exception as e:
-        raise AssertionError(
-            f"File must be fully written and accessible: {absolute_path}, error: {e}"
-        )
-
-    # Return as string for Selenium - must be absolute path
-    # Use the resolved absolute path directly
-    absolute_path_str = str(absolute_path)
-
-    # Final verification that the path string resolves to an existing file
-    verify_path = pathlib.Path(absolute_path_str).resolve()
-    assert verify_path.exists(), (
-        f"Path string must resolve to existing file: {absolute_path_str}"
+    # Verify file is accessible
+    absolute_path = os.path.abspath(zip_path)
+    assert os.path.exists(absolute_path), (
+        f"Absolute path should exist: {absolute_path}"
     )
-    assert verify_path.samefile(absolute_path), (
-        f"Path string must resolve to same file: {absolute_path_str}"
+    assert os.path.isfile(absolute_path), (
+        f"Absolute path should be a file: {absolute_path}"
     )
-
-    # CRITICAL: Verify file still exists and is accessible before returning
-    # This helps catch cleanup issues early and ensures file system sync
-    if not verify_path.exists():
-        raise AssertionError(
-            f"File disappeared before fixture returned: {absolute_path_str}"
-        )
-    if not os.access(absolute_path_str, os.R_OK):
-        raise AssertionError(
-            f"File is not readable when fixture returns: {absolute_path_str}"
-        )
+    assert os.access(absolute_path, os.R_OK), (
+        f"File should be readable: {absolute_path}"
+    )
 
     # Verify the path string ends with .zip extension
-    if not absolute_path_str.endswith('.zip'):
-        raise AssertionError(
-            f"File path must end with .zip extension: {absolute_path_str}"
-        )
+    assert absolute_path.endswith('.zip'), (
+        f"File path must end with .zip extension: {absolute_path}"
+    )
 
     # Small delay to ensure file system sync (especially important in CI)
     time.sleep(0.1)
 
-    return absolute_path_str
+    # Yield the path and clean up after test
+    yield absolute_path
+
+    # Cleanup: remove the file after test completes
+    try:
+        if os.path.exists(absolute_path):
+            os.remove(absolute_path)
+    except Exception as e:
+        # Log but don't fail - cleanup errors shouldn't break tests
+        print(f"Warning: Error during file cleanup: {e}")
 
 
 def test_chromedriver_available():
