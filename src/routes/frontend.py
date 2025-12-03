@@ -1032,20 +1032,32 @@ def register_routes(app: FastAPI):
                     else:
                         github_license = extract_github_license(github_url)
                         if github_license is None:
-                            error_msg = f"GitHub license not found for {github_url}. This may be due to: (1) Repository has no license file, (2) GitHub API rate limiting, or (3) Network connectivity issues. Please try again later or use a different repository."
+                            error_msg = f"Unable to fetch license information from GitHub repository {github_url}. This may be due to: (1) GitHub API rate limiting (try again in a few minutes), (2) Network connectivity issues from the server, or (3) The repository may not have a license file. Please try again later or use a different repository."
                             llm_enhanced = False
                             # Try to enhance error message with LLM
                             try:
                                 from ..services.llm_service import generate_helpful_error_message, is_llm_available
                                 if is_llm_available():
                                     llm_message = generate_helpful_error_message(
-                                        error_type="GITHUB_LICENSE_NOT_FOUND",
+                                        error_type="GITHUB_LICENSE_EXTRACTION_FAILED",
                                         error_context={
                                             "github_url": github_url,
                                             "model_id": model_id,
                                             "model_license": model_license,
+                                            "issue": "Failed to fetch license from GitHub API. This is NOT a license compatibility issue - the license information could not be retrieved from GitHub.",
+                                            "possible_causes": [
+                                                "GitHub API rate limiting (unauthenticated requests limited to 60/hour)",
+                                                "Network connectivity issues from the server",
+                                                "Repository may not have a license file",
+                                                "GitHub API may be temporarily unavailable"
+                                            ],
+                                            "suggestions": [
+                                                "Wait a few minutes and try again",
+                                                "Use a different GitHub repository",
+                                                "Check if the repository has a LICENSE file"
+                                            ]
                                         },
-                                        user_action="Checking license compatibility"
+                                        user_action="Attempting to check license compatibility but unable to fetch GitHub repository license"
                                     )
                                     if llm_message:
                                         error_msg = llm_message

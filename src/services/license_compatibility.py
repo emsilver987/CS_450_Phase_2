@@ -218,8 +218,12 @@ def extract_github_license(github_url: str) -> Optional[str]:
         
         # Check if we got any data (not just empty dict)
         if not meta.get("name") and not meta.get("full_name"):
-            logger.warning(f"GitHub metadata appears empty for {github_url}. API call may have failed.")
+            logger.warning(f"GitHub metadata appears empty for {github_url}. API call may have failed. Meta keys: {list(meta.keys()) if meta else 'None'}")
             return None
+        
+        # Log if we got metadata but no license field
+        if meta.get("name") or meta.get("full_name"):
+            logger.debug(f"Successfully fetched GitHub metadata for {github_url}: name={meta.get('name')}, full_name={meta.get('full_name')}")
         
         license_spdx = meta.get("license", "")
         if license_spdx:
