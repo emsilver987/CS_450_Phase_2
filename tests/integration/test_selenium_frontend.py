@@ -3,6 +3,7 @@ Selenium tests for frontend
 """
 import os
 import pathlib
+import shutil
 import socket
 import time
 import uuid
@@ -147,38 +148,48 @@ def sample_upload_zip():
     Create a dummy zip file used by Selenium upload tests.
     Returns the absolute file path as a string (for Selenium).
 
-    Uses /tmp directly to ensure ChromeDriver can access the file in CI environments.
+    In CI environments, Chrome/Selenium may not access files in /tmp due to
+    filesystem isolation. This fixture creates the file in the GitHub workspace
+    directory which is accessible to Chrome.
     """
-    # Create file in /tmp with unique name to avoid conflicts
+    # Create file in /tmp first with unique name to avoid conflicts
     unique_id = uuid.uuid4().hex[:8]
-    zip_path = f"/tmp/test_package_{unique_id}.zip"
+    temp_zip_path = f"/tmp/test_package_{unique_id}.zip"
 
     # Create a valid zip file with content
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # Add a simple file to the archive for upload testing
         zf.writestr("dummy.txt", "content for upload test")
 
     # Verify the zip file was created and is valid
-    assert os.path.exists(zip_path), (
-        f"Zip file should exist after creation at {zip_path}"
+    assert os.path.exists(temp_zip_path), (
+        f"Zip file should exist after creation at {temp_zip_path}"
     )
-    assert os.path.isfile(zip_path), (
-        f"Zip file should be a file, not a directory: {zip_path}"
+    assert os.path.isfile(temp_zip_path), (
+        f"Zip file should be a file, not a directory: {temp_zip_path}"
     )
 
     # Verify it's a valid zip file by trying to read it
-    with zipfile.ZipFile(zip_path, "r") as zf:
+    with zipfile.ZipFile(temp_zip_path, "r") as zf:
         assert "dummy.txt" in zf.namelist(), "Zip file should contain dummy.txt"
+
+    # In CI environments, copy file to workspace directory for Chrome access
+    # GitHub Actions sets GITHUB_WORKSPACE, fallback to current working directory
+    workspace_dir = os.getenv("GITHUB_WORKSPACE", os.getcwd())
+    workspace_zip_path = os.path.join(workspace_dir, f"test_package_{unique_id}.zip")
+
+    # Copy file to workspace directory
+    shutil.copy2(temp_zip_path, workspace_zip_path)
 
     # Ensure file is readable by all (for Chrome/Selenium access)
     try:
-        os.chmod(zip_path, 0o644)
+        os.chmod(workspace_zip_path, 0o644)
     except Exception:
         # If chmod fails, continue - permissions might already be fine
         pass
 
-    # Verify file is accessible
-    absolute_path = os.path.abspath(zip_path)
+    # Verify file is accessible at workspace location
+    absolute_path = os.path.abspath(workspace_zip_path)
     assert os.path.exists(absolute_path), (
         f"Absolute path should exist: {absolute_path}"
     )
@@ -197,13 +208,15 @@ def sample_upload_zip():
     # Small delay to ensure file system sync (especially important in CI)
     time.sleep(0.1)
 
-    # Yield the path and clean up after test
+    # Yield the workspace path and clean up after test
     yield absolute_path
 
-    # Cleanup: remove the file after test completes
+    # Cleanup: remove both files after test completes
     try:
         if os.path.exists(absolute_path):
             os.remove(absolute_path)
+        if os.path.exists(temp_zip_path):
+            os.remove(temp_zip_path)
     except Exception as e:
         # Log but don't fail - cleanup errors shouldn't break tests
         print(f"Warning: Error during file cleanup: {e}")
