@@ -734,6 +734,33 @@ def health():
     return {"ok": True}
 
 
+@app.get("/llm-status")
+def llm_status():
+    """Check if LLM service is available and working on the host"""
+    try:
+        from src.services.llm_service import is_llm_available, PURDUE_GENAI_API_KEY
+        
+        available = is_llm_available()
+        has_key = bool(PURDUE_GENAI_API_KEY)
+        key_length = len(PURDUE_GENAI_API_KEY) if PURDUE_GENAI_API_KEY else 0
+        
+        return {
+            "llm_available": available,
+            "api_key_configured": has_key,
+            "api_key_length": key_length,
+            "status": "ready" if available else "not_configured",
+            "message": "LLM service is ready and available" if available else "LLM API key not configured. Set GEN_AI_STUDIO_API_KEY environment variable."
+        }
+    except Exception as e:
+        return {
+            "llm_available": False,
+            "api_key_configured": False,
+            "status": "error",
+            "error": str(e),
+            "message": f"Error checking LLM status: {str(e)}"
+        }
+
+
 @app.post("/health/performance/workload")
 async def trigger_performance_workload(request: Request):
     """
