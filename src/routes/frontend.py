@@ -1032,9 +1032,23 @@ def register_routes(app: FastAPI):
                     else:
                         github_license = extract_github_license(github_url)
                         if github_license is None:
-                            error_msg = f"Unable to fetch license information from GitHub repository {github_url}. This may be due to: (1) GitHub API rate limiting (try again in a few minutes), (2) Network connectivity issues from the server, or (3) The repository may not have a license file. Please try again later or use a different repository."
+                            # Determine if it's an invalid repo vs other issues
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            
+                            # Check if the URL format is valid GitHub URL
+                            if not github_url or "github.com" not in github_url.lower():
+                                error_msg = f"Invalid GitHub repository URL: {github_url}. Please provide a valid GitHub repository URL (e.g., https://github.com/owner/repo)."
+                            else:
+                                # Try to extract owner/repo to check if it's a valid format
+                                parts = github_url.rstrip("/").split("/")
+                                if len(parts) < 5 or parts[2] != "github.com":
+                                    error_msg = f"Invalid GitHub repository URL format: {github_url}. Expected format: https://github.com/owner/repository"
+                                else:
+                                    error_msg = f"Unable to fetch license information from GitHub repository {github_url}. This may be due to: (1) Repository does not exist or is private, (2) Repository has no license file, (3) GitHub API rate limiting, or (4) Network connectivity issues. Please verify the repository URL and try again."
+                            
                             llm_enhanced = False
-                            # Try to enhance error message with LLM
+                            # Try to enhance error message with LLM (but don't let LLM errors override the main error)
                             try:
                                 from ..services.llm_service import generate_helpful_error_message, is_llm_available
                                 if is_llm_available():
@@ -1046,15 +1060,16 @@ def register_routes(app: FastAPI):
                                             "model_license": model_license,
                                             "issue": "Failed to fetch license from GitHub API. This is NOT a license compatibility issue - the license information could not be retrieved from GitHub.",
                                             "possible_causes": [
-                                                "GitHub API rate limiting (unauthenticated requests limited to 60/hour)",
-                                                "Network connectivity issues from the server",
-                                                "Repository may not have a license file",
-                                                "GitHub API may be temporarily unavailable"
+                                                "Repository does not exist or is private",
+                                                "Repository has no license file",
+                                                "GitHub API rate limiting",
+                                                "Network connectivity issues from the server"
                                             ],
                                             "suggestions": [
-                                                "Wait a few minutes and try again",
-                                                "Use a different GitHub repository",
-                                                "Check if the repository has a LICENSE file"
+                                                "Verify the repository URL is correct and the repository exists",
+                                                "Check if the repository has a LICENSE file",
+                                                "Wait a few minutes and try again if rate limited",
+                                                "Use a different GitHub repository"
                                             ]
                                         },
                                         user_action="Attempting to check license compatibility but unable to fetch GitHub repository license"
@@ -1062,8 +1077,11 @@ def register_routes(app: FastAPI):
                                     if llm_message:
                                         error_msg = llm_message
                                         llm_enhanced = True
-                            except Exception:
-                                pass  # Fall back to default message if LLM fails
+                            except Exception as llm_err:
+                                # Log LLM error but keep the original error message
+                                logger.debug(f"LLM error message enhancement failed (this is okay): {llm_err}")
+                                # Keep the original error_msg - don't let LLM failures override the main error
+                                pass
                             result = {"error": error_msg, "llm_enhanced": llm_enhanced}
                         else:
                             # Use case is always "fine-tune+inference" per requirements
