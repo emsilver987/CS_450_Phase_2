@@ -225,8 +225,36 @@ document.getElementById('licenseCheckForm').addEventListener('submit', async fun
       throw new Error(errorData.error || errorData.detail || 'Failed to check license compatibility');
     }
     
-    // Reload page to show result
-    window.location.href = `/license-check?id=${encodeURIComponent(modelId)}&github_url=${encodeURIComponent(githubUrl)}`;
+    // Get the HTML response and extract the main content
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const newContent = doc.querySelector('main');
+    const currentContent = document.querySelector('main');
+    
+    if (newContent && currentContent) {
+      // Update the form values
+      document.getElementById('model_id').value = modelId;
+      document.getElementById('github_url').value = githubUrl;
+      document.getElementById('use_case').value = useCase;
+      
+      // Replace the content section with the new result
+      currentContent.innerHTML = newContent.innerHTML;
+      
+      // Re-enable submit button
+      submitButton.disabled = false;
+      submitButton.removeAttribute('aria-busy');
+      submitButton.textContent = originalText;
+      
+      // Scroll to result
+      const resultCard = document.querySelector('.card[role="region"]');
+      if (resultCard) {
+        resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else {
+      // Fallback: reload the page with query params
+      window.location.href = `/license-check?id=${encodeURIComponent(modelId)}&github_url=${encodeURIComponent(githubUrl)}`;
+    }
   } catch (error) {
     // Show error in accessible way
     const errorDiv = document.createElement('div');
