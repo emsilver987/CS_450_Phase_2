@@ -49,7 +49,7 @@ class TestValidatorService:
         result = get_package_metadata("test-pkg", "1.0.0")
         assert result is None
 
-    @patch_module.object(validator_service_module, 's3', autospec=True)
+    @patch_module.object(validator_service_module, 's3')
     def test_get_validator_script_success(self, mock_s3):
         """Test getting validator script successfully"""
         from src.services.validator_service import get_validator_script
@@ -62,7 +62,7 @@ class TestValidatorService:
         assert result is not None
         assert "validate" in result
 
-    @patch_module.object(validator_service_module, 's3', autospec=True)
+    @patch_module.object(validator_service_module, 's3')
     def test_get_validator_script_not_found(self, mock_s3):
         """Test getting validator script when not found"""
         from src.services.validator_service import get_validator_script
@@ -84,7 +84,7 @@ class TestValidatorService:
         result = get_validator_script("test-pkg", "1.0.0")
         assert result is None
 
-    @patch_module.object(validator_service_module, 's3', autospec=True)
+    @patch_module.object(validator_service_module, 's3')
     def test_get_validator_script_exception(self, mock_s3):
         """Test getting validator script with exception"""
         from src.services.validator_service import get_validator_script
@@ -135,7 +135,7 @@ class TestValidatorService:
         with pytest.raises(ValueError, match="returned no result"):
             _run_validator_script(script, data)
 
-    @patch_module.object(validator_service_module, 'cloudwatch', autospec=True)
+    @patch_module.object(validator_service_module, 'cloudwatch')
     @patch('src.services.validator_service.get_context')
     def test_execute_validator_success(self, mock_context, mock_cloudwatch):
         """Test executing validator successfully"""
@@ -161,7 +161,7 @@ class TestValidatorService:
         result = execute_validator(script, data)
         assert result["valid"] is True
 
-    @patch_module.object(validator_service_module, 'cloudwatch', autospec=True)
+    @patch_module.object(validator_service_module, 'cloudwatch')
     @patch('src.services.validator_service.get_context')
     def test_execute_validator_timeout(self, mock_context, mock_cloudwatch):
         """Test executing validator with timeout"""

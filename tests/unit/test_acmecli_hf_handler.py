@@ -435,6 +435,72 @@ class TestHFHandlerFetchMetaAdvanced:
 
     @patch("src.acmecli.hf_handler.urlopen")
     @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_list(self, mock_get_json, mock_urlopen):
+        """Test handling README when value is a list"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": ["line1", "line2"],
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b"<html></html>"
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == ""
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_dict(self, mock_get_json, mock_urlopen):
+        """Test handling README when value is a dict"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": {"content": "# Title"},
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b"<html></html>"
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == ""
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_none(self, mock_get_json, mock_urlopen):
+        """Test handling README when value is None"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": None,
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b"<html></html>"
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == ""
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
     def test_fetch_meta_with_github_links_in_readme(self, mock_get_json, mock_urlopen):
         """Test extracting GitHub links from README"""
         api_data = {
@@ -666,6 +732,24 @@ class TestHFHandlerExtractHyperlinksAdvanced:
         """Test extracting URLs with trailing punctuation"""
         handler = HFHandler()
         text = "See https://github.com/user/repo."
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) == 1
+        assert result["github"][0] == "https://github.com/user/repo"
+
+    def test_extract_hyperlinks_url_with_trailing_comma(self):
+        """Test extracting URLs with trailing comma"""
+        handler = HFHandler()
+        text = "See https://github.com/user/repo, for more details"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) == 1
+        assert result["github"][0] == "https://github.com/user/repo"
+
+    def test_extract_hyperlinks_url_with_trailing_semicolon(self):
+        """Test extracting URLs with trailing semicolon"""
+        handler = HFHandler()
+        text = "See https://github.com/user/repo; it's great"
         result = handler._extract_hyperlinks_from_text(text)
 
         assert len(result["github"]) == 1

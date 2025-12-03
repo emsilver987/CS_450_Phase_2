@@ -34,13 +34,11 @@ class HFHandler:
 
         # Pattern 1: HTML hyperlink (e.g., <a href="https://example.com">Click here</a>)
         # Using pattern: href=["'](.*?)["']
-        html_href_pattern = r'href=["\'](.*?)["\']'
+        html_href_pattern = r'href=[\"\\\'](.*?)[\"\\\']'
         for match in re.finditer(html_href_pattern, text, re.IGNORECASE):
-            url = match.group(1).strip()
+            url = self._normalize_url(match.group(1))
             # Only process if it's an HTTP/HTTPS URL
             if url.startswith(("http://", "https://")):
-                # Clean up URL (remove fragments, query params, trailing slashes)
-                url = url.split("#")[0].split("?")[0].rstrip("/")
                 if url and url not in seen_urls:
                     seen_urls.add(url)
                     self._categorize_url(url, links)
@@ -49,7 +47,7 @@ class HFHandler:
         # Using pattern: \]\((https?://[^\s)]+)\)
         markdown_pattern = r"\]\((https?://[^\s)]+)\)"
         for match in re.finditer(markdown_pattern, text, re.IGNORECASE):
-            url = match.group(1).strip().rstrip("/")
+            url = self._normalize_url(match.group(1))
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 self._categorize_url(url, links)
@@ -58,9 +56,7 @@ class HFHandler:
         # Using pattern: https?://[^\s"'>)]+
         generic_url_pattern = r'https?://[^\s"\'>)]+'
         for match in re.finditer(generic_url_pattern, text, re.IGNORECASE):
-            url = match.group(0).strip().rstrip("/")
-            # Clean up trailing punctuation
-            url = re.sub(r"[.,;:!?]+$", "", url)
+            url = self._normalize_url(match.group(0))
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 self._categorize_url(url, links)
@@ -110,7 +106,7 @@ class HFHandler:
             context_pattern = rf"(?:{keyword})[\s:]*[:=]?\s*(?:https?://)?(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)"
             for match in re.finditer(context_pattern, text, re.IGNORECASE):
                 owner, repo = match.groups()
-                url = f"https://github.com/{owner}/{repo}"
+                url = self._normalize_url(f"https://github.com/{owner}/{repo}")
                 if url not in seen_urls:
                     seen_urls.add(url)
                     self._categorize_url(url, links)
@@ -120,7 +116,7 @@ class HFHandler:
         github_url_before_pattern = r"(?:https?://)?(?:www\.)?github\.com/([\w\-\.]+)/([\w\-\.]+)[\s,]*[:=]?\s*(?:this\s+)?(?:repository|repo|codebase|source\s+code|project|implementation|code)"
         for match in re.finditer(github_url_before_pattern, text, re.IGNORECASE):
             owner, repo = match.groups()
-            url = f"https://github.com/{owner}/{repo}"
+            url = self._normalize_url(f"https://github.com/{owner}/{repo}")
             if url not in seen_urls:
                 seen_urls.add(url)
                 self._categorize_url(url, links)
@@ -140,13 +136,26 @@ class HFHandler:
                 if not model_id.startswith("datasets/") and not model_id.startswith(
                     "spaces/"
                 ):
-                    url = f"https://huggingface.co/{model_id}"
+                    url = self._normalize_url(f"https://huggingface.co/{model_id}")
                     if url not in seen_urls:
                         seen_urls.add(url)
                         self._categorize_url(url, links)
 
         return links
 
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URLs by trimming spaces, fragments, query params, slashes, and trailing punctuation."""
+        if not isinstance(url, str):
+            return ""
+        # Trim whitespace
+        cleaned = url.strip()
+        # Remove fragments and query params
+        cleaned = cleaned.split("#")[0].split("?")[0]
+        # Remove trailing slashes
+        cleaned = cleaned.rstrip("/")
+        # Clean up trailing punctuation like '.', ',', ';', ':', '!', '?'
+        cleaned = re.sub(r"[.,;:!?]+$", "", cleaned)
+        return cleaned
     def _categorize_url(self, url: str, links: Dict[str, List[str]]) -> None:
         """Categorize a URL and add it to the appropriate list."""
         url_lower = url.lower()
@@ -269,7 +278,7 @@ class HFHandler:
             meta["readme_text"] = ""
 
         # Extract hyperlinks from README text
-        if readme_text:
+        if readme_text and isinstance(readme_text, str):
             links = self._extract_hyperlinks_from_text(readme_text)
 
             # Store GitHub URLs (prioritize first one for backward compatibility)
