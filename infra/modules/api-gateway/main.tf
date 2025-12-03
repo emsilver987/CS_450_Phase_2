@@ -724,6 +724,7 @@ resource "aws_api_gateway_integration" "performance_model_id_version_model_zip_g
   integration_http_method = "GET"
   type                    = "HTTP_PROXY"
   uri                     = "${var.validator_service_url}/performance/{model_id}/{version}/model.zip"
+  passthrough_behavior    = "WHEN_NO_MATCH"
 
   request_parameters = {
     "integration.request.path.model_id"     = "method.request.path.model_id"
@@ -802,6 +803,7 @@ resource "aws_api_gateway_integration_response" "performance_model_id_version_mo
   http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
   status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_200.status_code
   selection_pattern = "200"
+  content_handling  = "CONVERT_TO_BINARY"
 
   response_parameters = {
     "method.response.header.Content-Type"        = "integration.response.header.Content-Type"
