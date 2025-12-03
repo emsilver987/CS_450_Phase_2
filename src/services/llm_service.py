@@ -22,7 +22,8 @@ try:
     # Try to find .env file in project root (2 levels up from this file)
     env_path = Path(__file__).parent.parent.parent / ".env"
     if env_path.exists():
-        load_dotenv(env_path)
+        # Use utf-8-sig encoding to handle BOM if present
+        load_dotenv(env_path, encoding='utf-8-sig')
     else:
         # Fallback to default location
         load_dotenv()
