@@ -6201,13 +6201,17 @@ app.include_router(api_router, prefix="/api")
 
 # 5) Performance endpoints (root level, not under /api)
 # Import here to avoid circular dependency
-from .routes.packages import download_performance_model_file
-# Register the performance download endpoint at root level
-app.add_api_route(
-    "/performance/{model_id}/{version}/model.zip",
-    download_performance_model_file,
-    methods=["GET"]
-)
+try:
+    from .routes.packages import download_performance_model_file
+    # Register the performance download endpoint at root level
+    app.add_api_route(
+        "/performance/{model_id}/{version}/model.zip",
+        download_performance_model_file,
+        methods=["GET"]
+    )
+    logger.info("Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
+except Exception as e:
+    logger.error(f"Failed to register performance download endpoint: {str(e)}", exc_info=True)
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 TEMPLATES_DIR = FRONTEND_DIR / "templates"
