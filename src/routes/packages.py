@@ -269,7 +269,8 @@ def _invoke_lambda_download(model_id: str, version: str, component: str) -> byte
         raise HTTPException(status_code=500, detail=f"Lambda invocation failed: {str(e)}")
 
 
-@router.get("/performance/{model_id}/{version}/model.zip")
+# Performance download endpoint - defined as standalone function (NOT part of router)
+# This allows it to be registered directly at root level without /api/packages prefix
 async def download_performance_model_file(
     request: Request,
     model_id: str,
