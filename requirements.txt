@@ -10,6 +10,9 @@ PyJWT==2.8.0
 bcrypt==4.1.2
 python-multipart==0.0.6
 requests==2.32.3
+aiohttp==3.9.1
 watchtower
 black
 python-dotenv
+selenium>=4.15.0
+webdriver-manager>=4.0.0
