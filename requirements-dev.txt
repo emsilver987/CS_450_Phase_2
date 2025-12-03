@@ -8,6 +8,8 @@ pytest-asyncio
 coverage>=7.0
 
 # Integration testing (Selenium)
+# Note: Selenium requires Chrome/Chromium browser to be installed separately
+# webdriver-manager will automatically download the appropriate ChromeDriver
 selenium>=4.38.0
 webdriver-manager>=4.0.0
 

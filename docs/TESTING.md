@@ -51,6 +51,8 @@ pytest -m "not integration"
 
 ## Selenium Test Setup
 
+Selenium tests require both Chrome/Chromium browser and ChromeDriver to be installed on your system. The tests run in headless mode and automatically locate the browser driver.
+
 ### Prerequisites
 
 1. **Python dependencies**: Install test dependencies from `requirements-dev.txt`
@@ -66,9 +68,38 @@ pytest -m "not integration"
    - `pytest-asyncio` - Async test support
    - `httpx` - HTTP client for testing
 
-2. **ChromeDriver**: Must be installed separately (see below)
+2. **Chrome or Chromium browser**: Must be installed on your system
+3. **ChromeDriver**: Must be installed separately and match your browser version
+
+### Browser Installation
+
+Selenium tests require Chrome or Chromium browser to be installed.
+
+#### macOS
+
+```bash
+# Install Chrome browser (if not already installed)
+brew install --cask google-chrome
+
+# Or install Chromium
+brew install chromium
+```
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+# Install Chromium browser
+sudo apt-get update
+sudo apt-get install -y chromium-browser
+```
+
+#### Windows
+
+Download and install [Google Chrome](https://www.google.com/chrome/) from the official website.
 
 ### ChromeDriver Installation
+
+ChromeDriver must be installed separately and should match your Chrome/Chromium browser version. The tests will automatically search common installation paths.
 
 #### macOS
 
@@ -76,41 +107,87 @@ pytest -m "not integration"
 # Using Homebrew (recommended)
 brew install chromedriver
 
-# For Apple Silicon Macs, chromedriver is at:
-# /opt/homebrew/bin/chromedriver
-
-# For Intel Macs, chromedriver is at:
-# /usr/local/bin/chromedriver
+# After installation, you may need to allow chromedriver to run:
+# System Preferences → Security & Privacy → Allow chromedriver
 ```
+
+**Installation paths:**
+- Apple Silicon Macs: `/opt/homebrew/bin/chromedriver`
+- Intel Macs: `/usr/local/bin/chromedriver`
+
+**Note**: Homebrew installs ChromeDriver that matches your installed Chrome version automatically.
 
 #### Linux (Ubuntu/Debian)
 
 ```bash
-# Install chromium and chromedriver
+# Install chromedriver (install chromium-browser first if not already installed)
 sudo apt-get update
 sudo apt-get install -y chromium-browser chromium-chromedriver
 
-# ChromeDriver is typically at:
-# /usr/lib/chromium-browser/chromedriver
-# or /usr/bin/chromedriver
+# Verify installation
+chromedriver --version
 ```
+
+**Installation paths:**
+- `/usr/lib/chromium-browser/chromedriver` (most common)
+- `/usr/bin/chromedriver`
+
+**Note**: `chromium-chromedriver` automatically matches your `chromium-browser` version.
 
 #### Windows
 
-1. Download ChromeDriver from [ChromeDriver Downloads](https://chromedriver.chromium.org/downloads)
-2. Extract and add to PATH
-3. Or place in project directory
+1. **Check your Chrome version**: Open Chrome → Settings → About Chrome
+2. **Download ChromeDriver**: Visit [ChromeDriver Downloads](https://chromedriver.chromium.org/downloads) and download the matching version
+3. **Install ChromeDriver**:
+   - Extract the ZIP file
+   - Place `chromedriver.exe` in a directory in your PATH (e.g., `C:\Windows\System32`)
+   - Or place it in your project directory
 
-### Verifying ChromeDriver Installation
+**Alternative (using webdriver-manager)**:
+The `webdriver-manager` package can automatically download and manage ChromeDriver, but manual installation is recommended for better control.
+
+### Version Compatibility
+
+- ChromeDriver version must match your Chrome/Chromium browser version
+- On macOS with Homebrew: ChromeDriver automatically matches your Chrome version
+- On Linux: `chromium-chromedriver` automatically matches `chromium-browser` version
+- On Windows: You must manually match versions when downloading from ChromeDriver Downloads
+
+**Checking versions:**
+```bash
+# Check Chrome browser version
+google-chrome --version  # Linux
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version  # macOS
+
+# Check ChromeDriver version
+chromedriver --version
+```
+
+### Verifying Installation
+
+Before running Selenium tests, verify that both Chrome/Chromium browser and ChromeDriver are installed:
 
 ```bash
+# Check if Chrome/Chromium browser is installed
+google-chrome --version  # Linux
+chromium --version  # Linux (if using Chromium)
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version  # macOS
+
 # Check if chromedriver is in PATH
 which chromedriver
 chromedriver --version
 
-# Or run the test that verifies ChromeDriver availability
+# Verify versions match (ChromeDriver version should match Chrome version major number)
+# For example: Chrome 120.x should use ChromeDriver 120.x
+```
+
+**Running the verification test:**
+```bash
+# Run the test that verifies ChromeDriver availability
 pytest tests/integration/test_selenium_frontend.py::test_chromedriver_available -v
 ```
+
+This test will automatically check if ChromeDriver can be found and initialized correctly.
 
 ### Running Selenium Tests Locally
 

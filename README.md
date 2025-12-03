@@ -280,6 +280,7 @@ Each metric exposes `name` and `score(meta: dict) -> MetricValue`. Implementatio
 - `tests/` contains focused unit tests per metric (for example `tests/test_bus_factor_metric.py`) plus checks for `Reporter` and `scoring` helpers.
 - `pytest.ini` pins `tests/` as the discovery root and enforces coverage reports.
 - `mypy.ini` opts into Python 3.12 typing, ignoring missing imports for third-party APIs.
+- **Selenium integration tests**: Frontend tests using Selenium require Chrome/Chromium browser and ChromeDriver to be installed. See [docs/TESTING.md](docs/TESTING.md#selenium-test-setup) for browser and driver installation instructions.
 
 ## Continuous Integration
 
