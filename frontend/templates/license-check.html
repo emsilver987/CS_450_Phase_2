@@ -73,10 +73,16 @@
       {% elif result.compatible %}
         <div class="flash success" role="status" aria-live="polite" style="margin-bottom: 16px;">
           <strong aria-label="Compatible">✓ Compatible</strong> - The licenses are compatible for your use case.
+          {% if result.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
         </div>
       {% else %}
         <div class="flash error" role="alert" aria-live="assertive" style="margin-bottom: 16px;">
           <strong aria-label="Not Compatible">✗ Not Compatible</strong> - License compatibility issues detected.
+          {% if result.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
         </div>
       {% endif %}
       

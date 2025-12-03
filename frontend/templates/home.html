@@ -15,7 +15,10 @@
       <li>Check package ratings and quality metrics</li>
       <li>Search and download packages</li>
       <li>View model lineage and dependencies</li>
-      <li>Check license compatibility</li>
+      <li>Check license compatibility{% if llm_available %} <span style="color: #10b981; font-size: 0.875rem;">(AI-Enhanced)</span>{% endif %}</li>
+      {% if llm_available %}
+      <li>AI-powered semantic search and enhanced error messages</li>
+      {% endif %}
       <li>WCAG 2.1 Level AA compliant and accessible interface</li>
     </ul>
   </section>
