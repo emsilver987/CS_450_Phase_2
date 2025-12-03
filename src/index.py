@@ -4,6 +4,8 @@ import re
 import os
 import json
 import requests
+import urllib.request
+import urllib.error
 from typing import Dict, Any, Optional, List
 from starlette.datastructures import UploadFile
 import uvicorn
@@ -734,11 +736,187 @@ def health():
     return {"ok": True}
 
 
+def _ensure_model_in_performance_path(model_id: str, version: str = "main") -> bool:
+    """
+    Ensure model exists in S3 performance path. Uploads automatically if missing.
+    This is called automatically by the workload trigger endpoint.
+    Downloads full model (including weights) for performance testing.
+    
+    Args:
+        model_id: Model ID to ensure exists (e.g., "arnir0/Tiny-LLM")
+        version: Model version (default: "main")
+        
+    Returns:
+        True if model exists or was successfully uploaded, False otherwise
+    """
+    try:
+        from .services.s3_service import s3, ap_arn, aws_available
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import zipfile
+        import io
+        
+        if not aws_available or not s3 or not ap_arn:
+            logger.warning("AWS S3 not available - cannot ensure model in performance path")
+            return False
+        
+        # Sanitize model_id for S3 key (same logic as populate_registry.py)
+        sanitized_model_id = (
+            model_id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Check if model exists in performance path
+        s3_key = f"performance/{sanitized_model_id}/{version}/model.zip"
+        try:
+            s3.head_object(Bucket=ap_arn, Key=s3_key)
+            logger.info(f"Model {model_id} already exists in performance path: {s3_key}")
+            return True
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code not in ["404", "NoSuchKey"]:
+                logger.error(f"Error checking model existence: {error_code}")
+                return False
+        
+        # Model doesn't exist - download from HuggingFace and upload
+        logger.info(f"Model {model_id} not found in performance path - downloading full model from HuggingFace...")
+        
+        # Download full model from HuggingFace (including weights for performance testing)
+        try:
+            clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
+            api_url = f"https://huggingface.co/api/models/{clean_model_id}"
+            response = requests.get(api_url, timeout=30)
+            
+            if response.status_code != 200:
+                logger.error(f"Model {clean_model_id} not found on HuggingFace (HTTP {response.status_code})")
+                return False
+            
+            model_info = response.json()
+            all_files = []
+            for sibling in model_info.get("siblings", []):
+                if sibling.get("rfilename"):
+                    all_files.append(sibling["rfilename"])
+            
+            # For performance testing, download essential files + ONE main weight file + tokenizer files
+            # (same logic as populate_registry.py with download_all=True)
+            essential_files = []
+            for filename in all_files:
+                if filename.endswith((".json", ".md", ".txt", ".yml", ".yaml")):
+                    essential_files.append(filename)
+                elif filename.startswith("README") or filename.startswith("readme"):
+                    essential_files.append(filename)
+                elif filename in ["config.json", "LICENSE", "license", "LICENCE", "licence"]:
+                    essential_files.append(filename)
+            
+            # Find ONE main weight file (prefer .safetensors, then pytorch_model.bin)
+            weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) 
+                          and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite", "mlpackage"])]
+            main_weight_file = None
+            if weight_files:
+                for preferred in ["model.safetensors", "pytorch_model.bin"]:
+                    if preferred in weight_files:
+                        main_weight_file = preferred
+                        break
+                if not main_weight_file:
+                    main_weight_file = weight_files[0]  # Use first weight file if no preferred found
+            
+            # Tokenizer files
+            tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and 
+                             any(f.endswith(ext) for ext in [".json", ".txt", ".model"])]
+            
+            # Combine files to download
+            files_to_download = essential_files.copy()
+            if main_weight_file:
+                files_to_download.append(main_weight_file)
+            files_to_download.extend(tokenizer_files)
+            
+            if not files_to_download:
+                logger.error(f"No files found to download for model {clean_model_id}")
+                return False
+            
+            # Download files
+            def download_file(url: str, timeout: int = 120) -> Optional[bytes]:
+                try:
+                    req = urllib.request.Request(url)
+                    req.add_header("User-Agent", "Mozilla/5.0")
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read()
+                except Exception as e:
+                    logger.warning(f"Failed to download {url}: {str(e)}")
+                    return None
+            
+            urls_to_download = [
+                (
+                    f"https://huggingface.co/{clean_model_id}/resolve/{version}/{filename}",
+                    filename,
+                )
+                for filename in files_to_download
+            ]
+            
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {
+                        executor.submit(download_file, url[0], 120): url[1]
+                        for url in urls_to_download
+                    }
+                    downloaded_count = 0
+                    for future in as_completed(futures):
+                        filename = futures[future]
+                        try:
+                            result = future.result()
+                            if result:
+                                zip_file.writestr(filename, result)
+                                downloaded_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to download {filename}: {e}")
+            
+            zip_content = output.getvalue()
+            if not zip_content or len(zip_content) == 0:
+                logger.error(f"Downloaded zip file is empty for model {clean_model_id}")
+                return False
+            
+            logger.info(f"Downloaded {len(zip_content):,} bytes ({len(zip_content) / (1024*1024):.2f} MB) from HuggingFace")
+            
+        except Exception as e:
+            logger.error(f"Failed to download model from HuggingFace: {str(e)}", exc_info=True)
+            return False
+        
+        # Upload to S3 performance path
+        try:
+            s3.put_object(
+                Bucket=ap_arn,
+                Key=s3_key,
+                Body=zip_content,
+                ContentType="application/zip"
+            )
+            logger.info(f"Uploaded model to performance path: {s3_key} ({len(zip_content):,} bytes)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to upload model to S3: {str(e)}", exc_info=True)
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error ensuring model in performance path: {str(e)}", exc_info=True)
+        return False
+
+
 @app.post("/health/performance/workload")
 async def trigger_performance_workload(request: Request):
     """
     Trigger a performance workload run.
     Accepts parameters to configure the workload and returns a run_id for tracking.
+    
+    Automatically ensures the specified model exists in the performance path before triggering the workload.
+    If the model doesn't exist, it will be downloaded from HuggingFace and uploaded to S3 automatically.
     """
     try:
         body = await request.json()
@@ -764,6 +942,13 @@ async def trigger_performance_workload(request: Request):
             raise HTTPException(
                 status_code=400, detail="duration_seconds must be a positive integer"
             )
+
+        # Ensure model exists in performance path (automatic, transparent to user)
+        logger.info(f"Ensuring model {model_id} exists in performance path...")
+        model_ready = _ensure_model_in_performance_path(model_id, version="main")
+        if not model_ready:
+            logger.warning(f"Model {model_id} may not be available in performance path - workload may fail")
+            # Don't fail here - let the workload try and fail gracefully if model is missing
 
         # Import and trigger workload
         from .services.performance.workload_trigger import trigger_workload

@@ -1,0 +1,648 @@
+#!/usr/bin/env python3
+"""
+Performance Endpoints Test Script
+
+Tests all performance-related endpoints including:
+- Health dashboard with performance component
+- Performance workload trigger and results retrieval
+- Model download endpoints
+
+Before running load generation, uploads the specified model to S3 performance path.
+Default model: arnir0/Tiny-LLM (uploaded on every run unless --skip-upload is used).
+
+Usage:
+    # Test with ECS backend (default)
+    python scripts/test_performance_endpoints.py --backend ecs
+    
+    # Test with Lambda backend
+    python scripts/test_performance_endpoints.py --backend lambda
+    
+    # Test with custom model
+    python scripts/test_performance_endpoints.py --model-id bert-base-uncased
+    
+    # Skip model upload (model must already exist)
+    python scripts/test_performance_endpoints.py --skip-upload
+    
+    # Force re-upload even if model exists
+    python scripts/test_performance_endpoints.py --force-upload
+"""
+import sys
+import os
+import time
+import requests
+import json
+import argparse
+import boto3
+from pathlib import Path
+from typing import Optional, Dict, Any
+from botocore.exceptions import ClientError
+
+# Add parent directory to path to import from src and scripts
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Import functions from populate_registry.py
+from scripts.populate_registry import (
+    get_authentication_token,
+    get_s3_client_and_arn,
+    check_model_exists_in_s3,
+    upload_model_to_performance_s3,
+    get_performance_s3_key,
+    ingest_model_performance_mode,
+    get_dynamodb_table,
+)
+
+# Default URLs
+DEFAULT_API_URL = "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod"
+DEFAULT_LOCAL_URL = "http://localhost:8000"
+
+# AWS Configuration
+REGION = os.getenv("AWS_REGION", "us-east-1")
+ACCESS_POINT_NAME = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
+ARTIFACTS_TABLE = os.getenv("DDB_TABLE_ARTIFACTS", "artifacts")
+
+# Default model (uploaded on every run)
+DEFAULT_MODEL_ID = "arnir0/Tiny-LLM"
+
+
+def ensure_model_in_performance_path(
+    model_id: str, version: str = "main", force: bool = False, skip: bool = False
+) -> tuple[bool, str]:
+    """
+    Ensure model exists in S3 performance path. Uploads automatically if missing.
+    This happens transparently - user doesn't need to know about it.
+    
+    Args:
+        model_id: Model ID to ensure exists (e.g., "arnir0/Tiny-LLM")
+        version: Model version (default: "main")
+        force: If True, re-upload even if model exists
+        skip: If True, skip upload entirely (model must already exist)
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    if skip:
+        print(f"\n{'='*80}")
+        print(f"Checking Model in Performance Path (skip upload)")
+        print(f"{'='*80}")
+        print(f"Model ID: {model_id}")
+        print(f"Version: {version}")
+        print()
+        
+        # Just verify it exists
+        s3, ap_arn = get_s3_client_and_arn()
+        if not s3 or not ap_arn:
+            return (False, "Failed to initialize S3 client")
+        
+        if check_model_exists_in_s3(s3, ap_arn, model_id, version):
+            print(f"✓ Model exists in performance path")
+            return (True, "Model exists")
+        else:
+            print(f"✗ Model not found in performance path")
+            print(f"  Remove --skip-upload to automatically upload the model")
+            return (False, "Model not found")
+    
+    print(f"\n{'='*80}")
+    print(f"Ensuring Model in Performance Path")
+    print(f"{'='*80}")
+    print(f"Model ID: {model_id}")
+    print(f"Version: {version}")
+    print(f"Path: performance/{model_id.replace('/', '_')}/{version}/model.zip")
+    print()
+    
+    # Initialize S3
+    print("Initializing S3 client...")
+    s3, ap_arn = get_s3_client_and_arn()
+    if not s3 or not ap_arn:
+        return (False, "Failed to initialize S3 client")
+    print(f"✓ S3 Access Point: {ap_arn}")
+    
+    # Check if model exists
+    if not force:
+        print(f"Checking if model exists in performance path...")
+        if check_model_exists_in_s3(s3, ap_arn, model_id, version):
+            print(f"✓ Model already exists in performance path")
+            return (True, "Model already exists")
+        else:
+            print(f"  Model not found - will upload automatically...")
+    
+    # Get DynamoDB table for metadata
+    table = get_dynamodb_table()
+    if not table:
+        print("⚠ Warning: Could not access DynamoDB (metadata will not be created)")
+    
+    # Upload model using performance mode ingestion
+    print(f"Uploading model to performance path...")
+    success, status = ingest_model_performance_mode(
+        s3=s3,
+        ap_arn=ap_arn,
+        table=table,
+        model_id=model_id,
+        version=version,
+        skip_missing=True,
+        skip_existing=not force,
+    )
+    
+    if success:
+        print(f"\n✓ Model ready in performance path")
+        return (True, "Upload successful")
+    else:
+        error_msg = f"Upload failed: {status}"
+        print(f"\n✗ {error_msg}")
+        return (False, error_msg)
+
+
+def test_health_components(api_base_url: str, auth_token: Optional[str]) -> bool:
+    """Test GET /health/components endpoint"""
+    print(f"\n{'='*80}")
+    print(f"Testing Health Components Endpoint")
+    print(f"{'='*80}")
+    
+    try:
+        headers = {"Content-Type": "application/json"}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        url = f"{api_base_url}/health/components"
+        print(f"GET {url}")
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✓ Status: {response.status_code}")
+            print(f"  Components: {len(data.get('components', []))}")
+            
+            # Check for performance component
+            perf_component = None
+            for component in data.get("components", []):
+                if component.get("id") == "performance":
+                    perf_component = component
+                    break
+            
+            if perf_component:
+                print(f"  ✓ Performance component found")
+                print(f"    Status: {perf_component.get('status')}")
+                print(f"    Display Name: {perf_component.get('display_name')}")
+                if "metrics" in perf_component:
+                    print(f"    Metrics: {list(perf_component['metrics'].keys())}")
+            else:
+                print(f"  ⚠ Performance component not found")
+            
+            return True
+        else:
+            print(f"✗ Status: {response.status_code}")
+            print(f"  Response: {response.text[:200]}")
+            return False
+            
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        return False
+
+
+def test_trigger_workload(
+    api_base_url: str,
+    auth_token: Optional[str],
+    num_clients: int = 100,
+    model_id: str = DEFAULT_MODEL_ID,
+    duration_seconds: int = 300,
+) -> Optional[str]:
+    """Test POST /health/performance/workload endpoint"""
+    print(f"\n{'='*80}")
+    print(f"Testing Performance Workload Trigger")
+    print(f"{'='*80}")
+    
+    try:
+        headers = {"Content-Type": "application/json"}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        url = f"{api_base_url}/health/performance/workload"
+        payload = {
+            "num_clients": num_clients,
+            "model_id": model_id,
+            "duration_seconds": duration_seconds,
+        }
+        
+        print(f"POST {url}")
+        print(f"Payload: {json.dumps(payload, indent=2)}")
+        
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        
+        if response.status_code == 202:
+            data = response.json()
+            run_id = data.get("run_id")
+            print(f"✓ Status: {response.status_code} (Accepted)")
+            print(f"  Run ID: {run_id}")
+            print(f"  Status: {data.get('status')}")
+            print(f"  Estimated Completion: {data.get('estimated_completion')}")
+            return run_id
+        else:
+            print(f"✗ Status: {response.status_code}")
+            print(f"  Response: {response.text[:500]}")
+            return None
+            
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        return None
+
+
+def test_get_results(
+    api_base_url: str, auth_token: Optional[str], run_id: str
+) -> Optional[Dict[str, Any]]:
+    """Test GET /health/performance/results/{run_id} endpoint"""
+    print(f"\n{'='*80}")
+    print(f"Testing Performance Results Retrieval")
+    print(f"{'='*80}")
+    
+    try:
+        headers = {"Content-Type": "application/json"}
+        if auth_token:
+            headers["X-Authorization"] = auth_token
+        
+        url = f"{api_base_url}/health/performance/results/{run_id}"
+        print(f"GET {url}")
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✓ Status: {response.status_code}")
+            print(f"  Run ID: {data.get('run_id')}")
+            print(f"  Status: {data.get('status')}")
+            
+            metrics = data.get("metrics", {})
+            if metrics:
+                print(f"\n  Performance Metrics:")
+                throughput = metrics.get("throughput", {})
+                latency = metrics.get("latency", {})
+                
+                if throughput:
+                    print(f"    Throughput:")
+                    print(f"      Requests/sec: {throughput.get('requests_per_second', 0):.2f}")
+                    print(f"      Bytes/sec: {throughput.get('bytes_per_second', 0):,.0f}")
+                    print(f"      MB/sec: {throughput.get('bytes_per_second', 0) / (1024*1024):.2f}")
+                
+                if latency:
+                    print(f"    Latency:")
+                    print(f"      Mean: {latency.get('mean_ms', 0):.2f} ms")
+                    print(f"      Median: {latency.get('median_ms', 0):.2f} ms")
+                    print(f"      P99: {latency.get('p99_ms', 0):.2f} ms")
+                    print(f"      Min: {latency.get('min_ms', 0):.2f} ms")
+                    print(f"      Max: {latency.get('max_ms', 0):.2f} ms")
+                
+                print(f"    Total Requests: {metrics.get('total_requests', 0)}")
+                print(f"    Total Bytes: {metrics.get('total_bytes', 0):,}")
+                print(f"    Error Rate: {metrics.get('error_rate', 0):.2f}%")
+            
+            return data
+        elif response.status_code == 404:
+            print(f"⚠ Status: {response.status_code} (Run not found or not completed yet)")
+            return None
+        else:
+            print(f"✗ Status: {response.status_code}")
+            print(f"  Response: {response.text[:500]}")
+            return None
+            
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        return None
+
+
+def test_download_endpoint(
+    api_base_url: str,
+    auth_token: Optional[str],
+    model_id: str,
+    version: str = "main",
+) -> bool:
+    """Test download endpoint (both /performance/ and /artifact/model/.../download)"""
+    print(f"\n{'='*80}")
+    print(f"Testing Download Endpoints")
+    print(f"{'='*80}")
+    
+    # Sanitize model_id for URL
+    sanitized_model_id = (
+        model_id.replace("/", "_")
+        .replace(":", "_")
+        .replace("\\", "_")
+        .replace("?", "_")
+        .replace("*", "_")
+        .replace('"', "_")
+        .replace("<", "_")
+        .replace(">", "_")
+        .replace("|", "_")
+    )
+    
+    headers = {"Content-Type": "application/json"}
+    if auth_token:
+        headers["X-Authorization"] = auth_token
+    
+    # Test 1: /performance/{model_id}/{version}/model.zip
+    print(f"\n1. Testing /performance/{sanitized_model_id}/{version}/model.zip")
+    try:
+        url = f"{api_base_url}/performance/{sanitized_model_id}/{version}/model.zip"
+        print(f"   GET {url}")
+        
+        response = requests.get(url, headers=headers, timeout=60, stream=True)
+        
+        if response.status_code == 200:
+            content_length = response.headers.get("Content-Length")
+            print(f"   ✓ Status: {response.status_code}")
+            print(f"     Content-Type: {response.headers.get('Content-Type')}")
+            print(f"     Content-Length: {content_length} bytes" if content_length else "     Content-Length: unknown")
+            # Read a small chunk to verify it works
+            chunk = next(response.iter_content(chunk_size=1024), None)
+            if chunk:
+                print(f"     ✓ Successfully received data ({len(chunk)} bytes chunk)")
+            return True
+        else:
+            print(f"   ✗ Status: {response.status_code}")
+            print(f"     Response: {response.text[:200]}")
+    except Exception as e:
+        print(f"   ✗ Error: {str(e)}")
+    
+    # Test 2: /artifact/model/{model_id}/download?path_prefix=performance
+    print(f"\n2. Testing /artifact/model/{sanitized_model_id}/download?path_prefix=performance")
+    try:
+        url = f"{api_base_url}/artifact/model/{sanitized_model_id}/download"
+        params = {"path_prefix": "performance", "version": version, "component": "full"}
+        print(f"   GET {url}?{params}")
+        
+        response = requests.get(url, headers=headers, params=params, timeout=60, stream=True)
+        
+        if response.status_code == 200:
+            content_length = response.headers.get("Content-Length")
+            print(f"   ✓ Status: {response.status_code}")
+            print(f"     Content-Type: {response.headers.get('Content-Type')}")
+            print(f"     Content-Length: {content_length} bytes" if content_length else "     Content-Length: unknown")
+            # Read a small chunk to verify it works
+            chunk = next(response.iter_content(chunk_size=1024), None)
+            if chunk:
+                print(f"     ✓ Successfully received data ({len(chunk)} bytes chunk)")
+            return True
+        else:
+            print(f"   ✗ Status: {response.status_code}")
+            print(f"     Response: {response.text[:200]}")
+    except Exception as e:
+        print(f"   ✗ Error: {str(e)}")
+    
+    return False
+
+
+def poll_for_results(
+    api_base_url: str,
+    auth_token: Optional[str],
+    run_id: str,
+    max_wait_seconds: int = 300,
+    poll_interval: int = 5,
+) -> Optional[Dict[str, Any]]:
+    """Poll for workload results until complete or timeout"""
+    print(f"\n{'='*80}")
+    print(f"Polling for Results")
+    print(f"{'='*80}")
+    print(f"Run ID: {run_id}")
+    print(f"Max wait time: {max_wait_seconds} seconds")
+    print(f"Poll interval: {poll_interval} seconds")
+    print()
+    
+    start_time = time.time()
+    attempt = 0
+    
+    while time.time() - start_time < max_wait_seconds:
+        attempt += 1
+        elapsed = int(time.time() - start_time)
+        print(f"Attempt {attempt} (elapsed: {elapsed}s)...", end=" ")
+        
+        results = test_get_results(api_base_url, auth_token, run_id)
+        
+        if results:
+            status = results.get("status")
+            if status == "completed":
+                print(f"✓ Workload completed!")
+                return results
+            elif status == "failed":
+                print(f"✗ Workload failed!")
+                return results
+            else:
+                print(f"Status: {status} (still running...)")
+        else:
+            print(f"Not ready yet...")
+        
+        if time.time() - start_time < max_wait_seconds:
+            time.sleep(poll_interval)
+    
+    print(f"\n⚠ Timeout: Results not available after {max_wait_seconds} seconds")
+    return None
+
+
+def main():
+    """Main function to run performance endpoint tests"""
+    parser = argparse.ArgumentParser(
+        description="Test performance endpoints with model upload",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Test with ECS backend (default)
+  python scripts/test_performance_endpoints.py --backend ecs
+  
+  # Test with Lambda backend
+  python scripts/test_performance_endpoints.py --backend lambda
+  
+  # Test with custom model
+  python scripts/test_performance_endpoints.py --model-id bert-base-uncased
+  
+  # Skip model upload (model must already exist)
+  python scripts/test_performance_endpoints.py --skip-upload
+  
+  # Force re-upload even if model exists
+  python scripts/test_performance_endpoints.py --force-upload
+  
+  # Use local server
+  python scripts/test_performance_endpoints.py --local
+        """
+    )
+    
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["ecs", "lambda"],
+        default="ecs",
+        help="Compute backend to test (default: ecs)",
+    )
+    
+    parser.add_argument(
+        "--model-id",
+        type=str,
+        default=DEFAULT_MODEL_ID,
+        help=f"Model ID to test (default: {DEFAULT_MODEL_ID})",
+    )
+    
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="Custom API base URL",
+    )
+    
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help=f"Use local server at {DEFAULT_LOCAL_URL}",
+    )
+    
+    parser.add_argument(
+        "--skip-upload",
+        action="store_true",
+        help="Skip automatic model upload (model must already exist in performance path). By default, model is uploaded automatically if missing.",
+    )
+    
+    parser.add_argument(
+        "--force-upload",
+        action="store_true",
+        help="Force re-upload even if model exists in performance path",
+    )
+    
+    parser.add_argument(
+        "--num-clients",
+        type=int,
+        default=100,
+        help="Number of concurrent clients for workload (default: 100)",
+    )
+    
+    parser.add_argument(
+        "--duration-seconds",
+        type=int,
+        default=300,
+        help="Workload duration in seconds (default: 300)",
+    )
+    
+    parser.add_argument(
+        "--skip-workload",
+        action="store_true",
+        help="Skip workload trigger and results (only test upload and endpoints)",
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine base URL
+    if args.base_url:
+        api_base_url = args.base_url.rstrip("/")
+    elif args.local:
+        api_base_url = DEFAULT_LOCAL_URL
+    elif os.getenv("API_BASE_URL"):
+        api_base_url = os.getenv("API_BASE_URL").rstrip("/")
+    else:
+        api_base_url = DEFAULT_API_URL
+    
+    print("=" * 80)
+    print("Performance Endpoints Test Script")
+    print("=" * 80)
+    print(f"API Base URL: {api_base_url}")
+    print(f"Compute Backend: {args.backend.upper()}")
+    print(f"Model ID: {args.model_id}")
+    if args.skip_upload:
+        print(f"Upload: Skipped (model must already exist)")
+    elif args.force_upload:
+        print(f"Upload: Force re-upload")
+    else:
+        print(f"Upload: Automatic (will upload if model doesn't exist)")
+    print()
+    
+    # Step 1: Authenticate
+    print("Step 1: Authenticating...")
+    auth_token = get_authentication_token(api_base_url)
+    if auth_token:
+        print("✓ Authentication successful")
+    else:
+        print("⚠ Authentication failed - some endpoints may not work")
+    print()
+    
+    # Step 2: Ensure model exists in performance path (automatic, transparent to user)
+    print("Step 2: Ensuring model is available in performance path...")
+    success, message = ensure_model_in_performance_path(
+        args.model_id, version="main", force=args.force_upload, skip=args.skip_upload
+    )
+    if not success:
+        print(f"\n✗ Failed to ensure model availability: {message}")
+        if args.skip_upload:
+            print("  Remove --skip-upload to automatically upload the model")
+        else:
+            print("  Cannot proceed with load generation without model in performance path")
+        return 1
+    print()
+    
+    # Step 3: Test health components
+    print("Step 3: Testing health components endpoint...")
+    test_health_components(api_base_url, auth_token)
+    print()
+    
+    # Step 4: Test download endpoints
+    print("Step 4: Testing download endpoints...")
+    test_download_endpoint(api_base_url, auth_token, args.model_id)
+    print()
+    
+    # Step 5: Trigger workload and get results (unless skipped)
+    if not args.skip_workload:
+        print("Step 5: Triggering performance workload...")
+        run_id = test_trigger_workload(
+            api_base_url,
+            auth_token,
+            num_clients=args.num_clients,
+            model_id=args.model_id,
+            duration_seconds=args.duration_seconds,
+        )
+        
+        if run_id:
+            print()
+            print("Step 6: Waiting for workload to complete...")
+            results = poll_for_results(
+                api_base_url, auth_token, run_id, max_wait_seconds=args.duration_seconds + 60
+            )
+            
+            if results:
+                print()
+                print("=" * 80)
+                print("Final Results Summary")
+                print("=" * 80)
+                metrics = results.get("metrics", {})
+                if metrics:
+                    throughput = metrics.get("throughput", {})
+                    latency = metrics.get("latency", {})
+                    
+                    print(f"\nRequired Measurements:")
+                    print(f"  Throughput: {throughput.get('bytes_per_second', 0) / (1024*1024):.2f} MB/sec")
+                    print(f"  Mean Latency: {latency.get('mean_ms', 0):.2f} ms")
+                    print(f"  Median Latency: {latency.get('median_ms', 0):.2f} ms")
+                    print(f"  P99 Latency: {latency.get('p99_ms', 0):.2f} ms")
+                    
+                    print(f"\nAdditional Metrics:")
+                    print(f"  Total Requests: {metrics.get('total_requests', 0)}")
+                    print(f"  Successful: {metrics.get('total_requests', 0) - int(metrics.get('error_rate', 0) * metrics.get('total_requests', 0) / 100)}")
+                    print(f"  Failed: {int(metrics.get('error_rate', 0) * metrics.get('total_requests', 0) / 100)}")
+                    print(f"  Error Rate: {metrics.get('error_rate', 0):.2f}%")
+                    print(f"  Total Bytes: {metrics.get('total_bytes', 0):,}")
+        else:
+            print("\n✗ Failed to trigger workload")
+            return 1
+    else:
+        print("Step 5: Skipping workload trigger (--skip-workload)")
+    
+    print()
+    print("=" * 80)
+    print("✓ All tests completed!")
+    print("=" * 80)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        exit_code = main()
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        print("\n\nTest cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n\nFatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
