@@ -208,12 +208,26 @@ def extract_model_license(model_id: str, version: str = "1.0.0") -> Optional[str
 def extract_github_license(github_url: str) -> Optional[str]:
     """Extract license from GitHub repository."""
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         meta = fetch_github_metadata(github_url)
         if not meta:
+            logger.warning(f"Failed to fetch GitHub metadata for {github_url}. This may be due to rate limiting or network issues.")
             return None
+        
+        # Check if we got any data (not just empty dict)
+        if not meta.get("name") and not meta.get("full_name"):
+            logger.warning(f"GitHub metadata appears empty for {github_url}. API call may have failed.")
+            return None
+        
         license_spdx = meta.get("license", "")
         if license_spdx:
-            return normalize_license(license_spdx)
+            normalized = normalize_license(license_spdx)
+            logger.debug(f"Extracted license from GitHub API: {license_spdx} -> {normalized}")
+            return normalized
+        
+        # Try to extract from README as fallback
         readme_text = meta.get("readme_text", "")
         if readme_text:
             license_patterns = [
@@ -224,10 +238,16 @@ def extract_github_license(github_url: str) -> Optional[str]:
             for pattern in license_patterns:
                 matches = re.findall(pattern, readme_text, re.IGNORECASE)
                 if matches:
-                    return normalize_license(matches[0])
+                    normalized = normalize_license(matches[0])
+                    logger.debug(f"Extracted license from README: {matches[0]} -> {normalized}")
+                    return normalized
+        
+        logger.warning(f"No license found for GitHub repository {github_url}. Repository may not have a license file.")
         return None
     except Exception as e:
-        print(f"Error extracting GitHub license: {e}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error extracting GitHub license from {github_url}: {e}", exc_info=True)
         return None
 
 

@@ -1008,11 +1008,51 @@ def register_routes(app: FastAPI):
                     # Extract licenses
                     model_license = extract_model_license(model_name_for_license)
                     if model_license is None:
-                        result = {"error": "Model license not found."}
+                        error_msg = "Model license not found."
+                        llm_enhanced = False
+                        # Try to enhance error message with LLM
+                        try:
+                            from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                            if is_llm_available():
+                                llm_message = generate_helpful_error_message(
+                                    error_type="MODEL_LICENSE_NOT_FOUND",
+                                    error_context={
+                                        "model_id": model_id,
+                                        "model_name": model_name,
+                                        "model_name_for_license": model_name_for_license,
+                                    },
+                                    user_action="Checking license compatibility"
+                                )
+                                if llm_message:
+                                    error_msg = llm_message
+                                    llm_enhanced = True
+                        except Exception:
+                            pass  # Fall back to default message if LLM fails
+                        result = {"error": error_msg, "llm_enhanced": llm_enhanced}
                     else:
                         github_license = extract_github_license(github_url)
                         if github_license is None:
-                            result = {"error": "GitHub license not found."}
+                            error_msg = f"GitHub license not found for {github_url}. This may be due to: (1) Repository has no license file, (2) GitHub API rate limiting, or (3) Network connectivity issues. Please try again later or use a different repository."
+                            llm_enhanced = False
+                            # Try to enhance error message with LLM
+                            try:
+                                from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                                if is_llm_available():
+                                    llm_message = generate_helpful_error_message(
+                                        error_type="GITHUB_LICENSE_NOT_FOUND",
+                                        error_context={
+                                            "github_url": github_url,
+                                            "model_id": model_id,
+                                            "model_license": model_license,
+                                        },
+                                        user_action="Checking license compatibility"
+                                    )
+                                    if llm_message:
+                                        error_msg = llm_message
+                                        llm_enhanced = True
+                            except Exception:
+                                pass  # Fall back to default message if LLM fails
+                            result = {"error": error_msg, "llm_enhanced": llm_enhanced}
                         else:
                             # Use case is always "fine-tune+inference" per requirements
                             use_case = "fine-tune+inference"
@@ -1033,7 +1073,27 @@ def register_routes(app: FastAPI):
                             }
         except Exception as e:
             logger.error(f"Error in license check: {str(e)}", exc_info=True)
-            result = {"error": f"License check failed: {str(e)}"}
+            error_msg = f"License check failed: {str(e)}"
+            llm_enhanced = False
+            # Try to enhance error message with LLM
+            try:
+                from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                if is_llm_available():
+                    llm_message = generate_helpful_error_message(
+                        error_type="LICENSE_CHECK_ERROR",
+                        error_context={
+                            "error": str(e),
+                            "model_id": model_id if 'model_id' in locals() else None,
+                            "github_url": github_url if 'github_url' in locals() else None,
+                        },
+                        user_action="Checking license compatibility"
+                    )
+                    if llm_message:
+                        error_msg = llm_message
+                        llm_enhanced = True
+            except Exception:
+                pass  # Fall back to default message if LLM fails
+            result = {"error": error_msg, "llm_enhanced": llm_enhanced}
         
         ctx = enrich_context({
             "request": request,
