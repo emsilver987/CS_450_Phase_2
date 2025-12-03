@@ -17,6 +17,19 @@ from src.acmecli.cli import (
 )
 
 
+class TestModuleImport:
+    """Test module import to ensure module-level code executes"""
+
+    def test_module_import(self):
+        """Test that module can be imported correctly"""
+        import src.acmecli.cli
+        assert hasattr(src.acmecli.cli, 'setup_logging')
+        assert hasattr(src.acmecli.cli, 'classify')
+        assert hasattr(src.acmecli.cli, 'extract_urls')
+        assert hasattr(src.acmecli.cli, 'process_url')
+        assert hasattr(src.acmecli.cli, 'main')
+
+
 class TestSetupLogging:
     """Test setup_logging function"""
 
@@ -254,6 +267,66 @@ class TestProcessUrl:
             )
 
             assert result is not None
+
+    @patch("src.acmecli.cli.compute_net_score")
+    def test_process_url_with_metrics(self, mock_compute_net_score):
+        """Test process_url with actual metrics to ensure concurrent.futures code executes"""
+        mock_compute_net_score.return_value = (0.75, 150)
+        from src.acmecli.types import MetricValue
+        
+        # Create a mock metric that returns a MetricValue
+        mock_metric = MagicMock()
+        mock_metric.name = "test_metric"
+        mock_metric.score.return_value = MetricValue("test_metric", 0.8, 50)
+        
+        with patch("src.acmecli.cli.REGISTRY", [mock_metric]):
+            mock_github_handler = MagicMock()
+            mock_github_handler.fetch_meta.return_value = {"name": "test-repo"}
+            mock_hf_handler = MagicMock()
+            mock_cache = MagicMock()
+
+            result = process_url(
+                "https://github.com/user/repo",
+                mock_github_handler,
+                mock_hf_handler,
+                mock_cache,
+            )
+
+            assert result is not None
+            assert result.name == "repo"
+            assert result.category == "MODEL"
+            mock_metric.score.assert_called_once()
+
+    @patch("src.acmecli.cli.compute_net_score")
+    def test_process_url_size_score_dict(self, mock_compute_net_score):
+        """Test process_url handles size_score dict correctly"""
+        mock_compute_net_score.return_value = (0.5, 100)
+        from src.acmecli.types import MetricValue
+        
+        # Create a metric that returns a dict for size_score
+        mock_size_metric = MagicMock()
+        mock_size_metric.name = "size_score"
+        mock_size_metric.score.return_value = MetricValue(
+            "size_score",
+            {"raspberry_pi": 0.1, "jetson_nano": 0.2, "desktop_pc": 0.3, "aws_server": 0.4},
+            50
+        )
+        
+        with patch("src.acmecli.cli.REGISTRY", [mock_size_metric]):
+            mock_github_handler = MagicMock()
+            mock_github_handler.fetch_meta.return_value = {"name": "test-repo"}
+            mock_hf_handler = MagicMock()
+            mock_cache = MagicMock()
+
+            result = process_url(
+                "https://github.com/user/repo",
+                mock_github_handler,
+                mock_hf_handler,
+                mock_cache,
+            )
+
+            assert result is not None
+            assert isinstance(result.size_score, dict)
 
 
 class TestMain:

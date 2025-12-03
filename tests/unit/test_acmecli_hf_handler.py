@@ -342,6 +342,354 @@ class TestHFHandlerFetchMeta:
         assert result["readme_text"] == ""
 
 
+class TestHFHandlerFetchMetaAdvanced:
+    """Test advanced fetch_meta scenarios for better coverage"""
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_field_variants(self, mock_get_json, mock_urlopen):
+        """Test fetching metadata with different README field names"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "# README content",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == "# README content"
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_uppercase(self, mock_get_json, mock_urlopen):
+        """Test fetching metadata with uppercase README field"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "README": "# README content uppercase",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == "# README content uppercase"
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_dash_field(self, mock_get_json, mock_urlopen):
+        """Test fetching metadata with --- field"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "---": "# README content dash",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == "# README content dash"
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_readme_not_string(self, mock_get_json, mock_urlopen):
+        """Test handling README that is not a string"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": 12345,  # Not a string
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "readme_text" in result
+        assert result["readme_text"] == ""
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_with_github_links_in_readme(self, mock_get_json, mock_urlopen):
+        """Test extracting GitHub links from README"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "See https://github.com/user/repo for code",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "github" in result or "github_url" in result
+        assert "github_urls" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_with_huggingface_links(self, mock_get_json, mock_urlopen):
+        """Test extracting HuggingFace links from README"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "Based on https://huggingface.co/parent/model",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "huggingface_links" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_with_other_links(self, mock_get_json, mock_urlopen):
+        """Test extracting other links from README"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "Visit https://example.com for more info",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "other_links" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_html_fetch_success(self, mock_get_json, mock_urlopen):
+        """Test successful HTML page fetch with GitHub links"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "# README",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html><a href="https://github.com/user/repo">Repo</a></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "github" in result or "github_url" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_html_fetch_merges_github_urls(self, mock_get_json, mock_urlopen):
+        """Test that HTML fetch merges GitHub URLs correctly"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "See https://github.com/user/repo1",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html><a href="https://github.com/user/repo2">Repo2</a></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "github_urls" in result
+        assert len(result["github_urls"]) >= 1
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_html_fetch_merges_hf_links(self, mock_get_json, mock_urlopen):
+        """Test that HTML fetch merges HuggingFace links"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "# README",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html><a href="https://huggingface.co/parent/model">Parent</a></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "huggingface_links" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_html_fetch_merges_other_links(self, mock_get_json, mock_urlopen):
+        """Test that HTML fetch merges other links"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "# README",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_html_response = MagicMock()
+        mock_html_response.read.return_value = b'<html><a href="https://example.com">Example</a></html>'
+        mock_html_response.__enter__.return_value = mock_html_response
+        mock_urlopen.return_value = mock_html_response
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert "other_links" in result
+
+    @patch("src.acmecli.hf_handler.urlopen")
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_html_fetch_exception(self, mock_get_json, mock_urlopen):
+        """Test handling exception when fetching HTML page"""
+        api_data = {
+            "modelId": "user/model",
+            "cardData": {
+                "readme": "# README",
+            },
+        }
+        mock_get_json.return_value = api_data
+        mock_urlopen.side_effect = Exception("HTML fetch error")
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model")
+
+        assert result["modelId"] == "user/model"
+
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_with_tree_path(self, mock_get_json):
+        """Test fetching metadata with tree in path"""
+        api_data = {"modelId": "user/model", "downloads": 1000}
+        mock_get_json.return_value = api_data
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model/tree/main")
+
+        assert result["modelId"] == "user/model"
+
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_with_resolve_path(self, mock_get_json):
+        """Test fetching metadata with resolve in path"""
+        api_data = {"modelId": "user/model", "downloads": 1000}
+        mock_get_json.return_value = api_data
+
+        handler = HFHandler()
+        result = handler.fetch_meta("https://huggingface.co/user/model/resolve/main/model.bin")
+
+        assert result["modelId"] == "user/model"
+
+    @patch("src.acmecli.hf_handler.HFHandler._get_json")
+    def test_fetch_meta_unsupported_path(self, mock_get_json):
+        """Test fetching metadata with unsupported path format"""
+        api_data = {"modelId": "user/model", "downloads": 1000}
+        mock_get_json.return_value = api_data
+
+        handler = HFHandler()
+        # This should still work as it filters out blob/resolve/tree
+        result = handler.fetch_meta("https://huggingface.co/user/model/blob/main/file.txt")
+
+        assert result["modelId"] == "user/model"
+
+
+class TestHFHandlerExtractHyperlinksAdvanced:
+    """Test advanced hyperlink extraction scenarios"""
+
+    def test_extract_hyperlinks_github_context_patterns(self):
+        """Test extracting GitHub URLs with context patterns"""
+        handler = HFHandler()
+        text = "The repository is available on https://github.com/user/repo"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) >= 1
+
+    def test_extract_hyperlinks_github_reverse_pattern(self):
+        """Test extracting GitHub URLs with reverse context pattern"""
+        handler = HFHandler()
+        text = "https://github.com/user/repo repository"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) >= 1
+
+    def test_extract_hyperlinks_hf_context_patterns(self):
+        """Test extracting HuggingFace URLs with context patterns"""
+        handler = HFHandler()
+        text = "Based on https://huggingface.co/parent/model"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["huggingface"]) >= 1
+
+    def test_extract_hyperlinks_url_with_trailing_punctuation(self):
+        """Test extracting URLs with trailing punctuation"""
+        handler = HFHandler()
+        text = "See https://github.com/user/repo."
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) == 1
+        assert result["github"][0] == "https://github.com/user/repo"
+
+    def test_extract_hyperlinks_url_with_query_params(self):
+        """Test extracting URLs with query parameters"""
+        handler = HFHandler()
+        text = "Visit https://github.com/user/repo?tab=readme"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) == 1
+        assert "?" not in result["github"][0]
+
+    def test_extract_hyperlinks_url_with_fragments(self):
+        """Test extracting URLs with fragments"""
+        handler = HFHandler()
+        text = "Check https://github.com/user/repo#section"
+        result = handler._extract_hyperlinks_from_text(text)
+
+        assert len(result["github"]) == 1
+        assert "#" not in result["github"][0]
+
+
 class TestFetchHfMetadata:
     """Test module-level fetch_hf_metadata function"""
 

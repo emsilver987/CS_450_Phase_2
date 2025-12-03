@@ -362,6 +362,270 @@ class TestGitHubHandlerFetchMeta:
         assert len(result["github"]["direct_commits"]) > 0
 
 
+class TestGitHubHandlerFetchMetaAdvanced:
+    """Test advanced fetch_meta scenarios for better coverage"""
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_contents_with_key_dirs(self, mock_get_json):
+        """Test fetching contents with key directories"""
+        repo_data = {"name": "test-repo"}
+        contents_data = [
+            {"type": "file", "path": "README.md"},
+            {"type": "dir", "name": "src", "path": "src"},
+            {"type": "dir", "name": "tests", "path": "tests"},
+        ]
+        src_contents = [{"type": "file", "path": "src/main.py"}]
+        tests_contents = [{"type": "file", "path": "tests/test.py"}]
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "contents" in url and "src" not in url and "tests" not in url:
+                return contents_data
+            elif "contents/src" in url:
+                return src_contents
+            elif "contents/tests" in url:
+                return tests_contents
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "repo_files" in result
+        assert "README.md" in result["repo_files"]
+        assert "src/main.py" in result["repo_files"]
+        assert "tests/test.py" in result["repo_files"]
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_contents_exception(self, mock_get_json):
+        """Test handling exception when fetching contents"""
+        repo_data = {"name": "test-repo"}
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "contents" in url:
+                raise Exception("Contents error")
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "repo_files" in result
+        assert result["repo_files"] == set()
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_prs_with_reviews_and_files(self, mock_get_json):
+        """Test fetching PRs with reviews and files"""
+        repo_data = {"name": "test-repo"}
+        prs_data = [
+            {
+                "number": 1,
+                "state": "closed",
+                "merged_at": "2024-01-01T00:00:00Z",
+                "additions": 100,
+            }
+        ]
+        reviews_data = [{"state": "APPROVED"}, {"state": "COMMENTED"}]
+        files_data = [{"filename": "test.py", "additions": 50}]
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "pulls" in url and "reviews" not in url and "files" not in url:
+                return prs_data
+            elif "reviews" in url:
+                return reviews_data
+            elif "files" in url and "pulls" in url:
+                return files_data
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert len(result["github"]["prs"]) > 0
+        assert result["github"]["prs"][0]["approved"] is True
+        assert result["github"]["prs"][0]["review_count"] == 2
+        assert len(result["github"]["prs"][0]["files"]) > 0
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_prs_open_not_merged(self, mock_get_json):
+        """Test fetching open PRs that are not merged"""
+        repo_data = {"name": "test-repo"}
+        prs_data = [
+            {
+                "number": 1,
+                "state": "open",
+                "merged_at": None,
+                "additions": 50,
+            }
+        ]
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "pulls" in url:
+                return prs_data
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert len(result["github"]["prs"]) > 0
+        assert result["github"]["prs"][0]["merged"] is False
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_commits_with_stats(self, mock_get_json):
+        """Test fetching commits with stats"""
+        repo_data = {"name": "test-repo"}
+        commits_data = [
+            {
+                "sha": "abc123",
+                "stats": {"additions": 200},
+            }
+        ]
+        commit_detail_data = {
+            "stats": {"additions": 200},
+            "files": [{"filename": "test.py", "additions": 100}],
+        }
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "commits" in url and "commits/abc123" not in url:
+                return commits_data
+            elif "commits/abc123" in url:
+                return commit_detail_data
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert len(result["github"]["direct_commits"]) > 0
+        assert result["github"]["direct_commits"][0]["additions"] == 200
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_commits_other_http_error(self, mock_get_json):
+        """Test handling other HTTP errors when fetching commit details"""
+        repo_data = {"name": "test-repo"}
+        commits_data = [{"sha": "abc123", "stats": {"additions": 100}}]
+        commit_error = HTTPError("url", 500, "Internal Server Error", {}, None)
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "commits" in url and "commits/abc123" not in url:
+                return commits_data
+            elif "commits/abc123" in url:
+                raise commit_error
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert len(result["github"]["direct_commits"]) > 0
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_commits_general_exception(self, mock_get_json):
+        """Test handling general exception when fetching commit details"""
+        repo_data = {"name": "test-repo"}
+        commits_data = [{"sha": "abc123", "stats": {"additions": 100}}]
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "commits" in url and "commits/abc123" not in url:
+                return commits_data
+            elif "commits/abc123" in url:
+                raise Exception("General error")
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert len(result["github"]["direct_commits"]) > 0
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_prs_exception(self, mock_get_json):
+        """Test handling exception when fetching PRs"""
+        repo_data = {"name": "test-repo"}
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "pulls" in url:
+                raise Exception("PR error")
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+        assert result["github"]["prs"] == []
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_readme_empty_content(self, mock_get_json):
+        """Test handling README with empty content"""
+        repo_data = {"name": "test-repo"}
+        readme_data = {"content": ""}
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "readme" in url:
+                return readme_data
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert result["readme_text"] == ""
+
+    @patch("src.acmecli.github_handler.GitHubHandler._get_json")
+    def test_fetch_meta_http_error_403_no_reset_header(self, mock_get_json):
+        """Test handling 403 error without rate limit reset header"""
+        repo_data = {"name": "test-repo"}
+        mock_error = HTTPError("url", 403, "Forbidden", {}, None)
+        mock_error.headers = {}  # No X-RateLimit-Reset header
+
+        def get_json_side_effect(url):
+            if "repos/test/repo" in url and "contributors" not in url and "contents" not in url and "readme" not in url and "pulls" not in url and "commits" not in url:
+                return repo_data
+            elif "pulls" in url:
+                raise mock_error
+            return {}
+
+        mock_get_json.side_effect = get_json_side_effect
+
+        handler = GitHubHandler()
+        result = handler.fetch_meta("https://github.com/test/repo")
+
+        assert "github" in result
+
+
 class TestFetchGithubMetadata:
     """Test module-level fetch_github_metadata function"""
 

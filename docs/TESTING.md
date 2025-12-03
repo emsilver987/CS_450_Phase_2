@@ -19,6 +19,9 @@ pytest tests/unit/
 
 # Run with coverage
 pytest tests/unit/ --cov=src --cov-report=html
+
+# Run with coverage (terminal output, exclude populate_registry tests)
+pytest --cov=src --cov-report=term-missing -k "not populate_registry"
 ```
 
 ### Integration Tests

@@ -9,6 +9,23 @@ from unittest.mock import patch
 class TestEntrypointAuthSetup:
     """Test JWT middleware setup in entrypoint"""
 
+    def test_entrypoint_baseline_import(self):
+        """Test baseline import to ensure module-level code executes for coverage"""
+        # Remove module from cache to force reload
+        if 'src.entrypoint' in sys.modules:
+            del sys.modules['src.entrypoint']
+        
+        # Import without any patching to ensure all module-level code executes
+        with patch.dict(os.environ, {}, clear=True):
+            import src.entrypoint
+            
+            # Verify the module has the expected attributes
+            assert hasattr(src.entrypoint, 'app')
+            assert src.entrypoint.app is not None
+            # Verify app is the same as index.app
+            from src.index import app as index_app
+            assert src.entrypoint.app is index_app
+
     def test_entrypoint_without_auth(self):
         """Test entrypoint without auth enabled (no env vars)"""
         # Test the auth condition logic directly

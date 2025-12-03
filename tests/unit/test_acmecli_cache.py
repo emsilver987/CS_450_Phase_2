@@ -8,6 +8,12 @@ from src.acmecli.cache import InMemoryCache
 class TestInMemoryCache:
     """Test InMemoryCache class"""
 
+    def test_module_import(self):
+        """Test that module can be imported correctly"""
+        import src.acmecli.cache
+        assert hasattr(src.acmecli.cache, 'InMemoryCache')
+        assert src.acmecli.cache.InMemoryCache is InMemoryCache
+
     def test_cache_initialization(self):
         """Test cache initialization"""
         cache = InMemoryCache()
