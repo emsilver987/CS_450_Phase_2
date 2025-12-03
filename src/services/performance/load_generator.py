@@ -9,8 +9,7 @@ import time
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
-import os
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class LoadGenerator:
 
         Args:
             run_id: Unique identifier for this workload run
-            base_url: Base URL of the API (e.g., "https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod")
+            base_url: Base URL of the API
             num_clients: Number of concurrent clients to simulate
             model_id: Model ID to download
             version: Model version (default: "main")
@@ -95,8 +94,13 @@ class LoadGenerator:
             .replace("|", "_")
         )
         # Use performance/ path if specified, otherwise models/
-        path_prefix = "performance" if self.use_performance_path else "models"
-        return f"{self.base_url}/{path_prefix}/{sanitized_model_id}/{self.version}/model.zip"
+        path_prefix = (
+            "performance" if self.use_performance_path else "models"
+        )
+        return (
+            f"{self.base_url}/{path_prefix}/{sanitized_model_id}/"
+            f"{self.version}/model.zip"
+        )
 
     async def _make_request(
         self, client_id: int, session: aiohttp.ClientSession
@@ -161,15 +165,21 @@ class LoadGenerator:
             latency_ms = (end_time - start_time) * 1000
 
             error_msg = str(e)
-            if "nodename nor servname provided" in error_msg or "Cannot connect to host" in error_msg:
-                logger.error(
-                    f"DNS resolution failed for client_id={client_id}: {error_msg}. "
-                    f"Check that API_BASE_URL environment variable is set correctly. "
-                    f"Current base_url: {self.base_url}"
+            if (
+                "nodename nor servname provided" in error_msg
+                or "Cannot connect to host" in error_msg
+            ):
+                logger.debug(
+                    f"DNS resolution failed for client_id={client_id}: "
+                    f"{error_msg}. Check that API_BASE_URL environment "
+                    f"variable is set correctly. Current base_url: "
+                    f"{self.base_url}"
                 )
             else:
-                logger.error(f"Connection error for client_id={client_id}: {error_msg}")
-            
+                logger.error(
+                    f"Connection error for client_id={client_id}: {error_msg}"
+                )
+
             return Metric(
                 run_id=self.run_id,
                 client_id=client_id,
@@ -274,7 +284,8 @@ class LoadGenerator:
                 total_duration_seconds=total_duration,
             )
             logger.info(
-                f"Metrics storage completed: DynamoDB={storage_result['dynamodb_stored']}, "
+                f"Metrics storage completed: "
+                f"DynamoDB={storage_result['dynamodb_stored']}, "
                 f"CloudWatch={storage_result['cloudwatch_published']}"
             )
         except Exception as e:
@@ -339,7 +350,6 @@ class LoadGenerator:
         failed = [m for m in self.metrics if m.status_code != 200]
 
         latencies = [m.request_latency_ms for m in self.metrics]
-        successful_latencies = [m.request_latency_ms for m in successful]
         total_bytes = sum(m.bytes_transferred for m in successful)
         total_duration = (
             (self.end_time - self.start_time)
@@ -349,9 +359,6 @@ class LoadGenerator:
 
         # Calculate percentiles
         sorted_latencies = sorted(latencies) if latencies else []
-        sorted_successful_latencies = (
-            sorted(successful_latencies) if successful_latencies else []
-        )
 
         mean_latency = sum(latencies) / len(latencies) if latencies else 0
         median_latency = self._calculate_percentile(sorted_latencies, 50.0)

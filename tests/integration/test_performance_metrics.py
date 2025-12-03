@@ -181,7 +181,7 @@ class TestBlackBoxMetricsCollection:
     
     def test_latency_percentiles_from_sample_data(self):
         """Calculate percentiles from sample latency data"""
-        from tests.unit.test_performance_statistics import (
+        from tests.utils.performance_statistics import (
             calculate_mean, calculate_median, calculate_percentile
         )
         
@@ -197,7 +197,7 @@ class TestBlackBoxMetricsCollection:
     
     def test_latency_percentiles_edge_cases(self):
         """Test percentile calculation edge cases"""
-        from tests.unit.test_performance_statistics import calculate_percentile
+        from tests.utils.performance_statistics import calculate_percentile
         
         # Single value
         assert calculate_percentile([100.0], 99) == 100.0
@@ -250,29 +250,39 @@ class TestWhiteBoxMetricsCollection:
     )
     def test_dynamodb_metrics_available(self):
         """Verify DynamoDB metrics are accessible in CloudWatch"""
-        cloudwatch = boto3.client('cloudwatch', region_name=REGION)
-        
-        # Query for DynamoDB metrics
-        end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(hours=1)
-        
-        response = cloudwatch.get_metric_statistics(
-            Namespace='AWS/DynamoDB',
-            MetricName='ConsumedReadCapacityUnits',
-            Dimensions=[
-                {
-                    'Name': 'TableName',
-                    'Value': 'artifacts'
-                }
-            ],
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=300,
-            Statistics=['Average']
-        )
-        
-        # Should not raise exception
-        assert 'Datapoints' in response
+        try:
+            cloudwatch = boto3.client('cloudwatch', region_name=REGION)
+            
+            # Query for DynamoDB metrics
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(hours=1)
+            
+            response = cloudwatch.get_metric_statistics(
+                Namespace='AWS/DynamoDB',
+                MetricName='ConsumedReadCapacityUnits',
+                Dimensions=[
+                    {
+                        'Name': 'TableName',
+                        'Value': 'artifacts'
+                    }
+                ],
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=300,
+                Statistics=['Average']
+            )
+            
+            # Check if response is a mock (during unit tests)
+            if isinstance(response, MagicMock):
+                pytest.skip("CloudWatch client is mocked - skipping integration test")
+            
+            # Should not raise exception
+            assert 'Datapoints' in response
+        except Exception as e:
+            # Skip if AWS credentials not available or other AWS issues
+            if "Unable to locate credentials" in str(e) or "NoCredentialsError" in str(e):
+                pytest.skip(f"AWS credentials not available: {e}")
+            raise
 
 
 class TestResultsReporting:
@@ -383,7 +393,7 @@ class TestResultsReporting:
         bytes_transferred = [1024] * 5
         total_time = 0.05  # 50ms
         
-        from tests.unit.test_performance_statistics import (
+        from tests.utils.performance_statistics import (
             calculate_mean, calculate_median, calculate_percentile, calculate_throughput
         )
         
