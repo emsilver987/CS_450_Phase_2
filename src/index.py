@@ -6435,15 +6435,12 @@ try:
         methods=["GET"]
     )
     logger.info("Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
-    print("✓ Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
 except ImportError as e:
     logger.error(f"Failed to import download_performance_model_file: {str(e)}", exc_info=True)
-    print(f"✗ Failed to import download_performance_model_file: {str(e)}")
     import traceback
     traceback.print_exc()
 except Exception as e:
     logger.error(f"Failed to register performance download endpoint: {str(e)}", exc_info=True)
-    print(f"✗ Failed to register performance download endpoint: {str(e)}")
     import traceback
     traceback.print_exc()
 ROOT = Path(__file__).resolve().parents[1]
