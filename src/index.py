@@ -3327,11 +3327,11 @@ def get_artifact(artifact_type: str, id: str, request: Request):
                                 # Re-check status after wait
                                 status = _rating_status.get(id, "unknown")
 
+                        # Don't block artifact retrieval if rating failed/disqualified
+                        # The artifact still exists, just the rating couldn't be computed
                         if status == "disqualified" or status == "failed":
-                            logger.warning(f"DEBUG: Rating {status} for id='{id}'")
-                            raise HTTPException(
-                                status_code=404, detail="Artifact does not exist."
-                            )
+                            logger.warning(f"DEBUG: Rating {status} for id='{id}', but artifact still exists - continuing")
+                            # Continue to return the artifact even if rating failed
 
                     logger.info(
                         f"DEBUG: ✅ Artifact type matches 'model', returning immediately"
@@ -5380,11 +5380,19 @@ def get_model_rate(id: str, request: Request):
                     )
                     status = "timeout"
 
+            # Don't block rating endpoint if rating failed/disqualified
+            # Instead, try to compute rating synchronously as fallback
             if status == "disqualified" or status == "failed":
-                logger.warning(f"DEBUG: Rating {status} for id='{id}'")
-                raise HTTPException(status_code=404, detail="Artifact does not exist.")
-
-            if status == "completed":
+                logger.warning(f"DEBUG: Rating {status} for id='{id}', attempting synchronous fallback")
+                # Clear the failed status to allow retry
+                with _rating_lock:
+                    if id in _rating_status:
+                        del _rating_status[id]
+                    if id in _rating_results:
+                        del _rating_results[id]
+                # Fall through to synchronous rating below
+                rating = None
+            elif status == "completed":
                 # Use cached rating result
                 rating = _rating_results.get(id)
                 if not rating:
