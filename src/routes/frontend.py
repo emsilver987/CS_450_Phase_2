@@ -347,11 +347,23 @@ def register_routes(app: FastAPI):
                         if rating_raw:
                             logger.info(f"[RATE] Using cached rating for {cache_key}")
                 
-                # If not cached, compute rating
+                # If not cached, compute rating (same logic as index.py)
                 if not rating_raw:
                     logger.info(f"[RATE] Computing rating for {model_name} (cache_key={cache_key})")
                     try:
-                        rating_raw = analyze_model_content(model_name, suppress_errors=False)
+                        # Use analyze_model_content directly (same as index.py) - DO NOT use run_scorer
+                        analysis_id = model_name
+                        logger.info(f"[RATE] Calling analyze_model_content with: '{analysis_id}'")
+                        rating_raw = analyze_model_content(analysis_id, suppress_errors=False)
+                        logger.info(f"[RATE] analyze_model_content returned: {rating_raw is not None}")
+                        if not rating_raw:
+                            logger.error(f"[RATE] analyze_model_content returned None/empty for '{analysis_id}'")
+                            raise HTTPException(
+                                status_code=500,
+                                detail="The artifact rating system encountered an error while computing at least one metric.",
+                            )
+                    except HTTPException:
+                        raise
                     except RuntimeError as e:
                         logger.error(f"[RATE] RuntimeError analyzing {model_name}: {str(e)}", exc_info=True)
                         raise HTTPException(
@@ -362,18 +374,16 @@ def register_routes(app: FastAPI):
                         logger.error(f"[RATE] Exception analyzing {model_name}: {str(e)}", exc_info=True)
                         raise HTTPException(
                             status_code=500,
-                            detail=f"The artifact rating system encountered an error: {str(e)}",
+                            detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
                         )
-                    if not rating_raw:
-                        raise HTTPException(
-                            status_code=500,
-                            detail="The artifact rating system encountered an error while computing at least one metric.",
-                        )
-                    # Cache the result if we have a cache key
+                    # Cache the result if we have a cache key (same as index.py)
                     if cache_key:
                         with _rating_lock:
                             _rating_results[cache_key] = rating_raw
                             _rating_status[cache_key] = "completed"
+                            # Clean up start time if it exists
+                            if cache_key in _rating_start_times:
+                                del _rating_start_times[cache_key]
                 
                 rating = _build_rating_response(model_name, rating_raw)
                 # Add model ID to rating if available
