@@ -62,7 +62,8 @@ class TestRegistryPopulation:
         # Note: This test will pass once script is created
         # For now, we check if we can import or if file exists
         if os.path.exists(script_path):
-            assert True
+            assert os.path.isfile(script_path), f"Script {script_path} should be a file"
+            assert os.access(script_path, os.R_OK), f"Script {script_path} should be readable"
         else:
             pytest.skip(f"Script {script_path} not yet created")
     

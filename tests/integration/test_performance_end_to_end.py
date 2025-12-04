@@ -252,7 +252,8 @@ class TestFullPerformanceWorkflow:
                     
                     # May have partial metrics
                     if "metrics" in results_data:
-                        assert True  # Partial metrics available
+                        metrics = results_data["metrics"]
+                        assert isinstance(metrics, (dict, list)), "Metrics should be a dict or list"
                         
         except requests.exceptions.ConnectionError:
             pytest.skip("API server not running")
@@ -284,7 +285,8 @@ class TestPerformanceIntegrationWithHealthDashboard:
             
             # Should have metrics
             if "metrics" in performance_component:
-                assert True  # Metrics available
+                metrics = performance_component["metrics"]
+                assert isinstance(metrics, (dict, list)), "Metrics should be a dict or list"
                 
         except requests.exceptions.ConnectionError:
             pytest.skip("API server not running")
@@ -346,7 +348,8 @@ class TestPerformanceMetricsPersistence:
                 
                 items = response.get('Items', [])
                 # Should have metrics persisted
-                assert len(items) >= 0  # At minimum, no errors
+                assert isinstance(items, list), "Items should be a list"
+                # Note: Items list may be empty if metrics haven't been collected yet, which is valid
                 
         except requests.exceptions.ConnectionError:
             pytest.skip("API server not running")

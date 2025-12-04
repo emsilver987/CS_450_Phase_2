@@ -35,8 +35,15 @@ uvicorn src.entrypoint:app --host 0.0.0.0 --port 3000
 # In another terminal, run integration tests
 pytest tests/integration/ -v
 
-# Or run only Selenium tests
-pytest tests/integration/test_selenium_frontend.py -v
+# Exclude TestRegistryPopulation tests (including 500 models test)
+pytest tests/integration/ -k "not TestRegistryPopulation" -v
+
+   # Or run only Selenium frontend tests
+   pytest tests/integration/test_frontend_*.py -v
+
+   # Run specific page tests
+   pytest tests/integration/test_frontend_home.py -v
+   pytest tests/integration/test_frontend_directory.py -v
 ```
 
 ### All Tests
@@ -112,6 +119,7 @@ brew install chromedriver
 ```
 
 **Installation paths:**
+
 - Apple Silicon Macs: `/opt/homebrew/bin/chromedriver`
 - Intel Macs: `/usr/local/bin/chromedriver`
 
@@ -129,6 +137,7 @@ chromedriver --version
 ```
 
 **Installation paths:**
+
 - `/usr/lib/chromium-browser/chromedriver` (most common)
 - `/usr/bin/chromedriver`
 
@@ -154,6 +163,7 @@ The `webdriver-manager` package can automatically download and manage ChromeDriv
 - On Windows: You must manually match versions when downloading from ChromeDriver Downloads
 
 **Checking versions:**
+
 ```bash
 # Check Chrome browser version
 google-chrome --version  # Linux
@@ -182,12 +192,13 @@ chromedriver --version
 ```
 
 **Running the verification test:**
+
 ```bash
-# Run the test that verifies ChromeDriver availability
-pytest tests/integration/test_selenium_frontend.py::test_chromedriver_available -v
+# Run any frontend test to verify ChromeDriver availability
+pytest tests/integration/test_frontend_home.py -v
 ```
 
-This test will automatically check if ChromeDriver can be found and initialized correctly.
+Tests will automatically check if ChromeDriver can be found and initialized correctly.
 
 ### Running Selenium Tests Locally
 
@@ -208,8 +219,14 @@ This test will automatically check if ChromeDriver can be found and initialized 
    # Set base URL if different from default
    export TEST_BASE_URL=http://localhost:3000
 
-   # Run Selenium tests
-   pytest tests/integration/test_selenium_frontend.py -v
+   # Run Selenium frontend tests
+   pytest tests/integration/test_frontend_*.py -v
+
+   # Run only accessibility tests
+   pytest tests/integration/test_frontend_*.py::Test*FrontendAccessibility -v
+
+   # Run only UI functionality tests
+   pytest tests/integration/test_frontend_*.py::Test*FrontendUI -v
    ```
 
 3. **Tests will automatically**:
@@ -316,7 +333,16 @@ When tests fail in CI:
 
 - `tests/unit/`: Unit tests (no external dependencies)
 - `tests/integration/`: Integration tests (require server)
-  - `test_selenium_frontend.py`: Selenium frontend tests
+  - `test_frontend_*.py`: Selenium frontend tests (one file per page)
+    - `test_frontend_home.py`: Homepage tests
+    - `test_frontend_directory.py`: Directory page tests
+    - `test_frontend_upload.py`: Upload page tests
+    - `test_frontend_license_check.py`: License check page tests
+    - `test_frontend_lineage.py`: Lineage page tests
+    - `test_frontend_rate.py`: Rate page tests
+    - `test_frontend_size_cost.py`: Size/cost page tests
+  - `test_accessibility_base.py`: Shared base class for accessibility tests
+  - `conftest.py`: Shared fixtures for integration tests
   - `test_ci_environment.py`: CI environment validation
 
 ### Test Utilities
@@ -389,26 +415,71 @@ Integration tests verify the system end-to-end, including:
 
 Tests use pytest markers for organization:
 
-- `@pytest.mark.selenium` - Selenium browser tests
-- `@pytest.mark.integration` - Integration tests requiring server
+- `@pytest.mark.integration` - Integration tests requiring server (automatically applied via `pytestmark`)
 - `@pytest.mark.skipif` - Conditional test skipping
+
+### Test Structure
+
+Frontend tests are organized by page, with two test classes per page:
+
+1. **Accessibility Tests** (`Test*FrontendAccessibility`): WCAG 2.1 Level AA compliance tests
+   - Language attributes
+   - Page titles
+   - Heading hierarchy
+   - Form labels and ARIA attributes
+   - Keyboard navigation
+   - Focus indicators
+
+2. **UI Functionality Tests** (`Test*FrontendUI`): Frontend UI behavior tests
+   - Page loading
+   - Form interactions
+   - Search functionality
+   - Results display
 
 Example:
 
 ```python
-@pytest.mark.selenium
-def test_home_page_loads(driver, base_url):
-    driver.get(f"{base_url}/")
-    assert "ACME" in driver.title
+class TestHomeFrontendAccessibility:
+    """Test WCAG 2.1 Level AA compliance on homepage frontend."""
+
+    def test_language_attribute(self, driver, base_url):
+        driver.get(base_url)
+        html = driver.find_element(By.TAG_NAME, "html")
+        assert html.get_attribute("lang") == "en"
+```
+
+### Running Specific Test Types
+
+```bash
+# Run all frontend tests
+pytest tests/integration/test_frontend_*.py -v
+
+# Run only accessibility tests
+pytest tests/integration/test_frontend_*.py::Test*FrontendAccessibility -v
+
+# Run only UI functionality tests
+pytest tests/integration/test_frontend_*.py::Test*FrontendUI -v
+
+# Run tests for a specific page
+pytest tests/integration/test_frontend_home.py -v
 ```
 
 ### Integration Test Structure
 
 ```
 tests/integration/
-├── test_selenium_frontend.py    # Frontend UI tests
-├── test_directory.py             # Directory page tests
-├── test_upload.py               # Upload functionality tests
+├── conftest.py                   # Shared fixtures (driver, base_url)
+├── test_accessibility_base.py   # Base class for accessibility tests
+├── test_frontend_*.py           # Frontend UI tests (one per page)
+│   ├── test_frontend_home.py
+│   ├── test_frontend_directory.py
+│   ├── test_frontend_upload.py
+│   ├── test_frontend_license_check.py
+│   ├── test_frontend_lineage.py
+│   ├── test_frontend_rate.py
+│   └── test_frontend_size_cost.py
+├── test_directory.py            # Directory API tests
+├── test_upload.py               # Upload API tests
 └── test_package_system.py       # Package management tests
 ```
 

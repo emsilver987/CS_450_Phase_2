@@ -208,7 +208,9 @@ class TestOptimization2AutoScaling:
                 if services_list:
                     service = services_list[0]
                     # Check for auto-scaling configuration
-                    assert True  # Service exists
+                    assert 'serviceName' in service, "Service should have a name"
+                    assert 'status' in service, "Service should have a status"
+                    # Service exists and has required properties
         except Exception:
             pass
     

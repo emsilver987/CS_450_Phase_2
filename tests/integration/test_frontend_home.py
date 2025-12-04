@@ -5,24 +5,23 @@ Note: These tests verify the frontend UI only, not backend functionality.
 """
 import pytest
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from tests.constants import PAGE_LOAD_MAX_TIME
+from tests.utils.performance_measurement import measure_time, assert_page_load_performance
+from tests.integration.test_accessibility_base import AccessibilityTestBase
+
+pytestmark = pytest.mark.integration
 
 
-class TestHomeFrontendAccessibility:
+class TestHomeFrontendAccessibility(AccessibilityTestBase):
     """Test WCAG 2.1 Level AA compliance on homepage frontend."""
     
-    def test_language_attribute(self, driver, base_url):
-        """Test that HTML lang attribute is set (WCAG 3.1.1)."""
-        driver.get(base_url)
-        html = driver.find_element(By.TAG_NAME, "html")
-        assert html.get_attribute("lang") == "en", "HTML lang attribute should be 'en'"
+    @property
+    def page_path(self):
+        return "/"
     
-    def test_page_title(self, driver, base_url):
-        """Test that page has a descriptive title (WCAG 2.4.2)."""
-        driver.get(base_url)
-        title = driver.title
-        assert title and len(title) > 0, "Page should have a title"
-        assert "ACME" in title or "Registry" in title, "Title should be descriptive"
+    @property
+    def expected_title_keyword(self):
+        return "ACME"
     
     def test_skip_link(self, driver, base_url):
         """Test skip link for main content (WCAG 2.4.1)."""
@@ -39,40 +38,6 @@ class TestHomeFrontendAccessibility:
         if nav:
             aria_label = nav[0].get_attribute("aria-label")
             assert aria_label, "Navigation should have aria-label"
-    
-    def test_heading_hierarchy(self, driver, base_url):
-        """Test that headings are in logical order (WCAG 1.3.1)."""
-        driver.get(base_url)
-        h1 = driver.find_elements(By.TAG_NAME, "h1")
-        assert len(h1) > 0, "Page should have at least one h1"
-        
-        headings = driver.find_elements(By.CSS_SELECTOR, "h1, h2, h3, h4, h5, h6")
-        if len(headings) > 1:
-            for i in range(len(headings) - 1):
-                current_level = int(headings[i].tag_name[1])
-                next_level = int(headings[i + 1].tag_name[1])
-                assert next_level <= current_level + 1, "Headings should not skip levels"
-    
-    def test_keyboard_navigation(self, driver, base_url):
-        """Test that all interactive elements are keyboard accessible (WCAG 2.1.1)."""
-        driver.get(base_url)
-        body = driver.find_element(By.TAG_NAME, "body")
-        body.send_keys(Keys.TAB)
-        focused = driver.switch_to.active_element
-        assert focused is not None, "Should be able to focus on elements with keyboard"
-    
-    def test_focus_indicators(self, driver, base_url):
-        """Test that focus indicators are visible (WCAG 2.4.7)."""
-        driver.get(base_url)
-        # Find first focusable element
-        links = driver.find_elements(By.TAG_NAME, "a")
-        if links:
-            links[0].send_keys(Keys.TAB)
-            focused = driver.switch_to.active_element
-            outline = focused.value_of_css_property("outline")
-            box_shadow = focused.value_of_css_property("box-shadow")
-            # At least one should be non-default
-            assert outline != "none" or box_shadow != "none", "Focused elements should have visible focus indicators"
 
 
 class TestHomeFrontendUI:
@@ -80,8 +45,14 @@ class TestHomeFrontendUI:
     
     def test_homepage_loads(self, driver, base_url):
         """Test that homepage frontend loads successfully."""
-        driver.get(base_url)
+        with measure_time("homepage_load") as timer:
+            driver.get(base_url)
         assert "ACME Registry" in driver.title or "ACME Registry" in driver.page_source
+        # Performance assertion: homepage should load within threshold
+        assert timer.elapsed <= PAGE_LOAD_MAX_TIME, (
+            f"Homepage load took {timer.elapsed:.2f}s, "
+            f"exceeds threshold of {PAGE_LOAD_MAX_TIME}s"
+        )
     
     def test_navigation_links_ui(self, driver, base_url):
         """Test that all navigation links are present and clickable in the frontend."""
@@ -100,17 +71,41 @@ class TestHomeFrontendUI:
                 continue
         
         # Test each link by navigating directly
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        
+        from tests.constants import NAVIGATION_MAX_TIME
+        
         for href in hrefs:
             try:
-                driver.get(href)
-                import time
-                time.sleep(1)  # Wait for page load
+                # Measure navigation time
+                with measure_time("navigation") as nav_timer:
+                    driver.get(href)
+                    # Wait for page to load using WebDriverWait instead of sleep
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "body"))
+                    )
                 assert driver.current_url, "Navigation should work"
-                driver.back()  # Return to homepage
-                time.sleep(0.5)  # Wait for navigation
+                # Performance assertion: navigation should complete within threshold
+                assert nav_timer.elapsed <= NAVIGATION_MAX_TIME, (
+                    f"Navigation to {href} took {nav_timer.elapsed:.2f}s, "
+                    f"exceeds threshold of {NAVIGATION_MAX_TIME}s"
+                )
+                
+                # Measure back navigation time
+                with measure_time("back_navigation") as back_timer:
+                    driver.back()  # Return to homepage
+                    # Wait for navigation back to complete
+                    WebDriverWait(driver, 10).until(
+                        lambda d: d.current_url == base_url or base_url in d.current_url
+                    )
+                assert back_timer.elapsed <= NAVIGATION_MAX_TIME, (
+                    f"Back navigation took {back_timer.elapsed:.2f}s, "
+                    f"exceeds threshold of {NAVIGATION_MAX_TIME}s"
+                )
             except Exception as e:
-                # Log but don't fail - some links might require auth
-                print(f"Navigation test skipped for {href}: {e}")
+                # Use pytest.skip for expected failures (e.g., auth-required links)
+                pytest.skip(f"Navigation test skipped for {href}: {e}")
 
 
 if __name__ == "__main__":

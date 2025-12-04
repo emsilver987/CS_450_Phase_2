@@ -247,7 +247,7 @@ class TestFrontendRoutes:
         assert "error" in data
         assert "Upload failed" in data["error"]
 
-    @patch('src.routes.frontend.get_model_lineage_from_config')
+    @patch('src.services.s3_service.get_model_lineage_from_config')
     def test_lineage_success(self, mock_lineage):
         """Test lineage route successfully"""
         from src.routes.frontend import setup_app, set_templates
@@ -270,7 +270,7 @@ class TestFrontendRoutes:
         else:
             assert len(response.text) > 0
 
-    @patch('src.routes.frontend.get_model_lineage_from_config')
+    @patch('src.services.s3_service.get_model_lineage_from_config')
     def test_lineage_exception(self, mock_lineage):
         """Test lineage route with exception"""
         from src.routes.frontend import setup_app, set_templates
@@ -288,7 +288,7 @@ class TestFrontendRoutes:
         else:
             assert len(response.text) > 0
 
-    @patch('src.routes.frontend.get_model_sizes')
+    @patch('src.services.s3_service.get_model_sizes')
     def test_size_cost_success(self, mock_sizes):
         """Test size cost route successfully"""
         from src.routes.frontend import setup_app, set_templates
@@ -311,7 +311,7 @@ class TestFrontendRoutes:
         else:
             assert len(response.text) > 0
 
-    @patch('src.routes.frontend.get_model_sizes')
+    @patch('src.services.s3_service.get_model_sizes')
     def test_size_cost_exception(self, mock_sizes):
         """Test size cost route with exception"""
         from src.routes.frontend import setup_app, set_templates

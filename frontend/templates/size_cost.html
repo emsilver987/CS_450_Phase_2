@@ -1,197 +1,155 @@
-{% extends 'base.html' %}
-{% block title %}Size Cost Calculator - ACME Registry{% endblock %}
-{% block content %}
+{% extends 'base.html' %} {% block title %}Size Cost - ACME Registry{% endblock
+%} {% block content %}
 <section class="container">
   <h1>Size Cost Calculator</h1>
-  <p>Calculate the storage size and download cost for model weights and datasets.</p>
-  
-  <form method="get" aria-label="Get model size cost">
-    <div class="form-group">
-      <label for="size-name-input" class="required">Model Name or ID:</label>
-      <input 
-        type="text" 
-        name="name" 
-        id="size-name-input" 
-        value="{{ name }}" 
-        placeholder="Enter model name or ID" 
-        aria-label="Model name or ID"
-        aria-describedby="size-name-help"
-        required 
-      />
-      <span id="size-name-help" class="sr-only">Enter the model name or artifact ID to calculate size</span>
-    </div>
-    <div class="form-group">
-      <label for="size-id-input">Model ID (optional):</label>
-      <input 
-        type="text" 
-        name="id" 
-        id="size-id-input" 
-        value="{{ id }}" 
-        placeholder="Enter model ID" 
-        aria-label="Model ID (optional)"
-      />
-    </div>
-    <div class="form-group">
-      <label for="size-version-input">Version (optional):</label>
-      <input 
-        type="text" 
-        name="version" 
-        id="size-version-input" 
-        value="{{ version }}" 
-        placeholder="e.g., 1.0.0 or main"
-        aria-label="Model version (optional)"
-      />
-    </div>
-    <button class="btn" type="submit" aria-label="Get model size cost">Get Size Cost</button>
+
+  <form method="get" aria-label="Get model size cost" id="sizeCostForm">
+    <label for="model_name">Model Name:</label>
+    <input
+      id="model_name"
+      type="text"
+      name="name"
+      value="{{ name }}"
+      placeholder="Enter model name"
+      aria-label="Model name"
+      required
+    />
+    <button class="btn" type="submit" aria-label="Get size cost">Get Size Cost</button>
   </form>
 
-  {% if size_data %}
-    {% if size_data.error %}
-      <div class="card error" role="alert" aria-live="assertive">
-        <h2>Error</h2>
-        <p>{{ size_data.error }}</p>
+  {% if size_data %} {% if size_data.error %}
+  <div class="card error size-cost-results">
+    <h2>Error</h2>
+    <p>{{ size_data.error }}</p>
+  </div>
+  {% else %}
+  <div class="card size-cost-results" style="text-align: center">
+    <h2>Model Size Breakdown</h2>
+    <p><strong>Model ID:</strong> {{ size_data.model_id }}</p>
+
+    {% macro format_size(bytes) %} {% if bytes >= 1073741824 %} {{
+    "%.2f"|format(bytes / 1073741824) }} GB {% elif bytes >= 1048576 %} {{
+    "%.2f"|format(bytes / 1048576) }} MB {% elif bytes >= 1024 %} {{
+    "%.2f"|format(bytes / 1024) }} KB {% else %} {{ bytes }} bytes {% endif %}
+    {% endmacro %}
+
+    <div class="size-grid">
+      <div class="size-card">
+        <h3>Full Model</h3>
+        <p class="size-value">{{ format_size(size_data.full_size) }}</p>
+        <p class="size-note">Compressed ZIP</p>
+        <a
+          href="/download/{{ size_data.model_id }}/1.0.0?component=full"
+          class="btn"
+          >Download Full</a
+        >
       </div>
-    {% else %}
-      <div class="card" role="region" aria-labelledby="size-heading">
-        <h2 id="size-heading">Model Size Breakdown</h2>
-        <dl>
-          <dt>Model ID:</dt>
-          <dd>{{ size_data.model_id }}</dd>
-          {% if size_data.model_name %}
-          <dt>Model Name:</dt>
-          <dd>{{ size_data.model_name }}</dd>
-          {% endif %}
-        </dl>
-        
-        {% macro format_size(bytes) %}
-          {% if bytes >= 1073741824 %}
-            {{ "%.2f"|format(bytes / 1073741824) }} GB
-          {% elif bytes >= 1048576 %}
-            {{ "%.2f"|format(bytes / 1048576) }} MB
-          {% elif bytes >= 1024 %}
-            {{ "%.2f"|format(bytes / 1024) }} KB
-          {% else %}
-            {{ bytes }} bytes
-          {% endif %}
-        {% endmacro %}
-        
-        <div class="size-grid" role="list" aria-label="Model size breakdown">
-          <div class="size-card" role="listitem">
-            <h3>Full Model</h3>
-            <p class="size-value" aria-label="Full model size">{{ format_size(size_data.full_size) }}</p>
-            <p class="size-note">Compressed ZIP</p>
-            <a href="/download/{{ size_data.model_id }}/1.0.0?component=full" class="btn" aria-label="Download full model">Download Full</a>
-          </div>
-          
-          <div class="size-card" role="listitem">
-            <h3>Weights Only</h3>
-            <p class="size-value" aria-label="Weights size">{{ format_size(size_data.weights_size) }}</p>
-            <p class="size-note">Compressed: {{ format_size(size_data.weights_size) }}</p>
-            <p class="size-note">Uncompressed: {{ format_size(size_data.weights_uncompressed) }}</p>
-            <a href="/download/{{ size_data.model_id }}/1.0.0?component=weights" class="btn" aria-label="Download model weights">Download Weights</a>
-          </div>
-          
-          <div class="size-card" role="listitem">
-            <h3>Datasets Only</h3>
-            <p class="size-value" aria-label="Datasets size">{{ format_size(size_data.datasets_size) }}</p>
-            <p class="size-note">Compressed: {{ format_size(size_data.datasets_size) }}</p>
-            <p class="size-note">Uncompressed: {{ format_size(size_data.datasets_uncompressed) }}</p>
-            <a href="/download/{{ size_data.model_id }}/1.0.0?component=datasets" class="btn" aria-label="Download datasets">Download Datasets</a>
-          </div>
-        </div>
+
+      <div class="size-card">
+        <h3>Weights Only</h3>
+        <p class="size-value">{{ format_size(size_data.weights_size) }}</p>
+        <p class="size-note">
+          Compressed: {{ format_size(size_data.weights_size) }}
+        </p>
+        <p class="size-note">
+          Uncompressed: {{ format_size(size_data.weights_uncompressed) }}
+        </p>
+        <a
+          href="/download/{{ size_data.model_id }}/1.0.0?component=weights"
+          class="btn"
+          >Download Weights</a
+        >
       </div>
-    {% endif %}
+
+      <div class="size-card">
+        <h3>Datasets Only</h3>
+        <p class="size-value">{{ format_size(size_data.datasets_size) }}</p>
+        <p class="size-note">
+          Compressed: {{ format_size(size_data.datasets_size) }}
+        </p>
+        <p class="size-note">
+          Uncompressed: {{ format_size(size_data.datasets_uncompressed) }}
+        </p>
+        <a
+          href="/download/{{ size_data.model_id }}/1.0.0?component=datasets"
+          class="btn"
+          >Download Datasets</a
+        >
+      </div>
+    </div>
+  </div>
+  {% endif %} {% elif name %}
+  <div class="no-results size-cost-results">
+    <p>No size data found for model "{{ name }}".</p>
+  </div>
   {% endif %}
 </section>
 
 <style>
-.size-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin: 20px auto;
-  max-width: 1200px;
-}
+  .size-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin: 20px auto;
+    max-width: 1200px;
+  }
 
-.size-card {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
+  .size-card {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
 
-.size-card h3 {
-  margin: 0 0 10px 0;
-  color: #495057;
-}
+  .size-card h3 {
+    margin: 0 0 10px 0;
+    color: #495057;
+  }
 
-.size-value {
-  font-size: 1.5em;
-  font-weight: bold;
-  color: #007bff;
-  margin: 10px 0;
-}
+  .size-value {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #007bff;
+    margin: 10px 0;
+  }
 
-.size-note {
-  font-size: 0.85em;
-  color: #6c757d;
-  margin: 5px 0;
-}
+  .size-note {
+    font-size: 0.85em;
+    color: #6c757d;
+    margin: 5px 0;
+  }
 
-.size-card .btn {
-  display: block;
-  margin-top: 15px;
-  width: 100%;
-  padding: 4px 8px;
-  font-size: 0.75em;
-}
+  .size-card .btn {
+    display: block;
+    margin-top: 15px;
+    width: 100%;
+    padding: 4px 8px;
+    font-size: 0.75em;
+  }
 
-.size-breakdown {
-  margin-top: 30px;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
+  .size-breakdown {
+    margin-top: 30px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+  }
 
-.size-breakdown ul {
-  list-style: none;
-  padding: 0;
-}
+  .size-breakdown ul {
+    list-style: none;
+    padding: 0;
+  }
 
-.size-breakdown li {
-  padding: 10px;
-  border-bottom: 1px solid #dee2e6;
-}
+  .size-breakdown li {
+    padding: 10px;
+    border-bottom: 1px solid #dee2e6;
+  }
 
-.size-breakdown li:last-child {
-  border-bottom: none;
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.required::after {
-  content: " *";
-  color: #dc2626;
-  font-weight: bold;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
-}
+  .size-breakdown li:last-child {
+    border-bottom: none;
+  }
 </style>
 {% endblock %}
-

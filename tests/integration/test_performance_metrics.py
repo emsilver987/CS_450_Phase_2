@@ -162,7 +162,8 @@ class TestBlackBoxMetricsCollection:
         
         # Should have at least some metrics
         metrics = response.get('Metrics', [])
-        assert len(metrics) >= 0  # At minimum, no errors
+        assert isinstance(metrics, list), "Metrics should be a list"
+        # Note: Metrics list may be empty if no data collected yet, which is valid
     
     def test_throughput_calculation_from_sample_data(self):
         """Calculate throughput from stored metrics (using sample data)"""
