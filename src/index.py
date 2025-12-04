@@ -5100,7 +5100,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0), 2
         ),
         "performance_claims": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "performance_claims",
@@ -5108,7 +5108,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_performance_claims",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "performance_claims_latency": round(
@@ -5125,7 +5125,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(alias(rating, "license_latency", "LicenseLatency") or 0.0), 2
         ),
         "dataset_and_code_score": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "dataset_code",
@@ -5133,7 +5133,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_available_dataset_and_code",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "dataset_and_code_score_latency": round(
@@ -5148,12 +5148,12 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "dataset_quality": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating, "dataset_quality", "DatasetQuality", "score_dataset_quality"
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "dataset_quality_latency": round(
@@ -5163,10 +5163,10 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "code_quality": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(rating, "code_quality", "CodeQuality", "score_code_quality")
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "code_quality_latency": round(
