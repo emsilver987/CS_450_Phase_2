@@ -51,6 +51,21 @@ logger = logging.getLogger(__name__)
 templates: Jinja2Templates | None = None
 routes_registered = False
 
+# Helper function to get LLM status for templates
+def get_llm_status() -> bool:
+    """Get LLM availability status for templates"""
+    try:
+        from ..services.llm_service import is_llm_available
+        return is_llm_available()
+    except Exception:
+        return False
+
+# Helper function to enrich template context with LLM status
+def enrich_context(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Add LLM status to template context"""
+    ctx["llm_available"] = get_llm_status()
+    return ctx
+
 # Shared rating state (same as index.py)
 _rating_lock = threading.Lock()
 _rating_status: Dict[str, str] = {}
@@ -227,7 +242,8 @@ def register_routes(app: FastAPI):
     def home(request: Request):
         if not templates:
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
-        return templates.TemplateResponse("home.html", {"request": request})
+        ctx = enrich_context({"request": request})
+        return templates.TemplateResponse("home.html", ctx)
 
     @app.get("/directory")
     def directory(
@@ -298,7 +314,7 @@ def register_routes(app: FastAPI):
         except Exception as e:
             print(f"Directory error: {e}")
             packages = []
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "packages": packages,
             "q": q or "",
@@ -306,7 +322,7 @@ def register_routes(app: FastAPI):
             "model_regex": model_regex,
             "version_range": effective_version_range,
             "version": version,
-        }
+        })
         return templates.TemplateResponse("directory.html", ctx)
 
     @app.get("/rate")
@@ -387,7 +403,7 @@ def register_routes(app: FastAPI):
                     status_code=500,
                     detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
                 )
-        ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+        ctx = enrich_context({"request": request, "name": model_name or "", "id": model_id or "", "rating": rating})
         return templates.TemplateResponse("rate.html", ctx)
 
     @app.get("/artifact/model/{id}/rate")
@@ -417,7 +433,7 @@ def register_routes(app: FastAPI):
                     rating = _rating_results.get(id)
                     if rating:
                         rating_dict = _build_rating_response(effective_name, rating)
-                        ctx = {"request": request, "name": effective_name, "rating": rating_dict}
+                        ctx = enrich_context({"request": request, "name": effective_name, "rating": rating_dict})
                         return templates.TemplateResponse("rate.html", ctx)
             
             # Analyze model content if not cached
@@ -434,7 +450,7 @@ def register_routes(app: FastAPI):
                     _rating_status[id] = "completed"
             
             rating_dict = _build_rating_response(effective_name, rating)
-            ctx = {"request": request, "name": effective_name, "rating": rating_dict}
+            ctx = enrich_context({"request": request, "name": effective_name, "rating": rating_dict})
             return templates.TemplateResponse("rate.html", ctx)
         except HTTPException:
             raise
@@ -450,12 +466,12 @@ def register_routes(app: FastAPI):
         """Upload endpoint - uses ingest logic"""
         if not templates:
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "name": name or "",
             "version": version,
             "result": None,
-        }
+        })
         return templates.TemplateResponse("upload.html", ctx)
 
     @app.post("/upload")
@@ -569,19 +585,20 @@ def register_routes(app: FastAPI):
             logger.error(f"Error in POST /upload endpoint: {str(e)}", exc_info=True)
             result = {"error": f"Upload failed: {str(e)}"}
         
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "name": name or "",
             "version": version,
             "result": result,
-        }
+        })
         return templates.TemplateResponse("upload.html", ctx)
 
     @app.get("/admin")
     def admin(request: Request):
         if not templates:
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
-        return templates.TemplateResponse("admin.html", {"request": request})
+        ctx = enrich_context({"request": request})
+        return templates.TemplateResponse("admin.html", ctx)
 
     @app.get("/lineage")
     def lineage(request: Request, name: str | None = None, id: str | None = None, version: str | None = None):
@@ -656,13 +673,13 @@ def register_routes(app: FastAPI):
             except Exception as e:
                 logger.error(f"Lineage error: {e}", exc_info=True)
                 lineage_data = {"model_id": model_id or model_name, "model_name": model_name, "error": str(e)}
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "name": model_name or "",
             "id": model_id or "",
             "version": version or "1.0.0",
             "lineage": lineage_data,
-        }
+        })
         return templates.TemplateResponse("lineage.html", ctx)
 
     @app.post("/lineage/sync-neptune")
@@ -725,7 +742,7 @@ def register_routes(app: FastAPI):
             except Exception as e:
                 print(f"Size cost error: {e}")
                 size_data = {"model_id": model_id or model_name, "model_name": model_name, "error": str(e)}
-        ctx = {"request": request, "name": model_name or "", "id": model_id or "", "size_data": size_data}
+        ctx = enrich_context({"request": request, "name": model_name or "", "id": model_id or "", "size_data": size_data})
         return templates.TemplateResponse("size_cost.html", ctx)
 
     @app.get("/cost/{id}")
@@ -831,7 +848,7 @@ def register_routes(app: FastAPI):
                 artifact_name = artifact.get("name", id)
                 artifact_url = artifact.get("url", f"https://huggingface.co/{artifact_name}")
                 artifact_version = artifact.get("version", "main")
-                ctx = {
+                ctx = enrich_context({
                     "request": request,
                     "artifact": {
                         "metadata": {
@@ -843,7 +860,7 @@ def register_routes(app: FastAPI):
                             "url": artifact_url,
                         },
                     },
-                }
+                })
                 return templates.TemplateResponse("directory.html", ctx)
             raise HTTPException(status_code=404, detail="Artifact does not exist.")
         except HTTPException:
@@ -944,7 +961,7 @@ def register_routes(app: FastAPI):
                 pass
             if not artifacts:
                 raise HTTPException(status_code=404, detail="No such artifact.")
-            ctx = {"request": request, "artifacts": artifacts, "name": name}
+            ctx = enrich_context({"request": request, "artifacts": artifacts, "name": name})
             return templates.TemplateResponse("directory.html", ctx)
         except HTTPException:
             raise
@@ -957,12 +974,12 @@ def register_routes(app: FastAPI):
         """License check endpoint (GET for UI)"""
         if not templates:
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "id": id or "",
             "github_url": github_url or "",
             "result": None,
-        }
+        })
         return templates.TemplateResponse("license-check.html", ctx)
 
     @app.post("/license-check")
@@ -991,11 +1008,81 @@ def register_routes(app: FastAPI):
                     # Extract licenses
                     model_license = extract_model_license(model_name_for_license)
                     if model_license is None:
-                        result = {"error": "Model license not found."}
+                        error_msg = "Model license not found."
+                        llm_enhanced = False
+                        # Try to enhance error message with LLM
+                        try:
+                            from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                            if is_llm_available():
+                                llm_message = generate_helpful_error_message(
+                                    error_type="MODEL_LICENSE_NOT_FOUND",
+                                    error_context={
+                                        "model_id": model_id,
+                                        "model_name": model_name,
+                                        "model_name_for_license": model_name_for_license,
+                                    },
+                                    user_action="Checking license compatibility"
+                                )
+                                if llm_message:
+                                    error_msg = llm_message
+                                    llm_enhanced = True
+                        except Exception:
+                            pass  # Fall back to default message if LLM fails
+                        result = {"error": error_msg, "llm_enhanced": llm_enhanced}
                     else:
                         github_license = extract_github_license(github_url)
                         if github_license is None:
-                            result = {"error": "GitHub license not found."}
+                            # Determine if it's an invalid repo vs other issues
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            
+                            # Check if the URL format is valid GitHub URL
+                            if not github_url or "github.com" not in github_url.lower():
+                                error_msg = f"Invalid GitHub repository URL: {github_url}. Please provide a valid GitHub repository URL (e.g., https://github.com/owner/repo)."
+                            else:
+                                # Try to extract owner/repo to check if it's a valid format
+                                parts = github_url.rstrip("/").split("/")
+                                if len(parts) < 5 or parts[2] != "github.com":
+                                    error_msg = f"Invalid GitHub repository URL format: {github_url}. Expected format: https://github.com/owner/repository"
+                                else:
+                                    error_msg = f"Unable to fetch license information from GitHub repository {github_url}. This may be due to: (1) Repository does not exist or is private, (2) Repository has no license file, (3) GitHub API rate limiting, or (4) Network connectivity issues. Please verify the repository URL and try again."
+                            
+                            llm_enhanced = False
+                            # Try to enhance error message with LLM (but don't let LLM errors override the main error)
+                            try:
+                                from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                                if is_llm_available():
+                                    llm_message = generate_helpful_error_message(
+                                        error_type="GITHUB_LICENSE_EXTRACTION_FAILED",
+                                        error_context={
+                                            "github_url": github_url,
+                                            "model_id": model_id,
+                                            "model_license": model_license,
+                                            "issue": "Failed to fetch license from GitHub API. This is NOT a license compatibility issue - the license information could not be retrieved from GitHub.",
+                                            "possible_causes": [
+                                                "Repository does not exist or is private",
+                                                "Repository has no license file",
+                                                "GitHub API rate limiting",
+                                                "Network connectivity issues from the server"
+                                            ],
+                                            "suggestions": [
+                                                "Verify the repository URL is correct and the repository exists",
+                                                "Check if the repository has a LICENSE file",
+                                                "Wait a few minutes and try again if rate limited",
+                                                "Use a different GitHub repository"
+                                            ]
+                                        },
+                                        user_action="Attempting to check license compatibility but unable to fetch GitHub repository license"
+                                    )
+                                    if llm_message:
+                                        error_msg = llm_message
+                                        llm_enhanced = True
+                            except Exception as llm_err:
+                                # Log LLM error but keep the original error message
+                                logger.debug(f"LLM error message enhancement failed (this is okay): {llm_err}")
+                                # Keep the original error_msg - don't let LLM failures override the main error
+                                pass
+                            result = {"error": error_msg, "llm_enhanced": llm_enhanced}
                         else:
                             # Use case is always "fine-tune+inference" per requirements
                             use_case = "fine-tune+inference"
@@ -1011,17 +1098,39 @@ def register_routes(app: FastAPI):
                                 "github_license": github_license,
                                 "use_case": use_case,
                                 "reason": compatibility_result.get("reason", ""),
+                                "llm_enhanced": compatibility_result.get("llm_enhanced", False),
+                                "restrictions": compatibility_result.get("restrictions", []),
                             }
         except Exception as e:
             logger.error(f"Error in license check: {str(e)}", exc_info=True)
-            result = {"error": f"License check failed: {str(e)}"}
+            error_msg = f"License check failed: {str(e)}"
+            llm_enhanced = False
+            # Try to enhance error message with LLM
+            try:
+                from ..services.llm_service import generate_helpful_error_message, is_llm_available
+                if is_llm_available():
+                    llm_message = generate_helpful_error_message(
+                        error_type="LICENSE_CHECK_ERROR",
+                        error_context={
+                            "error": str(e),
+                            "model_id": model_id if 'model_id' in locals() else None,
+                            "github_url": github_url if 'github_url' in locals() else None,
+                        },
+                        user_action="Checking license compatibility"
+                    )
+                    if llm_message:
+                        error_msg = llm_message
+                        llm_enhanced = True
+            except Exception:
+                pass  # Fall back to default message if LLM fails
+            result = {"error": error_msg, "llm_enhanced": llm_enhanced}
         
-        ctx = {
+        ctx = enrich_context({
             "request": request,
             "id": model_id or "",
             "github_url": github_url or "",
             "result": result,
-        }
+        })
         return templates.TemplateResponse("license-check.html", ctx)
 
     @app.get("/audit/{id}")
@@ -1070,12 +1179,12 @@ def register_routes(app: FastAPI):
                     "action": "CREATE",
                 })
             
-            ctx = {
+            ctx = enrich_context({
                 "request": request,
                 "id": id,
                 "type": type,
                 "audit_entries": audit_entries,
-            }
+            })
             return templates.TemplateResponse("directory.html", ctx)
         except HTTPException:
             raise
@@ -1135,7 +1244,7 @@ def register_routes(app: FastAPI):
             if not artifacts:
                 raise HTTPException(status_code=404, detail="No artifact found under this regex.")
             
-            ctx = {"request": request, "artifacts": artifacts, "regex": regex}
+            ctx = enrich_context({"request": request, "artifacts": artifacts, "regex": regex})
             return templates.TemplateResponse("directory.html", ctx)
         except HTTPException:
             raise

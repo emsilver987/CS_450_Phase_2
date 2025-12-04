@@ -428,6 +428,45 @@ def search_model_card_content(model_id: str, version: str, regex_pattern: str) -
                     except Exception:
                         continue
         _model_card_cache[cache_key] = cached_content
+        
+        # If regex search didn't match, try LLM semantic search as fallback
+        # This helps with queries that are semantically related but don't match exact text
+        try:
+            from .llm_service import extract_model_card_keywords, is_llm_available
+            
+            if is_llm_available() and cached_content:
+                # Combine all cached content for LLM analysis
+                combined_content = "\n\n".join(cached_content[:3])  # Limit to first 3 files to avoid token limits
+                
+                # Extract keywords from model card
+                model_keywords = extract_model_card_keywords(combined_content)
+                
+                if model_keywords:
+                    # Check if regex pattern matches any extracted keywords (case-insensitive)
+                    pattern_lower = regex_pattern.lower()
+                    for keyword in model_keywords:
+                        if pattern_lower in keyword.lower() or keyword.lower() in pattern_lower:
+                            logger.debug(f"LLM semantic match found: '{regex_pattern}' matches keyword '{keyword}'")
+                            return True
+                    
+                    # Also try direct semantic matching with LLM
+                    # If the query is a natural language question, LLM can help
+                    if len(regex_pattern.split()) > 1:  # Multi-word query suggests natural language
+                        # Simple heuristic: if regex didn't match but we have keywords,
+                        # the query might be semantically related
+                        query_words = set(regex_pattern.lower().split())
+                        keyword_words = set()
+                        for kw in model_keywords:
+                            keyword_words.update(kw.lower().split())
+                        
+                        # If there's significant overlap, consider it a match
+                        if len(query_words & keyword_words) >= 1:
+                            logger.debug(f"LLM semantic match: query words overlap with model keywords")
+                            return True
+        except Exception as llm_error:
+            # If LLM fails, just return False (regex already failed)
+            logger.debug(f"LLM semantic search failed: {llm_error}")
+        
         return False
     except Exception:
         return False

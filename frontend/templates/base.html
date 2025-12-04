@@ -26,6 +26,12 @@
     </main>
     <footer role="contentinfo" style="text-align: center; padding: 2rem; margin-top: 4rem; border-top: 1px solid #e2e8f0;">
       <p style="color: #64748b; font-size: 0.875rem;">ACME Registry - WCAG 2.1 Level AA Compliant</p>
+      {% if llm_available is defined and llm_available %}
+      <p style="color: #10b981; font-size: 0.875rem; margin-top: 0.5rem;">
+        <span style="display: inline-block; width: 8px; height: 8px; background-color: #10b981; border-radius: 50%; margin-right: 6px;"></span>
+        AI-Enhanced Features Available
+      </p>
+      {% endif %}
     </footer>
   </body>
   </html>

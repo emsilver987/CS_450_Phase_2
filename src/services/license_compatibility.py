@@ -208,12 +208,30 @@ def extract_model_license(model_id: str, version: str = "1.0.0") -> Optional[str
 def extract_github_license(github_url: str) -> Optional[str]:
     """Extract license from GitHub repository."""
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         meta = fetch_github_metadata(github_url)
         if not meta:
+            logger.warning(f"Failed to fetch GitHub metadata for {github_url}. This may be due to rate limiting or network issues.")
             return None
+        
+        # Check if we got any data (not just empty dict)
+        if not meta.get("name") and not meta.get("full_name"):
+            logger.warning(f"GitHub metadata appears empty for {github_url}. API call may have failed. Meta keys: {list(meta.keys()) if meta else 'None'}")
+            return None
+        
+        # Log if we got metadata but no license field
+        if meta.get("name") or meta.get("full_name"):
+            logger.debug(f"Successfully fetched GitHub metadata for {github_url}: name={meta.get('name')}, full_name={meta.get('full_name')}")
+        
         license_spdx = meta.get("license", "")
         if license_spdx:
-            return normalize_license(license_spdx)
+            normalized = normalize_license(license_spdx)
+            logger.debug(f"Extracted license from GitHub API: {license_spdx} -> {normalized}")
+            return normalized
+        
+        # Try to extract from README as fallback
         readme_text = meta.get("readme_text", "")
         if readme_text:
             license_patterns = [
@@ -224,10 +242,16 @@ def extract_github_license(github_url: str) -> Optional[str]:
             for pattern in license_patterns:
                 matches = re.findall(pattern, readme_text, re.IGNORECASE)
                 if matches:
-                    return normalize_license(matches[0])
+                    normalized = normalize_license(matches[0])
+                    logger.debug(f"Extracted license from README: {matches[0]} -> {normalized}")
+                    return normalized
+        
+        logger.warning(f"No license found for GitHub repository {github_url}. Repository may not have a license file.")
         return None
     except Exception as e:
-        print(f"Error extracting GitHub license: {e}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error extracting GitHub license from {github_url}: {e}", exc_info=True)
         return None
 
 
@@ -378,6 +402,36 @@ def check_license_compatibility(
                 "MIT license is compatible with other permissive licenses"
             )
             return result
+    
+    # If rule-based checking couldn't determine compatibility, try LLM analysis
+    # This helps with edge cases and complex license texts
+    try:
+        from .llm_service import analyze_license_compatibility as llm_analyze, is_llm_available
+        
+        if is_llm_available():
+            # Try to get full license text for better LLM analysis
+            model_license_text = model_license
+            github_license_text = github_license
+            
+            # If we only have normalized license names, try to get full text
+            # For now, use what we have - LLM can still analyze normalized names
+            llm_result = llm_analyze(model_license_text, github_license_text, use_case)
+            
+            if llm_result:
+                result["compatible"] = llm_result.get("compatible", False)
+                result["reason"] = (
+                    f"LLM-assisted analysis: {llm_result.get('reason', 'Analysis completed')}"
+                )
+                if "restrictions" in llm_result:
+                    result["restrictions"].extend(llm_result["restrictions"])
+                result["llm_enhanced"] = True
+                return result
+    except Exception as e:
+        # If LLM fails, fall through to default behavior
+        import logging
+        logging.getLogger(__name__).debug(f"LLM license analysis failed: {e}")
+    
+    # Default fallback when neither rule-based nor LLM can determine
     result["compatible"] = False
     result["reason"] = (
         f"License compatibility could not be determined ({model_lic} vs {github_lic})"

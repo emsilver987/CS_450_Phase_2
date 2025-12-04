@@ -69,14 +69,23 @@
       {% if result.error %}
         <div class="flash error" role="alert" aria-live="assertive" style="margin-bottom: 16px;">
           <strong>Error:</strong> {{ result.error }}
+          {% if result.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
         </div>
       {% elif result.compatible %}
         <div class="flash success" role="status" aria-live="polite" style="margin-bottom: 16px;">
           <strong aria-label="Compatible">✓ Compatible</strong> - The licenses are compatible for your use case.
+          {% if result.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
         </div>
       {% else %}
         <div class="flash error" role="alert" aria-live="assertive" style="margin-bottom: 16px;">
           <strong aria-label="Not Compatible">✗ Not Compatible</strong> - License compatibility issues detected.
+          {% if result.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
         </div>
       {% endif %}
       
@@ -219,8 +228,36 @@ document.getElementById('licenseCheckForm').addEventListener('submit', async fun
       throw new Error(errorData.error || errorData.detail || 'Failed to check license compatibility');
     }
     
-    // Reload page to show result
-    window.location.href = `/license-check?id=${encodeURIComponent(modelId)}&github_url=${encodeURIComponent(githubUrl)}`;
+    // Get the HTML response and extract the main content
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const newContent = doc.querySelector('main');
+    const currentContent = document.querySelector('main');
+    
+    if (newContent && currentContent) {
+      // Update the form values
+      document.getElementById('model_id').value = modelId;
+      document.getElementById('github_url').value = githubUrl;
+      document.getElementById('use_case').value = useCase;
+      
+      // Replace the content section with the new result
+      currentContent.innerHTML = newContent.innerHTML;
+      
+      // Re-enable submit button
+      submitButton.disabled = false;
+      submitButton.removeAttribute('aria-busy');
+      submitButton.textContent = originalText;
+      
+      // Scroll to result
+      const resultCard = document.querySelector('.card[role="region"]');
+      if (resultCard) {
+        resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else {
+      // Fallback: reload the page with query params
+      window.location.href = `/license-check?id=${encodeURIComponent(modelId)}&github_url=${encodeURIComponent(githubUrl)}`;
+    }
   } catch (error) {
     // Show error in accessible way
     const errorDiv = document.createElement('div');
