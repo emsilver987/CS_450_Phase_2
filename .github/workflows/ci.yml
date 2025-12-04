@@ -130,7 +130,7 @@ jobs:
           TEST_BASE_URL: http://localhost:3000
           PATH: /usr/lib/chromium-browser:/usr/bin:$PATH
         run: |
-          pytest tests/integration/test_selenium_frontend.py -v
+          pytest tests/integration/test_frontend_*.py -v
 
       - name: Capture server logs on failure
         if: failure()

@@ -405,7 +405,7 @@ Integration tests verify the system end-to-end, including:
    pytest tests/integration/ -v
 
    # Only Selenium frontend tests
-   pytest tests/integration/test_selenium_frontend.py -v -m selenium
+   pytest tests/integration/test_frontend_*.py -v
 
    # Specific test file
    pytest tests/integration/test_directory.py -v
