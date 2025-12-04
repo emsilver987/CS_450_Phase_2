@@ -1,6 +1,13 @@
 resource "aws_s3_bucket" "artifacts" {
   bucket        = var.artifacts_name
-  force_destroy = true
+  force_destroy = false
+
+  lifecycle {
+    # Prevent Terraform from destroying existing bucket
+    prevent_destroy = true
+    # Ignore changes to bucket name (in case it was renamed externally)
+    ignore_changes = [bucket]
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {

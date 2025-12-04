@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the entire application
 COPY . .
 
+# Make startup script executable
+RUN chmod +x start.sh
+
 # Expose the port your app runs on
 EXPOSE 3000
 
@@ -27,4 +30,4 @@ ENV PORT=3000
 ENV PYTHONUNBUFFERED=1
 
 # Command to run the application (wrapped entrypoint to attach JWT middleware)
-CMD ["uvicorn", "src.entrypoint:app", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["./start.sh"]
