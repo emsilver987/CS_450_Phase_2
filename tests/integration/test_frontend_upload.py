@@ -6,6 +6,7 @@ Note: These tests verify the frontend UI only, not backend upload processing.
 import os
 import pathlib
 import pytest
+import tempfile
 import time
 import uuid
 import zipfile
@@ -159,9 +160,14 @@ class TestUploadFrontendUI:
         Creates a dummy zip file and attempts to upload it.
         Note: This tests the frontend UI upload mechanism, not backend processing.
         """
-        # Create a temporary zip file for testing
+        # Create a temporary zip file for testing using tempfile for cross-platform compatibility
         unique_id = uuid.uuid4().hex[:8]
-        temp_zip_path = f"/tmp/test_package_{unique_id}.zip"
+        temp_dir = tempfile.gettempdir()
+        
+        # Ensure temp directory exists
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        temp_zip_path = os.path.join(temp_dir, f"test_package_{unique_id}.zip")
         
         try:
             # Create a valid zip file with content
