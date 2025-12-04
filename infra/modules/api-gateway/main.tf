@@ -89,11 +89,21 @@ resource "aws_api_gateway_integration_response" "root_get_200" {
         model_lineage           = "/artifact/model/{id}/lineage"
         model_license_check     = "/artifact/model/{id}/license-check"
         model_download          = "/artifact/model/{id}/download"
+        model_download_rds      = "/artifact/model/{id}/download-rds"
+        model_upload_rds         = "/artifact/model/{id}/upload-rds"
+        model_upload_rds_url     = "/artifact/model/{id}/upload-rds-url"
+        model_upload_rds_from_s3 = "/artifact/model/{id}/upload-rds-from-s3"
+        model_check_rds          = "/artifact/model/{id}/check-rds"
+        model_ingest_rds         = "/artifact/model/{id}/ingest-rds"
+        reset_rds               = "/reset-rds"
+        populate_s3_performance = "/populate/s3/performance"
+        populate_rds_performance = "/populate/rds/performance"
         artifact_ingest         = "/artifact/ingest"
         artifact_directory      = "/artifact/directory"
         upload                  = "/upload"
         admin                   = "/admin"
         directory               = "/directory"
+        performance_download    = "/performance/{model_id}/{version}/model.zip"
       }
     })
   }
@@ -148,6 +158,31 @@ resource "aws_api_gateway_resource" "health_performance_results_run_id" {
   path_part   = "{run_id}"
 }
 
+# Performance download endpoint resources: /performance/{model_id}/{version}/model.zip
+resource "aws_api_gateway_resource" "performance" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
+  path_part   = "performance"
+}
+
+resource "aws_api_gateway_resource" "performance_model_id" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.performance.id
+  path_part   = "{model_id}"
+}
+
+resource "aws_api_gateway_resource" "performance_model_id_version" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.performance_model_id.id
+  path_part   = "{version}"
+}
+
+resource "aws_api_gateway_resource" "performance_model_id_version_model_zip" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.performance_model_id_version.id
+  path_part   = "model.zip"
+}
+
 resource "aws_api_gateway_resource" "artifacts" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
@@ -172,6 +207,47 @@ resource "aws_api_gateway_resource" "reset" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
   path_part   = "reset"
+}
+
+resource "aws_api_gateway_resource" "reset_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
+  path_part   = "reset-rds"
+}
+
+# /populate
+resource "aws_api_gateway_resource" "populate" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
+  path_part   = "populate"
+}
+
+# /populate/s3
+resource "aws_api_gateway_resource" "populate_s3" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate.id
+  path_part   = "s3"
+}
+
+# /populate/s3/performance
+resource "aws_api_gateway_resource" "populate_s3_performance" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate_s3.id
+  path_part   = "performance"
+}
+
+# /populate/rds
+resource "aws_api_gateway_resource" "populate_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate.id
+  path_part   = "rds"
+}
+
+# /populate/rds/performance
+resource "aws_api_gateway_resource" "populate_rds_performance" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate_rds.id
+  path_part   = "performance"
 }
 
 resource "aws_api_gateway_resource" "authenticate" {
@@ -303,6 +379,27 @@ resource "aws_api_gateway_resource" "artifact_model_id_download" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_resource.artifact_model_id.id
   path_part   = "download"
+}
+
+# /artifact/model/{id}/upload-rds
+resource "aws_api_gateway_resource" "artifact_model_id_upload_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "upload-rds"
+}
+
+# /artifact/model/{id}/download-rds
+resource "aws_api_gateway_resource" "artifact_model_id_download_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "download-rds"
+}
+
+# /artifact/model/{id}/ingest-rds
+resource "aws_api_gateway_resource" "artifact_model_id_ingest_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "ingest-rds"
 }
 
 # /artifact/ingest
@@ -649,6 +746,174 @@ resource "aws_api_gateway_integration_response" "health_performance_results_run_
   ]
 }
 
+# GET /performance/{model_id}/{version}/model.zip
+resource "aws_api_gateway_method" "performance_model_id_version_model_zip_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.model_id"     = true
+    "method.request.path.version"      = true
+    "method.request.querystring.component" = false
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "performance_model_id_version_model_zip_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/performance/{model_id}/{version}/model.zip"
+  passthrough_behavior    = "WHEN_NO_MATCH"
+
+  request_parameters = {
+    "integration.request.path.model_id"     = "method.request.path.model_id"
+    "integration.request.path.version"      = "method.request.path.version"
+    "integration.request.querystring.component" = "method.request.querystring.component"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# Method responses for GET /performance/{model_id}/{version}/model.zip
+resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code  = "200"
+
+  response_parameters = {
+    "method.response.header.Content-Type"        = true
+    "method.response.header.Content-Disposition" = true
+    "method.response.header.Content-Length"      = true
+  }
+
+  response_models = {
+    "application/zip" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_400" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code  = "400"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_403" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code  = "403"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_404" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code  = "404"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_500" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code  = "500"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+# Integration responses for GET /performance/{model_id}/{version}/model.zip
+resource "aws_api_gateway_integration_response" "performance_model_id_version_model_zip_get_200" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_200.status_code
+  selection_pattern = "200"
+  content_handling  = "CONVERT_TO_BINARY"
+
+  response_parameters = {
+    "method.response.header.Content-Type"        = "integration.response.header.Content-Type"
+    "method.response.header.Content-Disposition" = "integration.response.header.Content-Disposition"
+    "method.response.header.Content-Length"      = "integration.response.header.Content-Length"
+  }
+
+  depends_on = [
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_method_response.performance_model_id_version_model_zip_get_200,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "performance_model_id_version_model_zip_get_400" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_400.status_code
+  selection_pattern = "400"
+
+  depends_on = [
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_method_response.performance_model_id_version_model_zip_get_400,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "performance_model_id_version_model_zip_get_403" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_403.status_code
+  selection_pattern = "403"
+
+  depends_on = [
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_method_response.performance_model_id_version_model_zip_get_403,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "performance_model_id_version_model_zip_get_404" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_404.status_code
+  selection_pattern = "404"
+
+  depends_on = [
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_method_response.performance_model_id_version_model_zip_get_404,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "performance_model_id_version_model_zip_get_500" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.performance_model_id_version_model_zip.id
+  http_method       = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code       = aws_api_gateway_method_response.performance_model_id_version_model_zip_get_500.status_code
+  selection_pattern = "500"
+
+  depends_on = [
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_method_response.performance_model_id_version_model_zip_get_500,
+  ]
+}
+
 # POST /artifacts
 resource "aws_api_gateway_method" "artifacts_post" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -869,6 +1134,170 @@ resource "aws_api_gateway_integration_response" "reset_delete_403" {
     aws_api_gateway_integration.reset_delete,
     aws_api_gateway_method_response.reset_delete_403,
   ]
+}
+
+# DELETE /reset-rds
+resource "aws_api_gateway_method" "reset_rds_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.reset_rds.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "reset_rds_delete" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+
+  integration_http_method = "DELETE"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/reset-rds"
+}
+
+resource "aws_api_gateway_method_response" "reset_rds_delete_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "reset_rds_delete_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = aws_api_gateway_method_response.reset_rds_delete_200.status_code
+
+  depends_on = [aws_api_gateway_integration.reset_rds_delete]
+}
+
+# Method responses for DELETE /reset-rds
+resource "aws_api_gateway_method_response" "reset_rds_delete_401" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "401"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "reset_rds_delete_403" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.reset_rds.id
+  http_method = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code = "403"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+# Integration responses for DELETE /reset-rds
+resource "aws_api_gateway_integration_response" "reset_rds_delete_401" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.reset_rds.id
+  http_method       = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code       = aws_api_gateway_method_response.reset_rds_delete_401.status_code
+  selection_pattern = "401"
+
+  depends_on = [
+    aws_api_gateway_integration.reset_rds_delete,
+    aws_api_gateway_method_response.reset_rds_delete_401,
+  ]
+}
+
+resource "aws_api_gateway_integration_response" "reset_rds_delete_403" {
+  rest_api_id       = aws_api_gateway_rest_api.main_api.id
+  resource_id       = aws_api_gateway_resource.reset_rds.id
+  http_method       = aws_api_gateway_method.reset_rds_delete.http_method
+  status_code       = aws_api_gateway_method_response.reset_rds_delete_403.status_code
+  selection_pattern = "403"
+
+  depends_on = [
+    aws_api_gateway_integration.reset_rds_delete,
+    aws_api_gateway_method_response.reset_rds_delete_403,
+  ]
+}
+
+# POST /populate/s3/performance
+resource "aws_api_gateway_method" "populate_s3_performance_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.populate_s3_performance.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.querystring.repopulate" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "populate_s3_performance_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/populate/s3/performance"
+
+  request_parameters = {
+    "integration.request.querystring.repopulate" = "method.request.querystring.repopulate"
+  }
+}
+
+resource "aws_api_gateway_method_response" "populate_s3_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_post]
+}
+
+# POST /populate/rds/performance
+resource "aws_api_gateway_method" "populate_rds_performance_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.populate_rds_performance.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "populate_rds_performance_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/populate/rds/performance"
+}
+
+resource "aws_api_gateway_method_response" "populate_rds_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "populate_rds_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+  status_code = aws_api_gateway_method_response.populate_rds_performance_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_rds_performance_post]
 }
 
 # PUT /authenticate
@@ -3135,6 +3564,45 @@ resource "aws_api_gateway_integration" "artifact_model_id_upload_post" {
   }
 }
 
+# /artifact/model/{id}/check-rds
+resource "aws_api_gateway_resource" "artifact_model_id_check_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "check-rds"
+}
+
+# GET /artifact/model/{id}/check-rds
+resource "aws_api_gateway_method" "artifact_model_id_check_rds_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_check_rds.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_check_rds_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_check_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_check_rds_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/check-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
 # GET /artifact/model/{id}/download
 resource "aws_api_gateway_method" "artifact_model_id_download_get" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id
@@ -3161,6 +3629,198 @@ resource "aws_api_gateway_integration" "artifact_model_id_download_get" {
     "integration.request.path.id"                = "method.request.path.id"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
+}
+
+# POST /artifact/model/{id}/upload-rds
+resource "aws_api_gateway_method" "artifact_model_id_upload_rds_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_upload_rds.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_upload_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_upload_rds_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/upload-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# /artifact/model/{id}/upload-rds-url
+resource "aws_api_gateway_resource" "artifact_model_id_upload_rds_url" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id_upload_rds.id
+  path_part   = "url"
+}
+
+# GET /artifact/model/{id}/upload-rds-url
+resource "aws_api_gateway_method" "artifact_model_id_upload_rds_url_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_upload_rds_url.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.querystring.expires_in" = false
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_url_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_upload_rds_url.id
+  http_method = aws_api_gateway_method.artifact_model_id_upload_rds_url_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/upload-rds-url"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.querystring.expires_in" = "method.request.querystring.expires_in"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# /artifact/model/{id}/upload-rds-from-s3
+resource "aws_api_gateway_resource" "artifact_model_id_upload_rds_from_s3" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id_upload_rds.id
+  path_part   = "from-s3"
+}
+
+# POST /artifact/model/{id}/upload-rds-from-s3
+resource "aws_api_gateway_method" "artifact_model_id_upload_rds_from_s3_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_upload_rds_from_s3.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.s3_key"     = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_from_s3_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_upload_rds_from_s3.id
+  http_method = aws_api_gateway_method.artifact_model_id_upload_rds_from_s3_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/upload-rds-from-s3"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.s3_key"     = "method.request.querystring.s3_key"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# GET /artifact/model/{id}/download-rds
+resource "aws_api_gateway_method" "artifact_model_id_download_rds_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_download_rds.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.component"  = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_download_rds_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_download_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_download_rds_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/download-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.component"  = "method.request.querystring.component"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+# POST /artifact/model/{id}/ingest-rds
+resource "aws_api_gateway_method" "artifact_model_id_ingest_rds_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_ingest_rds_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/ingest-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+resource "aws_api_gateway_method_response" "artifact_model_id_ingest_rds_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "artifact_model_id_ingest_rds_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+  status_code = aws_api_gateway_method_response.artifact_model_id_ingest_rds_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.artifact_model_id_ingest_rds_post]
 }
 
 # GET /artifact/ingest
@@ -3688,6 +4348,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_get,
     aws_api_gateway_integration.artifacts_post,
     aws_api_gateway_integration.reset_delete,
+    aws_api_gateway_integration.reset_rds_delete,
     aws_api_gateway_integration.authenticate_put,
     aws_api_gateway_integration.package_id_get,
     aws_api_gateway_integration.tracks_get,
@@ -3710,7 +4371,12 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.artifact_model_id_lineage_get,
     aws_api_gateway_integration.artifact_model_id_license_check_post,
     aws_api_gateway_integration.artifact_model_id_upload_post,
+    aws_api_gateway_integration.artifact_model_id_upload_rds_post,
+    aws_api_gateway_integration.artifact_model_id_upload_rds_url_get,
+    aws_api_gateway_integration.artifact_model_id_upload_rds_from_s3_post,
     aws_api_gateway_integration.artifact_model_id_download_get,
+    aws_api_gateway_integration.artifact_model_id_download_rds_get,
+    aws_api_gateway_integration.artifact_model_id_check_rds_get,
     aws_api_gateway_integration.artifact_ingest_get,
     aws_api_gateway_integration.artifact_ingest_post,
     aws_api_gateway_integration.artifact_directory_get,
@@ -3741,10 +4407,16 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration_response.artifact_byregex_options_200,
     aws_api_gateway_integration.health_performance_workload_post,
     aws_api_gateway_integration.health_performance_results_run_id_get,
+    aws_api_gateway_integration.performance_model_id_version_model_zip_get,
     aws_api_gateway_integration_response.health_performance_workload_post_202,
     aws_api_gateway_integration_response.health_performance_workload_post_400,
     aws_api_gateway_integration_response.health_performance_workload_post_500,
     aws_api_gateway_integration_response.health_performance_results_run_id_get_200,
+    aws_api_gateway_integration_response.performance_model_id_version_model_zip_get_200,
+    aws_api_gateway_integration_response.performance_model_id_version_model_zip_get_400,
+    aws_api_gateway_integration_response.performance_model_id_version_model_zip_get_403,
+    aws_api_gateway_integration_response.performance_model_id_version_model_zip_get_404,
+    aws_api_gateway_integration_response.performance_model_id_version_model_zip_get_500,
     aws_api_gateway_integration_response.health_performance_results_run_id_get_404,
     aws_api_gateway_integration_response.health_performance_results_run_id_get_500,
   ]
@@ -3759,10 +4431,15 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.health_performance_workload.id,
       aws_api_gateway_resource.health_performance_results.id,
       aws_api_gateway_resource.health_performance_results_run_id.id,
+      aws_api_gateway_resource.performance.id,
+      aws_api_gateway_resource.performance_model_id.id,
+      aws_api_gateway_resource.performance_model_id_version.id,
+      aws_api_gateway_resource.performance_model_id_version_model_zip.id,
       aws_api_gateway_resource.artifacts.id,
       aws_api_gateway_resource.artifacts_type.id,
       aws_api_gateway_resource.artifacts_type_id.id,
       aws_api_gateway_resource.reset.id,
+      aws_api_gateway_resource.reset_rds.id,
       aws_api_gateway_resource.authenticate.id,
       aws_api_gateway_resource.package.id,
       aws_api_gateway_resource.package_id.id,
@@ -3782,7 +4459,12 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.artifact_model_id_lineage.id,
       aws_api_gateway_resource.artifact_model_id_license_check.id,
       aws_api_gateway_resource.artifact_model_id_upload.id,
+      aws_api_gateway_resource.artifact_model_id_upload_rds.id,
+      aws_api_gateway_resource.artifact_model_id_upload_rds_url.id,
+      aws_api_gateway_resource.artifact_model_id_upload_rds_from_s3.id,
       aws_api_gateway_resource.artifact_model_id_download.id,
+      aws_api_gateway_resource.artifact_model_id_download_rds.id,
+      aws_api_gateway_resource.artifact_model_id_check_rds.id,
       aws_api_gateway_resource.artifact_ingest.id,
       aws_api_gateway_resource.artifact_directory.id,
       aws_api_gateway_resource.artifact_byname.id,
@@ -3796,6 +4478,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_get.id,
       aws_api_gateway_method.artifacts_post.id,
       aws_api_gateway_method.reset_delete.id,
+      aws_api_gateway_method.reset_rds_delete.id,
       aws_api_gateway_method.authenticate_put.id,
       aws_api_gateway_method.tracks_get.id,
       aws_api_gateway_method.admin_get.id,
@@ -3821,7 +4504,10 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method.artifact_model_id_lineage_get.id,
       aws_api_gateway_method.artifact_model_id_license_check_post.id,
       aws_api_gateway_method.artifact_model_id_upload_post.id,
+      aws_api_gateway_method.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_method.artifact_model_id_download_get.id,
+      aws_api_gateway_method.artifact_model_id_download_rds_get.id,
+      aws_api_gateway_method.artifact_model_id_check_rds_get.id,
       aws_api_gateway_method.artifact_ingest_get.id,
       aws_api_gateway_method.artifact_ingest_post.id,
       aws_api_gateway_method.artifact_directory_get.id,
@@ -3845,6 +4531,7 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_get.id,
       aws_api_gateway_integration.artifacts_post.id,
       aws_api_gateway_integration.reset_delete.id,
+      aws_api_gateway_integration.reset_rds_delete.id,
       aws_api_gateway_integration.authenticate_put.id,
       aws_api_gateway_integration.package_id_get.id,
       aws_api_gateway_integration.tracks_get.id,
@@ -3861,7 +4548,10 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_model_id_lineage_get.id,
       aws_api_gateway_integration.artifact_model_id_license_check_post.id,
       aws_api_gateway_integration.artifact_model_id_upload_post.id,
+      aws_api_gateway_integration.artifact_model_id_upload_rds_post.id,
       aws_api_gateway_integration.artifact_model_id_download_get.id,
+      aws_api_gateway_integration.artifact_model_id_download_rds_get.id,
+      aws_api_gateway_integration.artifact_model_id_check_rds_get.id,
       aws_api_gateway_integration.artifact_ingest_get.id,
       aws_api_gateway_integration.artifact_ingest_post.id,
       aws_api_gateway_integration.artifact_directory_get.id,
@@ -4211,11 +4901,18 @@ output "api_endpoints" {
     artifact_cost      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
     artifact_lineage   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
     artifact_license   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
-    artifact_upload    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
-    artifact_download  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_upload       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
+    artifact_upload_rds    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
+    artifact_download      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_download_rds  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download-rds"
+    artifact_ingest_rds   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/ingest-rds"
+    reset_rds              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset-rds"
+    populate_s3_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/s3/performance"
+    populate_rds_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/rds/performance"
     artifact_audit     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
     artifact_by_name   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
     artifact_by_regex  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
+    performance_download = "${aws_api_gateway_stage.main_stage.invoke_url}/performance/{model_id}/{version}/model.zip"
   }
   description = "Map of all API endpoints"
 }

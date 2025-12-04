@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from typing import Optional
 import io
@@ -31,9 +31,11 @@ if COMPUTE_BACKEND == "lambda":
         print(f"[PERF] Warning: Failed to initialize Lambda client: {e}, falling back to ECS")
         COMPUTE_BACKEND = "ecs"
 
-from ..services.s3_service import (
-    upload_model,
+from ..services.storage_service import (
     download_model,
+    upload_model,
+)
+from ..services.s3_service import (
     list_models,
     reset_registry,
     sync_model_lineage_to_neptune,
@@ -314,8 +316,10 @@ def _invoke_lambda_download(model_id: str, version: str, component: str) -> byte
         raise HTTPException(status_code=500, detail=f"Lambda invocation failed: {str(e)}")
 
 
-@router.get("/performance/{model_id}/{version}/model.zip")
+# Performance download endpoint - defined as standalone function (NOT part of router)
+# This allows it to be registered directly at root level without /api/packages prefix
 async def download_performance_model_file(
+    request: Request,
     model_id: str,
     version: str,
     component: str = Query(
@@ -325,7 +329,30 @@ async def download_performance_model_file(
     """
     Download model from performance/ S3 path for performance testing.
     Supports both ECS (FastAPI) and Lambda compute backends based on COMPUTE_BACKEND env var.
+    Authentication is optional but recommended for production API Gateway.
     """
+    # Log immediately to verify endpoint is being called
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[PERF] Endpoint called: model_id={model_id}, version={version}")
+    print(f"[PERF] Endpoint called: model_id={model_id}, version={version}")
+    
+    # Optional authentication check - verify token if provided
+    # This allows the endpoint to work with API Gateway that requires auth
+    try:
+        from ..index import verify_auth_token
+        # Only check auth if token is provided (don't fail if no token for local testing)
+        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+        if auth_header:
+            if not verify_auth_token(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+                )
+    except (ImportError, AttributeError):
+        # If verify_auth_token is not available, skip auth check (for local testing)
+        pass
+    
     try:
         print(f"[PERF] Received download request: model_id={model_id}, version={version}, backend={COMPUTE_BACKEND}")
         
@@ -379,8 +406,15 @@ async def download_performance_model_file(
         elif error_code == "AccessDenied":
             raise HTTPException(status_code=500, detail="Access denied to S3 bucket")
         else:
+            import traceback
+            print(f"[PERF] S3 ClientError: {error_code}, {str(e)}")
+            print(f"[PERF] Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"S3 error: {error_code}")
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[PERF] Download error: {str(e)}")
+        print(f"[PERF] Traceback: {error_trace}")
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 
 
