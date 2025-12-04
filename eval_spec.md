@@ -450,7 +450,11 @@
   - [x] Toolset selection (linter, git-hooks, CI, testing framework, logging)
   - [x] Component selection
   - [x] Communication mechanism (Slack, Teams, Email)
-  - [ ] Role of LLMs in engineering process
+  - [x] Role of LLMs in engineering process
+    - [x] LLM service integrated for license compatibility analysis (complex license texts)
+    - [x] LLM-powered semantic search for model card content
+    - [x] LLM-enhanced error message generation for better user experience
+    - [x] Documentation: See `docs/LLM_INTEGRATION.md` for details
 
 - [x] **Team contract**
   - [x] Work commitment expectations

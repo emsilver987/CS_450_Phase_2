@@ -31,6 +31,29 @@
       Reset Registry
     </button>
   </form>
+  {% if llm_available is defined and llm_available %}
+  <div class="card" style="margin-top: 24px;">
+    <h2>LLM Service Status</h2>
+    <p style="color: #10b981;">
+      <span style="display: inline-block; width: 8px; height: 8px; background-color: #10b981; border-radius: 50%; margin-right: 6px;"></span>
+      AI-Enhanced Features Available
+    </p>
+    <p style="font-size: 0.875rem; color: #64748b; margin-top: 8px;">
+      The LLM service is configured and ready. AI-enhanced features such as license compatibility analysis and improved error messages are active.
+    </p>
+  </div>
+  {% else %}
+  <div class="card" style="margin-top: 24px;">
+    <h2>LLM Service Status</h2>
+    <p style="color: #ef4444;">
+      <span style="display: inline-block; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; margin-right: 6px;"></span>
+      AI-Enhanced Features Not Available
+    </p>
+    <p style="font-size: 0.875rem; color: #64748b; margin-top: 8px;">
+      The LLM service is not configured. Configure <code>GEN_AI_STUDIO_API_KEY</code> via AWS Secrets Manager to enable AI-enhanced features.
+    </p>
+  </div>
+  {% endif %}
 </section>
 {% endblock %}
 

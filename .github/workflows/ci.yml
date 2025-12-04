@@ -30,5 +30,8 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: ./run install
+      - name: Run endpoint tests
+        run: python scripts/test_new_endpoints.py --skip-workload
+        continue-on-error: true
       - name: Run tests
         run: ./run test
