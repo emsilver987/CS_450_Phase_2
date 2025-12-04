@@ -254,11 +254,53 @@ def generate_helpful_error_message(
     """
     system_msg = (
         "You are a helpful technical support assistant. "
-        "Generate clear, actionable error messages that help users understand "
-        "what went wrong and how to fix it."
+        "Generate clear, accurate, actionable error messages that help users understand "
+        "what went wrong and how to fix it. Be precise and avoid mentioning unrelated issues."
     )
     
-    prompt = f"""Generate a helpful error message for a user experiencing this issue:
+    # Create a more specific prompt based on error type
+    if error_type == "GITHUB_LICENSE_EXTRACTION_FAILED":
+        prompt = f"""The user is trying to check license compatibility but cannot fetch the license from a GitHub repository.
+
+GitHub URL: {error_context.get('github_url', 'unknown')}
+Model ID: {error_context.get('model_id', 'unknown')}
+
+IMPORTANT: This is NOT a license compatibility issue. The problem is that the license information could not be retrieved from GitHub.
+
+Possible reasons:
+{chr(10).join(f"- {cause}" for cause in error_context.get('possible_causes', []))}
+
+Generate a clear, accurate error message that:
+1. Clearly states this is a GitHub API/repository access issue, NOT a license compatibility problem
+2. Explains the most likely cause based on the context
+3. Provides specific, actionable solutions
+4. Is concise and professional
+
+Do NOT mention license incompatibility or license mismatches. Focus on the GitHub repository access issue.
+
+Return only the error message text, no JSON or markdown formatting."""
+    elif error_type == "MODEL_LICENSE_NOT_FOUND":
+        prompt = f"""The user is trying to check license compatibility but the model's license could not be found.
+
+Model ID: {error_context.get('model_id', 'unknown')}
+Model Name: {error_context.get('model_name', 'unknown')}
+
+Generate a clear error message explaining that the model's license information is missing and suggest how to resolve it.
+
+Return only the error message text, no JSON or markdown formatting."""
+    elif error_type == "LICENSE_CHECK_ERROR":
+        prompt = f"""An error occurred while checking license compatibility.
+
+Error: {error_context.get('error', 'unknown error')}
+Model ID: {error_context.get('model_id', 'unknown')}
+GitHub URL: {error_context.get('github_url', 'unknown')}
+
+Generate a helpful error message that explains what went wrong and suggests how to fix it.
+
+Return only the error message text, no JSON or markdown formatting."""
+    else:
+        # Generic prompt for other error types
+        prompt = f"""Generate a helpful error message for a user experiencing this issue:
 
 Error Type: {error_type}
 User Action: {user_action}
