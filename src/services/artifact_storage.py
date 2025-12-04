@@ -92,7 +92,7 @@ def get_artifact(artifact_id: str) -> Optional[Dict[str, Any]]:
     """
     try:
         table = get_artifacts_table()
-        response = table.get_item(Key={"artifact_id": artifact_id})
+        response = table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
 
         if "Item" in response:
             item = response["Item"]
@@ -430,7 +430,7 @@ def get_generic_artifact_metadata(
     """
     try:
         table = get_artifacts_table()
-        response = table.get_item(Key={"artifact_id": artifact_id})
+        response = table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
 
         if "Item" in response:
             item = response["Item"]

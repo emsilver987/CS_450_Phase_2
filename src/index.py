@@ -3305,33 +3305,18 @@ def get_artifact(artifact_type: str, id: str, request: Request):
             if artifact:
                 logger.info(f"DEBUG: ✅ Found artifact in database: {artifact}")
                 if artifact.get("type") == "model":
-                    # Check rating status and block until complete
+                    # Check rating status - but don't block artifact retrieval
+                    # Rating status is informational only for GET /artifact endpoint
                     if id in _rating_status:
                         status = _rating_status[id]
                         logger.info(f"DEBUG: Rating status for id='{id}': {status}")
-
+                        # Don't wait for pending ratings - just log and continue
+                        # The rating endpoint will handle pending/completed/failed ratings
                         if status == "pending":
-                            # Block until rating completes (with timeout)
-                            logger.info(
-                                f"DEBUG: Rating pending, waiting for completion..."
-                            )
-                            if id in _rating_locks:
-                                # Wait up to 300 seconds (5 minutes) for rating to complete
-                                event = _rating_locks[id]
-                                if not event.wait(timeout=300):
-                                    logger.warning(
-                                        f"DEBUG: Rating timeout for id='{id}' after 300s, will continue without blocking"
-                                    )
-                                    # Don't raise error - just continue and let the request proceed
-                                    # The rating endpoint will handle it with synchronous fallback
-                                # Re-check status after wait
-                                status = _rating_status.get(id, "unknown")
-
-                        # Don't block artifact retrieval if rating failed/disqualified
-                        # The artifact still exists, just the rating couldn't be computed
-                        if status == "disqualified" or status == "failed":
+                            logger.info(f"DEBUG: Rating pending for id='{id}', but continuing with artifact retrieval")
+                        elif status == "disqualified" or status == "failed":
                             logger.warning(f"DEBUG: Rating {status} for id='{id}', but artifact still exists - continuing")
-                            # Continue to return the artifact even if rating failed
+                        # Always continue to return the artifact regardless of rating status
 
                     logger.info(
                         f"DEBUG: ✅ Artifact type matches 'model', returning immediately"
