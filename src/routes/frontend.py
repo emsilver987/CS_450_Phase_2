@@ -60,6 +60,58 @@ _rating_start_times: Dict[str, float] = {}
 _artifact_storage: Dict[str, Dict[str, Any]] = {}
 
 
+def _run_async_rating_frontend(cache_key: str, model_name: str):
+    """
+    Run rating asynchronously in background thread for frontend.
+    Updates _rating_status and _rating_results when complete.
+    """
+    global _rating_status, _rating_locks, _rating_results, _rating_start_times, _rating_lock
+
+    try:
+        with _rating_lock:
+            logger.info(f"[RATE] [ASYNC] Starting rating for cache_key='{cache_key}', model_name='{model_name}'")
+            if cache_key not in _rating_start_times:
+                _rating_start_times[cache_key] = time.time()
+            _rating_status[cache_key] = "pending"
+            if cache_key not in _rating_locks:
+                _rating_locks[cache_key] = threading.Event()
+
+        # Perform rating
+        logger.info(f"[RATE] [ASYNC] Calling analyze_model_content for '{model_name}'...")
+        start_time = time.time()
+        rating = analyze_model_content(model_name, suppress_errors=False)
+        elapsed_time = time.time() - start_time
+        logger.info(f"[RATE] [ASYNC] analyze_model_content completed in {elapsed_time:.2f}s for '{model_name}'")
+
+        with _rating_lock:
+            if not rating:
+                logger.warning(f"[RATE] [ASYNC] Rating returned None/empty for '{model_name}'")
+                _rating_status[cache_key] = "failed"
+                _rating_results[cache_key] = None
+            else:
+                logger.info(f"[RATE] [ASYNC] Rating completed successfully for '{model_name}'")
+                _rating_status[cache_key] = "completed"
+                _rating_results[cache_key] = rating
+
+            # Clean up tracking data
+            if cache_key in _rating_start_times:
+                del _rating_start_times[cache_key]
+
+        # Signal that rating is complete
+        if cache_key in _rating_locks:
+            _rating_locks[cache_key].set()
+            logger.info(f"[RATE] [ASYNC] Signaled completion for cache_key='{cache_key}'")
+    except Exception as e:
+        logger.error(f"[RATE] [ASYNC] Error during rating for '{cache_key}': {str(e)}", exc_info=True)
+        with _rating_lock:
+            _rating_status[cache_key] = "failed"
+            _rating_results[cache_key] = None
+            if cache_key in _rating_start_times:
+                del _rating_start_times[cache_key]
+        if cache_key in _rating_locks:
+            _rating_locks[cache_key].set()
+
+
 # Helper functions (same logic as index.py)
 def sanitize_model_id_for_s3(model_id: str) -> str:
     """Sanitize model ID for S3 key (same logic as index.py)"""
@@ -340,55 +392,83 @@ def register_routes(app: FastAPI):
             try:
                 # Check cache first (same as index.py)
                 rating_raw = None
+                status = None
                 if cache_key and cache_key in _rating_status:
                     status = _rating_status[cache_key]
                     if status == "completed":
                         rating_raw = _rating_results.get(cache_key)
                         if rating_raw:
                             logger.info(f"[RATE] Using cached rating for {cache_key}")
+                            rating = _build_rating_response(model_name, rating_raw)
+                            if model_id:
+                                rating["id"] = model_id
+                            ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                            return templates.TemplateResponse("rate.html", ctx)
                 
-                # If not cached, compute rating (same logic as index.py)
-                if not rating_raw:
-                    logger.info(f"[RATE] Computing rating for {model_name} (cache_key={cache_key})")
-                    try:
-                        # Use analyze_model_content directly (same as index.py) - DO NOT use run_scorer
-                        analysis_id = model_name
-                        logger.info(f"[RATE] Calling analyze_model_content with: '{analysis_id}'")
-                        rating_raw = analyze_model_content(analysis_id, suppress_errors=False)
-                        logger.info(f"[RATE] analyze_model_content returned: {rating_raw is not None}")
-                        if not rating_raw:
-                            logger.error(f"[RATE] analyze_model_content returned None/empty for '{analysis_id}'")
-                            raise HTTPException(
-                                status_code=500,
-                                detail="The artifact rating system encountered an error while computing at least one metric.",
-                            )
-                    except HTTPException:
-                        raise
-                    except RuntimeError as e:
-                        logger.error(f"[RATE] RuntimeError analyzing {model_name}: {str(e)}", exc_info=True)
-                        raise HTTPException(
-                            status_code=500,
-                            detail=f"Failed to analyze model: {str(e)}",
-                        )
-                    except Exception as e:
-                        logger.error(f"[RATE] Exception analyzing {model_name}: {str(e)}", exc_info=True)
-                        raise HTTPException(
-                            status_code=500,
-                            detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
-                        )
-                    # Cache the result if we have a cache key (same as index.py)
+                # If pending, wait a short time (30 seconds max to avoid timeout)
+                if status == "pending" and cache_key and cache_key in _rating_locks:
+                    logger.info(f"[RATE] Rating pending for {cache_key}, waiting up to 30s...")
+                    event = _rating_locks[cache_key]
+                    if event.wait(timeout=30):
+                        # Rating completed during wait
+                        with _rating_lock:
+                            if cache_key in _rating_status and _rating_status[cache_key] == "completed":
+                                rating_raw = _rating_results.get(cache_key)
+                                if rating_raw:
+                                    logger.info(f"[RATE] Rating completed during wait for {cache_key}")
+                                    rating = _build_rating_response(model_name, rating_raw)
+                                    if model_id:
+                                        rating["id"] = model_id
+                                    ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                                    return templates.TemplateResponse("rate.html", ctx)
+                
+                # If not cached and not pending, start async rating
+                if not rating_raw and status != "pending":
+                    logger.info(f"[RATE] Starting async rating for {model_name} (cache_key={cache_key})")
                     if cache_key:
                         with _rating_lock:
-                            _rating_results[cache_key] = rating_raw
-                            _rating_status[cache_key] = "completed"
-                            # Clean up start time if it exists
-                            if cache_key in _rating_start_times:
-                                del _rating_start_times[cache_key]
+                            if cache_key not in _rating_locks:
+                                _rating_locks[cache_key] = threading.Event()
+                            _rating_status[cache_key] = "pending"
+                            _rating_start_times[cache_key] = time.time()
+                        
+                        # Start async rating in background thread
+                        rating_thread = threading.Thread(
+                            target=_run_async_rating_frontend,
+                            args=(cache_key, model_name),
+                            daemon=True,
+                        )
+                        rating_thread.start()
+                        
+                        # Wait a short time (20 seconds) to see if it completes quickly
+                        logger.info(f"[RATE] Waiting up to 20s for async rating to complete...")
+                        event = _rating_locks[cache_key]
+                        if event.wait(timeout=20):
+                            # Rating completed quickly
+                            with _rating_lock:
+                                if cache_key in _rating_status and _rating_status[cache_key] == "completed":
+                                    rating_raw = _rating_results.get(cache_key)
+                                    if rating_raw:
+                                        logger.info(f"[RATE] Async rating completed quickly for {cache_key}")
+                                        rating = _build_rating_response(model_name, rating_raw)
+                                        if model_id:
+                                            rating["id"] = model_id
+                                        ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                                        return templates.TemplateResponse("rate.html", ctx)
                 
-                rating = _build_rating_response(model_name, rating_raw)
-                # Add model ID to rating if available
-                if model_id:
-                    rating["id"] = model_id
+                # If we get here, rating is still in progress or failed
+                # Return a "pending" message to avoid timeout
+                logger.info(f"[RATE] Rating still in progress for {cache_key}, returning pending message")
+                ctx = {
+                    "request": request,
+                    "name": model_name or "",
+                    "id": model_id or "",
+                    "rating": None,
+                    "pending": True,
+                    "message": "Rating is being computed. Please refresh the page in a few moments."
+                }
+                return templates.TemplateResponse("rate.html", ctx)
+                
             except HTTPException:
                 raise
             except Exception as e:
