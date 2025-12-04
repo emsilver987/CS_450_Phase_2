@@ -4,10 +4,6 @@ import re
 import os
 import json
 from typing import Dict, Any, Optional
-import requests
-import urllib.request
-import urllib.error
-from typing import Dict, Any, Optional, List
 from starlette.datastructures import UploadFile
 import uvicorn
 import random
@@ -17,7 +13,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status, Query
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, status
 import watchtower
 
 # from fastapi.security import HTTPBearer  # Not used - removed to prevent accidental security enforcement
@@ -46,7 +42,6 @@ from .services.s3_service import (
     upload_model,
     download_model,
     reset_registry,
-    reset_performance_path,
     get_model_lineage_from_config,
     get_model_sizes,
     s3,
@@ -746,177 +741,31 @@ def health():
     return {"ok": True}
 
 
-def _ensure_model_in_performance_path(model_id: str, version: str = "main") -> bool:
-    """
-    Ensure model exists in S3 performance path. Uploads automatically if missing.
-    This is called automatically by the workload trigger endpoint.
-    Downloads full model (including weights) for performance testing.
-    
-    Args:
-        model_id: Model ID to ensure exists (e.g., "arnir0/Tiny-LLM")
-        version: Model version (default: "main")
-        
-    Returns:
-        True if model exists or was successfully uploaded, False otherwise
-    """
+@app.get("/llm-status")
+def llm_status():
+    """Check if LLM service is available and working on the host"""
     try:
-        from .services.s3_service import s3, ap_arn, aws_available
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import zipfile
-        import io
+        from src.services.llm_service import is_llm_available, PURDUE_GENAI_API_KEY
         
-        if not aws_available or not s3 or not ap_arn:
-            logger.warning("AWS S3 not available - cannot ensure model in performance path")
-            return False
+        available = is_llm_available()
+        has_key = bool(PURDUE_GENAI_API_KEY)
+        key_length = len(PURDUE_GENAI_API_KEY) if PURDUE_GENAI_API_KEY else 0
         
-        # Sanitize model_id for S3 key (same logic as populate_registry.py)
-        sanitized_model_id = (
-            model_id.replace("https://huggingface.co/", "")
-            .replace("http://huggingface.co/", "")
-            .replace("/", "_")
-            .replace(":", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace('"', "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace("|", "_")
-        )
-        
-        # Check if model exists in performance path
-        s3_key = f"performance/{sanitized_model_id}/{version}/model.zip"
-        try:
-            s3.head_object(Bucket=ap_arn, Key=s3_key)
-            logger.info(f"Model {model_id} already exists in performance path: {s3_key}")
-            return True
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "")
-            if error_code not in ["404", "NoSuchKey"]:
-                logger.error(f"Error checking model existence: {error_code}")
-                return False
-        
-        # Model doesn't exist - download from HuggingFace and upload
-        logger.info(f"Model {model_id} not found in performance path - downloading full model from HuggingFace...")
-        
-        # Download full model from HuggingFace (including weights for performance testing)
-        try:
-            clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
-            api_url = f"https://huggingface.co/api/models/{clean_model_id}"
-            response = requests.get(api_url, timeout=30)
-            
-            if response.status_code != 200:
-                logger.error(f"Model {clean_model_id} not found on HuggingFace (HTTP {response.status_code})")
-                return False
-            
-            model_info = response.json()
-            all_files = []
-            for sibling in model_info.get("siblings", []):
-                if sibling.get("rfilename"):
-                    all_files.append(sibling["rfilename"])
-            
-            # For performance testing, download essential files + ONE main weight file + tokenizer files
-            # (same logic as populate_registry.py with download_all=True)
-            essential_files = []
-            for filename in all_files:
-                if filename.endswith((".json", ".md", ".txt", ".yml", ".yaml")):
-                    essential_files.append(filename)
-                elif filename.startswith("README") or filename.startswith("readme"):
-                    essential_files.append(filename)
-                elif filename in ["config.json", "LICENSE", "license", "LICENCE", "licence"]:
-                    essential_files.append(filename)
-            
-            # Find ONE main weight file (prefer .safetensors, then pytorch_model.bin)
-            weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) 
-                          and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite", "mlpackage"])]
-            main_weight_file = None
-            if weight_files:
-                for preferred in ["model.safetensors", "pytorch_model.bin"]:
-                    if preferred in weight_files:
-                        main_weight_file = preferred
-                        break
-                if not main_weight_file:
-                    main_weight_file = weight_files[0]  # Use first weight file if no preferred found
-            
-            # Tokenizer files
-            tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and 
-                             any(f.endswith(ext) for ext in [".json", ".txt", ".model"])]
-            
-            # Combine files to download
-            files_to_download = essential_files.copy()
-            if main_weight_file:
-                files_to_download.append(main_weight_file)
-            files_to_download.extend(tokenizer_files)
-            
-            if not files_to_download:
-                logger.error(f"No files found to download for model {clean_model_id}")
-                return False
-            
-            # Download files
-            def download_file(url: str, timeout: int = 120) -> Optional[bytes]:
-                try:
-                    req = urllib.request.Request(url)
-                    req.add_header("User-Agent", "Mozilla/5.0")
-                    with urllib.request.urlopen(req, timeout=timeout) as response:
-                        return response.read()
-                except Exception as e:
-                    logger.warning(f"Failed to download {url}: {str(e)}")
-                    return None
-            
-            urls_to_download = [
-                (
-                    f"https://huggingface.co/{clean_model_id}/resolve/{version}/{filename}",
-                    filename,
-                )
-                for filename in files_to_download
-            ]
-            
-            output = io.BytesIO()
-            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = {
-                        executor.submit(download_file, url[0], 120): url[1]
-                        for url in urls_to_download
-                    }
-                    downloaded_count = 0
-                    for future in as_completed(futures):
-                        filename = futures[future]
-                        try:
-                            result = future.result()
-                            if result:
-                                zip_file.writestr(filename, result)
-                                downloaded_count += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to download {filename}: {e}")
-            
-            zip_content = output.getvalue()
-            if not zip_content or len(zip_content) == 0:
-                logger.error(f"Downloaded zip file is empty for model {clean_model_id}")
-                return False
-            
-            logger.info(f"Downloaded {len(zip_content):,} bytes ({len(zip_content) / (1024*1024):.2f} MB) from HuggingFace")
-            
-        except Exception as e:
-            logger.error(f"Failed to download model from HuggingFace: {str(e)}", exc_info=True)
-            return False
-        
-        # Upload to S3 performance path
-        try:
-            s3.put_object(
-                Bucket=ap_arn,
-                Key=s3_key,
-                Body=zip_content,
-                ContentType="application/zip"
-            )
-            logger.info(f"Uploaded model to performance path: {s3_key} ({len(zip_content):,} bytes)")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to upload model to S3: {str(e)}", exc_info=True)
-            return False
-            
+        return {
+            "llm_available": available,
+            "api_key_configured": has_key,
+            "api_key_length": key_length,
+            "status": "ready" if available else "not_configured",
+            "message": "LLM service is ready and available" if available else "LLM API key not configured. Set GEN_AI_STUDIO_API_KEY environment variable."
+        }
     except Exception as e:
-        logger.error(f"Error ensuring model in performance path: {str(e)}", exc_info=True)
-        return False
+        return {
+            "llm_available": False,
+            "api_key_configured": False,
+            "status": "error",
+            "error": str(e),
+            "message": f"Error checking LLM status: {str(e)}"
+        }
 
 
 @app.post("/health/performance/workload")
@@ -924,12 +773,8 @@ async def trigger_performance_workload(request: Request):
     """
     Trigger a performance workload run.
     Accepts parameters to configure the workload and returns a run_id for tracking.
-    
-    Automatically ensures the specified model exists in the performance path before triggering the workload.
-    If the model doesn't exist, it will be downloaded from HuggingFace and uploaded to S3 automatically.
     """
     try:
-        from datetime import timedelta
         body = await request.json()
 
         # Extract parameters with defaults
@@ -954,33 +799,26 @@ async def trigger_performance_workload(request: Request):
                 status_code=400, detail="duration_seconds must be a positive integer"
             )
 
-        # Ensure model exists in performance path (automatic, transparent to user)
-        logger.info(f"Ensuring model {model_id} exists in performance path...")
-        model_ready = _ensure_model_in_performance_path(model_id, version="main")
-        if not model_ready:
-            logger.warning(f"Model {model_id} may not be available in performance path - workload may fail")
-            # Don't fail here - let the workload try and fail gracefully if model is missing
-
         # Import and trigger workload
         from .services.performance.workload_trigger import trigger_workload
 
-        # Don't pass base_url - this will use direct function calls instead of HTTP
-        # This is more efficient when called from within the API
-        # Only use HTTP if API_BASE_URL is explicitly set (for external testing)
+        # Use API Gateway URL as the base URL for load generation
+        # This is where clients will actually make requests
+        # Can be overridden via environment variable
+        base_url = os.getenv(
+            "API_BASE_URL",
+            "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod",
+        )
+
         result = trigger_workload(
             num_clients=num_clients,
             model_id=model_id,
             artifact_id=artifact_id,
             duration_seconds=duration_seconds,
-            base_url=None,  # None = use direct function calls (more efficient)
+            base_url=base_url,
         )
 
-        # Store the workload JSON in DynamoDB
-        from .services.performance.metrics_storage import store_workload_metadata
-        store_workload_metadata(result["run_id"], result)
-        logger.info(f"Stored workload metadata for run_id={result['run_id']} in DynamoDB")
-
-        return JSONResponse(status_code=202, content=result)
+        return JSONResponse(status_code=202, content=result)  # Accepted
 
     except HTTPException:
         raise
@@ -996,51 +834,28 @@ def get_performance_results(run_id: str):
     """
     Get aggregated performance results for a workload run.
     Queries DynamoDB for raw metrics and calculates statistics.
-    Returns stored metadata if workload is still running, or full results if completed.
     """
     try:
         from .services.performance.results_retrieval import get_performance_results
         from .services.performance.workload_trigger import get_workload_status
-        from .services.performance.metrics_storage import get_workload_metadata
 
-        # Get workload status from in-memory store (most up-to-date)
+        # Get workload status from in-memory store
         workload_status = get_workload_status(run_id)
-        
-        # Get stored metadata from DynamoDB
-        stored_metadata = get_workload_metadata(run_id)
-        
-        # If workload is completed, get full performance results with metrics
-        if workload_status and workload_status.get("status") == "completed":
-            logger.info(f"Workload {run_id} completed, retrieving full performance results")
-            result = get_performance_results(run_id, workload_status)
-            return JSONResponse(status_code=200, content=result)
-        
-        # If workload failed, return status
-        if workload_status and workload_status.get("status") == "failed":
-            error_info = {
-                "run_id": run_id,
-                "status": "failed",
-                "error": workload_status.get("error", "Unknown error"),
-            }
-            if stored_metadata:
-                error_info.update(stored_metadata)
-            return JSONResponse(status_code=200, content=error_info)
-        
-        # If workload is still running or we only have stored metadata, return that
-        if stored_metadata:
-            logger.info(f"Workload {run_id} still running, returning stored metadata")
-            return JSONResponse(status_code=200, content=stored_metadata)
-        
-        # If no metadata found, try to get results anyway (might have metrics but no metadata)
-        if workload_status:
-            result = get_performance_results(run_id, workload_status)
-            return JSONResponse(status_code=200, content=result)
-        
-        # Nothing found
-        raise HTTPException(
-            status_code=404,
-            detail=f"Performance run with run_id {run_id} not found"
-        )
+
+        # Get aggregated results
+        result = get_performance_results(run_id, workload_status)
+
+        # If run not found and no metrics in DynamoDB, return 404
+        if (
+            result.get("status") == "not_found"
+            and result["metrics"]["total_requests"] == 0
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Performance run with run_id {run_id} not found",
+            )
+
+        return JSONResponse(status_code=200, content=result)
 
     except HTTPException:
         raise
@@ -1803,29 +1618,6 @@ def reset_system(request: Request):
         # Clear _artifact_storage (in-memory)
         global _artifact_storage
         _artifact_storage.clear()
-         # Clear RDS artifacts if RDS is configured
-        try:
-            rds_endpoint = os.getenv("RDS_ENDPOINT")
-            rds_password = os.getenv("RDS_PASSWORD")
-            if rds_endpoint and rds_password:
-                from .services.rds_service import get_connection_pool
-                pool = get_connection_pool()
-                conn = pool.getconn()
-                cursor = conn.cursor()
-                try:
-                    # Delete all artifacts from artifact_metadata table
-                    cursor.execute("DELETE FROM artifact_metadata")
-                    deleted_count = cursor.rowcount
-                    conn.commit()
-                    logger.info(f"Cleared {deleted_count} artifacts from RDS")
-                except Exception as e:
-                    conn.rollback()
-                    logger.warning(f"Error clearing RDS artifacts: {str(e)}")
-                finally:
-                    pool.putconn(conn)
-        except Exception as e:
-            # RDS might not be configured, which is okay
-            logger.debug(f"RDS not available or not configured: {str(e)}")
         result = reset_registry()
         purge_tokens()
         ensure_default_admin()
@@ -1835,482 +1627,6 @@ def reset_system(request: Request):
     except Exception as e:
         logger.error(f"Error resetting registry: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
-
-
-@app.delete("/reset-rds")
-def reset_rds_system(request: Request):
-    """
-    Reset RDS database by deleting all model files with performance/ path prefix.
-    This endpoint is separate from the S3 reset endpoint.
-    """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
-    try:
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for RDS reset: {str(e)}")
-        raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the RDS registry."
-        )
-
-    try:
-        # Check if RDS credentials are available
-        rds_endpoint = os.getenv("RDS_ENDPOINT")
-        rds_database = os.getenv("RDS_DATABASE")
-        rds_username = os.getenv("RDS_USERNAME")
-        rds_password = os.getenv("RDS_PASSWORD")
-        
-        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
-            raise HTTPException(
-                status_code=500,
-                detail="RDS reset endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
-            )
-        
-        # Import RDS service and delete all performance/ path models
-        from .services.rds_service import get_connection_pool
-        import psycopg2
-        
-        pool = get_connection_pool()
-        conn = pool.getconn()
-        cursor = conn.cursor()
-        
-        try:
-            # Delete all rows where path_prefix='performance'
-            cursor.execute("""
-                DELETE FROM model_files
-                WHERE path_prefix = 'performance'
-            """)
-            deleted_count = cursor.rowcount
-            conn.commit()
-            logger.info(f"RDS reset successful: deleted {deleted_count} model files from performance/ path")
-        except Exception as e:
-            conn.rollback()
-            raise
-        finally:
-            pool.putconn(conn)
-        
-        return {"message": "RDS reset successful", "deleted_count": deleted_count}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error resetting RDS registry: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS reset failed: {str(e)}")
-
-
-@app.post("/populate/s3/performance")
-def populate_s3_performance(repopulate: bool = Query(True, description="Repopulate with 500 models")):
-    """
-    Populate the S3 performance/ path with 500 models from HuggingFace.
-    First resets (deletes all objects), then repopulates.
-    Only affects the performance/ path, not models/ or other paths.
-    No authentication required.
-    """
-    try:
-        response_data = {
-            "message": "S3 performance path population started",
-            "path": "performance/"
-        }
-        
-        # Reset the performance path first
-        result = reset_performance_path()
-        deleted_count = result.get("deleted_count", 0)
-        response_data["deleted_count"] = deleted_count
-        response_data["reset_message"] = f"Deleted {deleted_count} objects from performance/ path"
-        
-        # Repopulate with models
-        if repopulate:
-            logger.info("Starting repopulation of S3 performance path with 500 models...")
-            repopulate_result = _repopulate_performance_path()
-            response_data["repopulate"] = repopulate_result
-        
-        return JSONResponse(status_code=200, content=response_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error populating S3 performance path: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"S3 performance path population failed: {str(e)}")
-
-
-def _repopulate_performance_path() -> Dict[str, Any]:
-    """
-    Repopulate the performance/ S3 path with 500 models from HuggingFace.
-    Uses the same logic as populate_registry.py for S3 mode.
-    """
-    try:
-        from .services.s3_service import s3, ap_arn, aws_available
-        import zipfile
-        import io
-        
-        if not aws_available or not s3 or not ap_arn:
-            raise HTTPException(
-                status_code=503,
-                detail="AWS services not available. Please check your AWS configuration.",
-            )
-        
-        # Import the hardcoded list of 500 models
-        try:
-            # Add parent directory to path to import from scripts
-            import sys
-            from pathlib import Path
-            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
-            if scripts_path not in sys.path:
-                sys.path.insert(0, scripts_path)
-            from huggingface_models_list import HF_MODELS_500
-            models = HF_MODELS_500.copy()
-        except ImportError:
-            # Fallback if import fails
-            models = [
-                "arnir0/Tiny-LLM",
-                "bert-base-uncased",
-                "distilbert-base-uncased",
-                "roberta-base",
-                "gpt2",
-                "t5-small",
-                "t5-base",
-                "facebook/bart-base",
-            ]
-        
-        # Ensure Tiny-LLM is first
-        REQUIRED_MODEL = "arnir0/Tiny-LLM"
-        if REQUIRED_MODEL in models:
-            models.remove(REQUIRED_MODEL)
-        models.insert(0, REQUIRED_MODEL)
-        models = models[:500]  # Limit to 500
-        
-        successful = 0
-        failed = 0
-        not_found = 0
-        target_successful = 500
-        
-        logger.info(f"Starting repopulation with {len(models)} models...")
-        
-        for i, model_id in enumerate(models, 1):
-            if successful >= target_successful:
-                break
-            
-            try:
-                # Check if model exists on HuggingFace
-                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
-                api_url = f"https://huggingface.co/api/models/{clean_model_id}"
-                response = requests.get(api_url, timeout=30)
-                
-                if response.status_code != 200:
-                    not_found += 1
-                    continue
-                
-                model_info = response.json()
-                all_files = []
-                for sibling in model_info.get("siblings", []):
-                    if sibling.get("rfilename"):
-                        all_files.append(sibling["rfilename"])
-                
-                # Download files (same logic as populate_registry.py)
-                is_tiny_llm = (model_id == REQUIRED_MODEL)
-                
-                if is_tiny_llm:
-                    # Tiny-LLM: download full model (essential + weight + tokenizer)
-                    essential_files = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
-                    weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite"])]
-                    main_weight_file = None
-                    for preferred in ["model.safetensors", "pytorch_model.bin"]:
-                        if preferred in weight_files:
-                            main_weight_file = preferred
-                            break
-                    if not main_weight_file and weight_files:
-                        root_files = [f for f in weight_files if "/" not in f]
-                        main_weight_file = root_files[0] if root_files else weight_files[0]
-                    tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and (f.endswith(".json") or f.endswith(".model") or "vocab" in f.lower())]
-                    files_to_download = essential_files.copy()
-                    if main_weight_file:
-                        files_to_download.append(main_weight_file)
-                    files_to_download.extend(tokenizer_files)
-                    files_to_download = list(dict.fromkeys(files_to_download))
-                else:
-                    # Other models: essential files only
-                    files_to_download = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
-                
-                if not files_to_download:
-                    not_found += 1
-                    continue
-                
-                # Download files and create ZIP
-                output = io.BytesIO()
-                with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    for filename in files_to_download:
-                        try:
-                            url = f"https://huggingface.co/{clean_model_id}/resolve/main/{filename}"
-                            file_response = requests.get(url, timeout=120)
-                            if file_response.status_code == 200:
-                                zip_file.writestr(filename, file_response.content)
-                        except Exception:
-                            pass  # Skip failed files
-                
-                zip_content = output.getvalue()
-                if len(zip_content) == 0:
-                    failed += 1
-                    continue
-                
-                # Upload to S3 performance path
-                sanitized_model_id = (
-                    model_id.replace("https://huggingface.co/", "")
-                    .replace("http://huggingface.co/", "")
-                    .replace("/", "_")
-                    .replace(":", "_")
-                    .replace("\\", "_")
-                    .replace("?", "_")
-                    .replace("*", "_")
-                    .replace('"', "_")
-                    .replace("<", "_")
-                    .replace(">", "_")
-                    .replace("|", "_")
-                )
-                s3_key = f"performance/{sanitized_model_id}/main/model.zip"
-                
-                s3.put_object(
-                    Bucket=ap_arn,
-                    Key=s3_key,
-                    Body=zip_content,
-                    ContentType="application/zip"
-                )
-                
-                successful += 1
-                if i % 50 == 0:
-                    logger.info(f"Repopulation progress: {i}/{len(models)}, {successful} successful")
-                    
-            except Exception as e:
-                failed += 1
-                logger.warning(f"Failed to ingest {model_id}: {str(e)}")
-        
-        logger.info(f"Repopulation complete: {successful} successful, {failed} failed, {not_found} not found")
-        
-        return {
-            "successful": successful,
-            "failed": failed,
-            "not_found": not_found,
-            "target": target_successful
-        }
-        
-    except Exception as e:
-        logger.error(f"Error repopulating performance path: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Repopulation failed: {str(e)}")
-
-
-@app.post("/populate/rds/performance")
-def populate_rds_performance():
-    """
-    Populate the RDS performance/ path with 500 models from HuggingFace.
-    Downloads models and stores them directly in RDS (no ingest logic).
-    No authentication required.
-    """
-    try:
-        from .services.rds_service import upload_model, get_connection_pool
-        import zipfile
-        import io
-        
-        # Check if RDS is available
-        try:
-            pool = get_connection_pool()
-            if not pool:
-                raise HTTPException(
-                    status_code=503,
-                    detail="RDS not available. Please check your RDS configuration.",
-                )
-        except Exception as e:
-            raise HTTPException(
-                status_code=503,
-                detail=f"RDS not available: {str(e)}",
-            )
-        
-        # Import the hardcoded list of 500 models
-        try:
-            # Add parent directory to path to import from scripts
-            import sys
-            from pathlib import Path
-            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
-            if scripts_path not in sys.path:
-                sys.path.insert(0, scripts_path)
-            from huggingface_models_list import HF_MODELS_500
-            models = HF_MODELS_500.copy()
-        except ImportError:
-            # Fallback if import fails
-            models = [
-                "arnir0/Tiny-LLM",
-                "bert-base-uncased",
-                "distilbert-base-uncased",
-                "roberta-base",
-                "gpt2",
-                "t5-small",
-                "t5-base",
-                "facebook/bart-base",
-            ]
-        
-        # Ensure Tiny-LLM is first
-        REQUIRED_MODEL = "arnir0/Tiny-LLM"
-        if REQUIRED_MODEL in models:
-            models.remove(REQUIRED_MODEL)
-        models.insert(0, REQUIRED_MODEL)
-        models = models[:500]  # Limit to 500
-        
-        successful = 0
-        failed = 0
-        not_found = 0
-        target_successful = 500
-        
-        logger.info(f"Starting RDS population with {len(models)} models...")
-        
-        for i, model_id in enumerate(models, 1):
-            if successful >= target_successful:
-                break
-            
-            try:
-                # Check if model exists on HuggingFace
-                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
-                api_url = f"https://huggingface.co/api/models/{clean_model_id}"
-                response = requests.get(api_url, timeout=30)
-                
-                if response.status_code != 200:
-                    not_found += 1
-                    continue
-                
-                model_info = response.json()
-                all_files = []
-                for sibling in model_info.get("siblings", []):
-                    if sibling.get("rfilename"):
-                        all_files.append(sibling["rfilename"])
-                
-                # Download files (same logic as populate_registry.py)
-                is_tiny_llm = (model_id == REQUIRED_MODEL)
-                
-                if is_tiny_llm:
-                    # Tiny-LLM: download full model (essential + weight + tokenizer)
-                    essential_files = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
-                    weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite"])]
-                    main_weight_file = None
-                    for preferred in ["model.safetensors", "pytorch_model.bin"]:
-                        if preferred in weight_files:
-                            main_weight_file = preferred
-                            break
-                    if not main_weight_file and weight_files:
-                        root_files = [f for f in weight_files if "/" not in f]
-                        main_weight_file = root_files[0] if root_files else weight_files[0]
-                    tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and (f.endswith(".json") or f.endswith(".model") or "vocab" in f.lower())]
-                    files_to_download = essential_files.copy()
-                    if main_weight_file:
-                        files_to_download.append(main_weight_file)
-                    files_to_download.extend(tokenizer_files)
-                    files_to_download = list(dict.fromkeys(files_to_download))
-                else:
-                    # Other models: essential files only
-                    files_to_download = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
-                
-                if not files_to_download:
-                    not_found += 1
-                    continue
-                
-                # Download files and create ZIP
-                output = io.BytesIO()
-                with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    for filename in files_to_download:
-                        try:
-                            url = f"https://huggingface.co/{clean_model_id}/resolve/main/{filename}"
-                            file_response = requests.get(url, timeout=120)
-                            if file_response.status_code == 200:
-                                zip_file.writestr(filename, file_response.content)
-                        except Exception:
-                            pass  # Skip failed files
-                
-                zip_content = output.getvalue()
-                if len(zip_content) == 0:
-                    failed += 1
-                    continue
-                
-                # Upload to RDS performance path (no ingest logic, just upload)
-                sanitized_model_id = (
-                    model_id.replace("https://huggingface.co/", "")
-                    .replace("http://huggingface.co/", "")
-                    .replace("/", "_")
-                    .replace(":", "_")
-                    .replace("\\", "_")
-                    .replace("?", "_")
-                    .replace("*", "_")
-                    .replace('"', "_")
-                    .replace("<", "_")
-                    .replace(">", "_")
-                    .replace("|", "_")
-                )
-                
-                # Upload directly to RDS using upload_model (no ingest logic)
-                upload_model(
-                    zip_content,
-                    sanitized_model_id,
-                    "main",
-                    use_performance_path=True
-                )
-                
-                successful += 1
-                if i % 50 == 0:
-                    logger.info(f"RDS population progress: {i}/{len(models)}, {successful} successful")
-                    
-            except Exception as e:
-                failed += 1
-                logger.warning(f"Failed to populate {model_id} in RDS: {str(e)}")
-        
-        logger.info(f"RDS population complete: {successful} successful, {failed} failed, {not_found} not found")
-        
-        return {
-            "message": "RDS performance path population complete",
-            "successful": successful,
-            "failed": failed,
-            "not_found": not_found,
-            "target": target_successful,
-            "path": "performance/"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error populating RDS performance path: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS performance path population failed: {str(e)}")
 
 
 @app.get("/package/{id}")
@@ -3328,18 +2644,33 @@ def get_artifact(artifact_type: str, id: str, request: Request):
             if artifact:
                 logger.info(f"DEBUG: ✅ Found artifact in database: {artifact}")
                 if artifact.get("type") == "model":
-                    # Check rating status - but don't block artifact retrieval
-                    # Rating status is informational only for GET /artifact endpoint
+                    # Check rating status and block until complete
                     if id in _rating_status:
                         status = _rating_status[id]
                         logger.info(f"DEBUG: Rating status for id='{id}': {status}")
-                        # Don't wait for pending ratings - just log and continue
-                        # The rating endpoint will handle pending/completed/failed ratings
+
                         if status == "pending":
-                            logger.info(f"DEBUG: Rating pending for id='{id}', but continuing with artifact retrieval")
-                        elif status == "disqualified" or status == "failed":
-                            logger.warning(f"DEBUG: Rating {status} for id='{id}', but artifact still exists - continuing")
-                        # Always continue to return the artifact regardless of rating status
+                            # Block until rating completes (with timeout)
+                            logger.info(
+                                f"DEBUG: Rating pending, waiting for completion..."
+                            )
+                            if id in _rating_locks:
+                                # Wait up to 300 seconds (5 minutes) for rating to complete
+                                event = _rating_locks[id]
+                                if not event.wait(timeout=300):
+                                    logger.warning(
+                                        f"DEBUG: Rating timeout for id='{id}' after 300s, will continue without blocking"
+                                    )
+                                    # Don't raise error - just continue and let the request proceed
+                                    # The rating endpoint will handle it with synchronous fallback
+                                # Re-check status after wait
+                                status = _rating_status.get(id, "unknown")
+
+                        if status == "disqualified" or status == "failed":
+                            logger.warning(f"DEBUG: Rating {status} for id='{id}'")
+                            raise HTTPException(
+                                status_code=404, detail="Artifact does not exist."
+                            )
 
                     logger.info(
                         f"DEBUG: ✅ Artifact type matches 'model', returning immediately"
@@ -5098,32 +4429,32 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "name": model_name,
         "category": alias(rating, "category") or "unknown",
         "net_score": round(
-            min(1.0, max(0.0, float(alias(rating, "net_score", "NetScore", "netScore") or 0.0))), 2
+            float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2
         ),
         "net_score_latency": round(
             float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0), 2
         ),
         "ramp_up_time": round(
-            min(1.0, max(0.0, float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0))),
+            float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0),
             2,
         ),
         "ramp_up_time_latency": round(
             float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0), 2
         ),
         "bus_factor": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(
                     rating, "bus_factor", "BusFactor", "score_bus_factor", "busFactor"
                 )
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "bus_factor_latency": round(
             float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0), 2
         ),
         "performance_claims": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(
                     rating,
                     "performance_claims",
@@ -5131,7 +4462,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_performance_claims",
                 )
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "performance_claims_latency": round(
@@ -5142,13 +4473,13 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "license": round(
-            min(1.0, max(0.0, float(alias(rating, "license", "License", "score_license") or 0.0))), 2
+            float(alias(rating, "license", "License", "score_license") or 0.0), 2
         ),
         "license_latency": round(
             float(alias(rating, "license_latency", "LicenseLatency") or 0.0), 2
         ),
         "dataset_and_code_score": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(
                     rating,
                     "dataset_code",
@@ -5156,7 +4487,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_available_dataset_and_code",
                 )
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "dataset_and_code_score_latency": round(
@@ -5171,12 +4502,12 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "dataset_quality": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(
                     rating, "dataset_quality", "DatasetQuality", "score_dataset_quality"
                 )
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "dataset_quality_latency": round(
@@ -5186,17 +4517,17 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "code_quality": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(rating, "code_quality", "CodeQuality", "score_code_quality")
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "code_quality_latency": round(
             float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0), 2
         ),
         "reproducibility": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(
                     rating,
                     "reproducibility",
@@ -5204,7 +4535,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_reproducibility",
                 )
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "reproducibility_latency": round(
@@ -5215,10 +4546,10 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "reviewedness": round(
-            min(1.0, max(0.0, float(
+            float(
                 alias(rating, "reviewedness", "Reviewedness", "score_reviewedness")
                 or 0.0
-            ))),
+            ),
             2,
         ),
         "reviewedness_latency": round(
@@ -5226,7 +4557,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "tree_score": round(
-            min(1.0, max(0.0, float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0))), 2
+            float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2
         ),
         "tree_score_latency": round(
             float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0), 2
@@ -5388,19 +4719,11 @@ def get_model_rate(id: str, request: Request):
                     )
                     status = "timeout"
 
-            # Don't block rating endpoint if rating failed/disqualified
-            # Instead, try to compute rating synchronously as fallback
             if status == "disqualified" or status == "failed":
-                logger.warning(f"DEBUG: Rating {status} for id='{id}', attempting synchronous fallback")
-                # Clear the failed status to allow retry
-                with _rating_lock:
-                    if id in _rating_status:
-                        del _rating_status[id]
-                    if id in _rating_results:
-                        del _rating_results[id]
-                # Fall through to synchronous rating below
-                rating = None
-            elif status == "completed":
+                logger.warning(f"DEBUG: Rating {status} for id='{id}'")
+                raise HTTPException(status_code=404, detail="Artifact does not exist.")
+
+            if status == "completed":
                 # Use cached rating result
                 rating = _rating_results.get(id)
                 if not rating:
@@ -5801,7 +5124,40 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Parse request body first (needed for validation)
+        # Check if artifact exists - try full metadata first
+        found = False
+        artifact = get_generic_artifact_metadata("model", id)
+        if not artifact:
+            artifact = get_artifact_from_db(id)
+        if artifact and artifact.get("type") == "model":
+            found = True
+
+        if not found:
+            try:
+                result_check = list_models(name_regex=f"^{re.escape(id)}$", limit=1000)
+                if result_check.get("models"):
+                    found = True
+                else:
+                    # Try common versions
+                    common_versions = ["1.0.0", "main", "latest"]
+                    for v in common_versions:
+                        try:
+                            s3_key = f"models/{id}/{v}/model.zip"
+                            s3.head_object(Bucket=ap_arn, Key=s3_key)
+                            found = True
+                            break
+                        except ClientError:
+                            continue
+            except Exception:
+                pass
+
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail="The artifact or GitHub project could not be found.",
+            )
+
+        # Parse request body
         try:
             body = (
                 await request.json()
@@ -5825,70 +5181,16 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Check if artifact exists - use same logic as get_artifact endpoint
-        artifact = None
-        artifact_name = None
-        s3_metadata = None
-        
-        # Try to get artifact from database first
-        artifact = get_generic_artifact_metadata("model", id)
-        if not artifact:
-            artifact = get_artifact_from_db(id)
-        
-        if artifact and artifact.get("type") == "model":
-            artifact_name = artifact.get("name", id)
-        else:
-            # Try to find in S3 metadata
-            s3_metadata = find_artifact_metadata_by_id(id)
-            if s3_metadata and s3_metadata.get("type") == "model":
-                artifact_name = s3_metadata.get("name", id)
-                artifact = s3_metadata
-            else:
-                # Try using ID as model name (for HuggingFace models)
-                artifact_name = id
-
-        # Get model name for license extraction
-        # Prefer artifact name if available, otherwise try to get from S3, otherwise use ID
-        model_name_for_license = artifact_name if artifact_name else _get_model_name_for_s3(id)
+        # Get model name for license extraction (models are stored by name, not ID)
+        model_name_for_license = _get_model_name_for_s3(id)
         if not model_name_for_license:
+            # Fallback: use ID directly (in case it was stored by ID)
             model_name_for_license = id
 
         # Extract licenses and check compatibility
         try:
-            # First, check if license is stored in artifact metadata
-            model_license = None
-            if artifact:
-                # Check various possible license fields in artifact metadata
-                license_info = (
-                    artifact.get("license") or
-                    artifact.get("metadata", {}).get("license") if isinstance(artifact.get("metadata"), dict) else None or
-                    artifact.get("metadata_json", {}).get("license") if isinstance(artifact.get("metadata_json"), dict) else None or
-                    artifact.get("rating", {}).get("license") if isinstance(artifact.get("rating"), dict) else None
-                )
-                if license_info:
-                    from ..services.license_compatibility import normalize_license
-                    model_license = normalize_license(str(license_info))
-                    if model_license and model_license != "no-license":
-                        logger.info(f"Found license in artifact metadata: {model_license}")
-            
-            # If not found in metadata, try to extract from model
-            if not model_license or model_license == "no-license":
-                # Try to extract model license - try multiple approaches
-                if model_name_for_license:
-                    model_license = extract_model_license(model_name_for_license)
-                
-                # If still None, try with artifact name or ID directly
-                if (not model_license or model_license == "no-license") and artifact_name and artifact_name != model_name_for_license:
-                    model_license = extract_model_license(artifact_name)
-                
-                if not model_license or model_license == "no-license":
-                    # Last resort: try with ID directly
-                    model_license = extract_model_license(id)
-            
-            # If model license still can't be found, return 404 (artifact exists but license info not found)
-            # Per spec: "The artifact or GitHub project could not be found" when license can't be extracted
-            if not model_license or model_license == "no-license":
-                logger.warning(f"Could not extract model license for {id} (tried: {model_name_for_license}, {artifact_name}, {id})")
+            model_license = extract_model_license(model_name_for_license)
+            if model_license is None:
                 raise HTTPException(
                     status_code=404,
                     detail="The artifact or GitHub project could not be found.",
@@ -5896,7 +5198,6 @@ async def check_model_license(id: str, request: Request):
 
             github_license = extract_github_license(github_url)
             if github_license is None:
-                logger.warning(f"Could not extract GitHub license from {github_url}")
                 raise HTTPException(
                     status_code=404,
                     detail="The artifact or GitHub project could not be found.",
@@ -6212,328 +5513,20 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
-@app.get("/artifact/model/{id}/download-rds")
-def download_model_from_rds(
-    id: str,
-    request: Request,
-    version: str = Query("main", description="Model version"),
-    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
-    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Download model file from RDS PostgreSQL.
-    Supports both models/ and performance/ paths.
-    """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-    
-    try:
-        from .services.rds_service import download_model
-        from fastapi.responses import Response
-        
-        # Sanitize model_id (id parameter is already sanitized from URL)
-        sanitized_model_id = id
-        
-        # Determine if using performance path
-        use_performance_path = (path_prefix == "performance")
-        
-        # Download from RDS
-        file_content = download_model(
-            sanitized_model_id,
-            version,
-            component,
-            use_performance_path=use_performance_path
-        )
-        
-        return Response(
-            content=file_content,
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
-                "Content-Length": str(len(file_content))
-            }
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error downloading model from RDS: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS download failed: {str(e)}")
-
-
-@app.post("/artifact/model/{id}/ingest-rds")
-async def upload_artifact_model_to_rds(
-    id: str,
-    request: Request,
-    file: UploadFile = File(...),
-    version: str = Query("main", description="Model version"),
-    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Upload model file directly to RDS.
-    This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
-    Supports both models/ and performance/ paths.
-    """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    try:
-        # Read file content
-        file_content = await file.read()
-        if not file_content:
-            raise HTTPException(status_code=400, detail="File content is empty")
-        
-        # Validate file is ZIP
-        if not file.filename or not file.filename.endswith('.zip'):
-            raise HTTPException(status_code=400, detail="Only ZIP files are supported")
-        
-        # Sanitize model_id (id parameter is already sanitized from URL)
-        sanitized_model_id = id
-        
-        # Determine if using performance path
-        use_performance_path = (path_prefix == "performance")
-        
-        # Upload to RDS
-        from .services.rds_service import upload_model
-        
-        result = upload_model(
-            file_content,
-            sanitized_model_id,
-            version,
-            use_performance_path=use_performance_path
-        )
-        
-        return {
-            "message": "Upload successful",
-            "details": result,
-            "model_id": sanitized_model_id,
-            "version": version,
-            "path_prefix": path_prefix
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading model to RDS: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS upload failed: {str(e)}")
-
-
-# Old ingest-rds endpoint (kept for backward compatibility but deprecated)
-@app.post("/artifact/model/{id}/ingest-rds-old")
-async def upload_artifact_model_to_rds_old(request: Request):
-    """
-    Upload model file directly to RDS.
-    This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
-    Supports both models/ and performance/ paths.
-    DEPRECATED: Use /artifact/model/{id}/ingest-rds with file upload instead.
-    """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    try:
-        # Parse form data
-        form = await request.form()
-        name = form.get("name")
-        version = form.get("version", "main")
-        artifact_type = form.get("type", "model")
-
-        # Validate name parameter
-        if not name or not name.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Name parameter is required. Provide 'name' in form data.",
-            )
-
-        name = name.strip()
-
-        # For models, use model_ingestion
-        if artifact_type == "model":
-            try:
-                # Check if artifact already exists
-                try:
-                    existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
-                    if existing.get("models"):
-                        raise HTTPException(
-                            status_code=409, detail="Artifact exists already."
-                        )
-                except HTTPException:
-                    raise
-                except:
-                    pass
-
-                # Ingest the model (synchronous - must complete)
-                model_ingestion(name, version)
-
-                # Generate artifact ID
-                logger.info(f"DEBUG: ===== GENERATING ARTIFACT ID =====")
-                artifact_id = str(random.randint(1000000000, 9999999999))
-                url = f"https://huggingface.co/{name}"
-                logger.info(
-                    f"DEBUG: Generated artifact_id: '{artifact_id}' for model '{name}'"
-                )
-
-                # Store artifact metadata in DynamoDB (for compatibility)
-                logger.info(f"DEBUG: Storing in database with key: '{artifact_id}'")
-                artifact_data = {
-                    "name": name,
-                    "type": artifact_type,
-                    "version": version,
-                    "id": artifact_id,
-                    "url": url,
-                }
-                save_artifact(artifact_id, artifact_data)
-                logger.info(
-                    f"DEBUG: ✅ Stored in database: artifact_id='{artifact_id}'"
-                )
-
-                # Store artifact metadata in RDS (model file already stored via model_ingestion)
-                # This must complete synchronously so queries can find the artifact
-                logger.info(f"DEBUG: ===== STORING ARTIFACT METADATA IN RDS =====")
-                logger.info(
-                    f"DEBUG: artifact_id='{artifact_id}', name='{name}', type='{artifact_type}', version='{version}'"
-                )
-                try:
-                    from .services.rds_service import store_artifact_metadata, find_artifact_metadata_by_id
-                    
-                    result = store_artifact_metadata(
-                        artifact_id, name, artifact_type, version, url
-                    )
-                    logger.info(f"DEBUG: ✅ RDS metadata storage result: {result}")
-
-                    # Verify the metadata was stored by trying to read it back
-                    # This ensures the write completed and is immediately readable
-                    import time
-
-                    logger.info(f"DEBUG: Verifying RDS metadata is readable...")
-                    verify_metadata = None
-                    for verify_attempt in range(3):
-                        logger.info(
-                            f"DEBUG: Verification attempt {verify_attempt + 1}/3"
-                        )
-                        verify_metadata = find_artifact_metadata_by_id(artifact_id)
-                        if verify_metadata:
-                            logger.info(
-                                f"DEBUG: ✅✅✅ VERIFIED: RDS metadata exists for artifact_id '{artifact_id}' ✅✅✅"
-                            )
-                            logger.info(f"DEBUG: Verified metadata: {verify_metadata}")
-                            break
-                        else:
-                            logger.warning(
-                                f"DEBUG: ⚠️ Verification attempt {verify_attempt + 1} failed - metadata not found"
-                            )
-                        if verify_attempt < 2:
-                            logger.info(f"DEBUG: Waiting 0.1s before retry...")
-                            time.sleep(0.1)  # Small delay before retry
-
-                    if not verify_metadata:
-                        logger.error(
-                            f"DEBUG: ❌❌❌ WARNING: Could not verify RDS metadata for artifact_id '{artifact_id}' after 3 attempts ❌❌❌"
-                        )
-                        logger.error(
-                            f"DEBUG: This may cause query failures if hitting different instance"
-                        )
-                except Exception as rds_error:
-                    logger.error(
-                        f"DEBUG: ❌ Exception storing artifact metadata in RDS: {str(rds_error)}",
-                        exc_info=True,
-                    )
-                    # Don't fail ingestion if RDS metadata storage fails, but log it as an error
-
-                result = {
-                    "message": "Ingest successful",
-                    "details": {
-                        "name": name,
-                        "type": artifact_type,
-                        "version": version,
-                        "id": artifact_id,
-                        "url": url,
-                    },
-                }
-                logger.info(f"DEBUG: ===== INGESTION COMPLETE =====")
-                logger.info(
-                    f"DEBUG: ✅✅✅ Returning ingestion result: {result} ✅✅✅"
-                )
-                logger.info(f"DEBUG: Artifact should now be queryable by:")
-                logger.info(
-                    f"DEBUG:   - artifact_id: '{artifact_id}' (GET /package/{artifact_id})"
-                )
-                logger.info(f"DEBUG:   - name: '{name}' (GET /artifact/byName/{name})")
-                # Verify artifact was saved
-                saved_artifact = get_artifact_from_db(artifact_id)
-                if saved_artifact:
-                    logger.info(
-                        f"DEBUG: Verified artifact exists in database: id='{artifact_id}'"
-                    )
-                else:
-                    logger.warning(
-                        f"DEBUG: ⚠️ Could not verify artifact in database after save"
-                    )
-                return result
-            except HTTPException:
-                raise
-            except Exception as model_error:
-                logger.error(
-                    f"Error in model_ingestion for {name}: {str(model_error)}",
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Model ingestion failed: {str(model_error)}",
-                )
-        else:
-            # For non-model artifacts (dataset, code), store metadata in S3
-            artifact_id = str(random.randint(1000000000, 9999999999))
-            url = f"https://example.com/{artifact_type}/{name}"
-            save_artifact(
-                artifact_id,
-                {
-                    "name": name,
-                    "type": artifact_type,
-                    "version": version,
-                    "id": artifact_id,
-                    "url": url,
-                },
-            )
-
-            # Link this dataset/code to models that reference it
-            _link_dataset_code_to_models(artifact_id, name, artifact_type)
-
-            # Store artifact metadata in S3
-            try:
-                store_artifact_metadata(artifact_id, name, artifact_type, version, url)
-            except Exception as s3_error:
-                logger.warning(
-                    f"Failed to store artifact metadata in S3: {str(s3_error)}"
-                )
-                # Don't fail ingestion if S3 metadata storage fails
-
-            return {
-                "message": "Ingest successful",
-                "details": {
-                    "name": name,
-                    "type": artifact_type,
-                    "version": version,
-                    "id": artifact_id,
-                    "url": url,
-                },
-            }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error in POST /artifact/ingest endpoint: {str(e)}", exc_info=True
-        )
-        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
-
-
-
+# @app.get("/artifact/model/{id}/download")
+# def download_artifact_model(id: str, version: str = "1.0.0", component: str = "full"):
+#    try:
+#        file_content = download_model(id, version, component)
+#        if file_content:
+#            return Response(
+#                content=file_content,
+#                media_type="application/zip",
+#                headers={"Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip"}
+#            )
+#        else:
+#            raise HTTPException(status_code=404, detail=f"Failed to download {id} v{version}")
+#    except Exception as e:
+#        return {"error": f"Download failed: {str(e)}"}, 500
 # @app.get("/admin")
 # def get_admin(request: Request):
 #    try:
@@ -6570,26 +5563,13 @@ app.include_router(api_router, prefix="/api")
 
 # 5) Performance endpoints (root level, not under /api)
 # Import here to avoid circular dependency
-try:
-    from .routes.packages import download_performance_model_file
-    # Register the performance download endpoint at root level
-    app.add_api_route(
-        "/performance/{model_id}/{version}/model.zip",
-        download_performance_model_file,
-        methods=["GET"]
-    )
-    logger.info("Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
-    print("✓ Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
-except ImportError as e:
-    logger.error(f"Failed to import download_performance_model_file: {str(e)}", exc_info=True)
-    print(f"✗ Failed to import download_performance_model_file: {str(e)}")
-    import traceback
-    traceback.print_exc()
-except Exception as e:
-    logger.error(f"Failed to register performance download endpoint: {str(e)}", exc_info=True)
-    print(f"✗ Failed to register performance download endpoint: {str(e)}")
-    import traceback
-    traceback.print_exc()
+from .routes.packages import download_performance_model_file
+# Register the performance download endpoint at root level
+app.add_api_route(
+    "/performance/{model_id}/{version}/model.zip",
+    download_performance_model_file,
+    methods=["GET"]
+)
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 TEMPLATES_DIR = FRONTEND_DIR / "templates"
