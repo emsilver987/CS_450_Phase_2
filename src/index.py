@@ -5778,40 +5778,7 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Check if artifact exists - try full metadata first
-        found = False
-        artifact = get_generic_artifact_metadata("model", id)
-        if not artifact:
-            artifact = get_artifact_from_db(id)
-        if artifact and artifact.get("type") == "model":
-            found = True
-
-        if not found:
-            try:
-                result_check = list_models(name_regex=f"^{re.escape(id)}$", limit=1000)
-                if result_check.get("models"):
-                    found = True
-                else:
-                    # Try common versions
-                    common_versions = ["1.0.0", "main", "latest"]
-                    for v in common_versions:
-                        try:
-                            s3_key = f"models/{id}/{v}/model.zip"
-                            s3.head_object(Bucket=ap_arn, Key=s3_key)
-                            found = True
-                            break
-                        except ClientError:
-                            continue
-            except Exception:
-                pass
-
-        if not found:
-            raise HTTPException(
-                status_code=404,
-                detail="The artifact or GitHub project could not be found.",
-            )
-
-        # Parse request body
+        # Parse request body first (needed for validation)
         try:
             body = (
                 await request.json()
@@ -5835,26 +5802,62 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Get model name for license extraction (models are stored by name, not ID)
-        model_name_for_license = _get_model_name_for_s3(id)
+        # Check if artifact exists - use same logic as get_artifact endpoint
+        artifact = None
+        artifact_name = None
+        
+        # Try to get artifact from database first
+        artifact = get_generic_artifact_metadata("model", id)
+        if not artifact:
+            artifact = get_artifact_from_db(id)
+        
+        if artifact and artifact.get("type") == "model":
+            artifact_name = artifact.get("name", id)
+        else:
+            # Try to find in S3 metadata
+            s3_metadata = find_artifact_metadata_by_id(id)
+            if s3_metadata and s3_metadata.get("type") == "model":
+                artifact_name = s3_metadata.get("name", id)
+                artifact = s3_metadata
+            else:
+                # Try using ID as model name (for HuggingFace models)
+                artifact_name = id
+
+        # Get model name for license extraction
+        # Prefer artifact name if available, otherwise try to get from S3, otherwise use ID
+        model_name_for_license = artifact_name if artifact_name else _get_model_name_for_s3(id)
         if not model_name_for_license:
-            # Fallback: use ID directly (in case it was stored by ID)
             model_name_for_license = id
 
         # Extract licenses and check compatibility
         try:
-            model_license = extract_model_license(model_name_for_license)
+            # Try to extract model license - try multiple approaches
+            model_license = None
+            if model_name_for_license:
+                model_license = extract_model_license(model_name_for_license)
+            
+            # If still None, try with artifact name or ID directly
+            if model_license is None and artifact_name and artifact_name != model_name_for_license:
+                model_license = extract_model_license(artifact_name)
+            
             if model_license is None:
+                # Last resort: try with ID directly
+                model_license = extract_model_license(id)
+            
+            # If model license still can't be found, use a default or return error
+            if model_license is None:
+                logger.warning(f"Could not extract model license for {id} (tried: {model_name_for_license}, {artifact_name}, {id})")
                 raise HTTPException(
-                    status_code=404,
-                    detail="The artifact or GitHub project could not be found.",
+                    status_code=502,
+                    detail="External license information could not be retrieved.",
                 )
 
             github_license = extract_github_license(github_url)
             if github_license is None:
+                logger.warning(f"Could not extract GitHub license from {github_url}")
                 raise HTTPException(
-                    status_code=404,
-                    detail="The artifact or GitHub project could not be found.",
+                    status_code=502,
+                    detail="External license information could not be retrieved.",
                 )
 
             # Check compatibility (use_case is optional, defaults to fine-tune+inference)
