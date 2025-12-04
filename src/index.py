@@ -3,9 +3,11 @@ from pathlib import Path
 import re
 import os
 import json
+from typing import Dict, Any, Optional
+import requests
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from starlette.datastructures import UploadFile
 import uvicorn
 import random
@@ -744,31 +746,177 @@ def health():
     return {"ok": True}
 
 
-@app.get("/llm-status")
-def llm_status():
-    """Check if LLM service is available and working on the host"""
+def _ensure_model_in_performance_path(model_id: str, version: str = "main") -> bool:
+    """
+    Ensure model exists in S3 performance path. Uploads automatically if missing.
+    This is called automatically by the workload trigger endpoint.
+    Downloads full model (including weights) for performance testing.
+    
+    Args:
+        model_id: Model ID to ensure exists (e.g., "arnir0/Tiny-LLM")
+        version: Model version (default: "main")
+        
+    Returns:
+        True if model exists or was successfully uploaded, False otherwise
+    """
     try:
-        from src.services.llm_service import is_llm_available, PURDUE_GENAI_API_KEY
+        from .services.s3_service import s3, ap_arn, aws_available
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import zipfile
+        import io
         
-        available = is_llm_available()
-        has_key = bool(PURDUE_GENAI_API_KEY)
-        key_length = len(PURDUE_GENAI_API_KEY) if PURDUE_GENAI_API_KEY else 0
+        if not aws_available or not s3 or not ap_arn:
+            logger.warning("AWS S3 not available - cannot ensure model in performance path")
+            return False
         
-        return {
-            "llm_available": available,
-            "api_key_configured": has_key,
-            "api_key_length": key_length,
-            "status": "ready" if available else "not_configured",
-            "message": "LLM service is ready and available" if available else "LLM API key not configured. Set GEN_AI_STUDIO_API_KEY environment variable."
-        }
+        # Sanitize model_id for S3 key (same logic as populate_registry.py)
+        sanitized_model_id = (
+            model_id.replace("https://huggingface.co/", "")
+            .replace("http://huggingface.co/", "")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace('"', "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace("|", "_")
+        )
+        
+        # Check if model exists in performance path
+        s3_key = f"performance/{sanitized_model_id}/{version}/model.zip"
+        try:
+            s3.head_object(Bucket=ap_arn, Key=s3_key)
+            logger.info(f"Model {model_id} already exists in performance path: {s3_key}")
+            return True
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code not in ["404", "NoSuchKey"]:
+                logger.error(f"Error checking model existence: {error_code}")
+                return False
+        
+        # Model doesn't exist - download from HuggingFace and upload
+        logger.info(f"Model {model_id} not found in performance path - downloading full model from HuggingFace...")
+        
+        # Download full model from HuggingFace (including weights for performance testing)
+        try:
+            clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
+            api_url = f"https://huggingface.co/api/models/{clean_model_id}"
+            response = requests.get(api_url, timeout=30)
+            
+            if response.status_code != 200:
+                logger.error(f"Model {clean_model_id} not found on HuggingFace (HTTP {response.status_code})")
+                return False
+            
+            model_info = response.json()
+            all_files = []
+            for sibling in model_info.get("siblings", []):
+                if sibling.get("rfilename"):
+                    all_files.append(sibling["rfilename"])
+            
+            # For performance testing, download essential files + ONE main weight file + tokenizer files
+            # (same logic as populate_registry.py with download_all=True)
+            essential_files = []
+            for filename in all_files:
+                if filename.endswith((".json", ".md", ".txt", ".yml", ".yaml")):
+                    essential_files.append(filename)
+                elif filename.startswith("README") or filename.startswith("readme"):
+                    essential_files.append(filename)
+                elif filename in ["config.json", "LICENSE", "license", "LICENCE", "licence"]:
+                    essential_files.append(filename)
+            
+            # Find ONE main weight file (prefer .safetensors, then pytorch_model.bin)
+            weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) 
+                          and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite", "mlpackage"])]
+            main_weight_file = None
+            if weight_files:
+                for preferred in ["model.safetensors", "pytorch_model.bin"]:
+                    if preferred in weight_files:
+                        main_weight_file = preferred
+                        break
+                if not main_weight_file:
+                    main_weight_file = weight_files[0]  # Use first weight file if no preferred found
+            
+            # Tokenizer files
+            tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and 
+                             any(f.endswith(ext) for ext in [".json", ".txt", ".model"])]
+            
+            # Combine files to download
+            files_to_download = essential_files.copy()
+            if main_weight_file:
+                files_to_download.append(main_weight_file)
+            files_to_download.extend(tokenizer_files)
+            
+            if not files_to_download:
+                logger.error(f"No files found to download for model {clean_model_id}")
+                return False
+            
+            # Download files
+            def download_file(url: str, timeout: int = 120) -> Optional[bytes]:
+                try:
+                    req = urllib.request.Request(url)
+                    req.add_header("User-Agent", "Mozilla/5.0")
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        return response.read()
+                except Exception as e:
+                    logger.warning(f"Failed to download {url}: {str(e)}")
+                    return None
+            
+            urls_to_download = [
+                (
+                    f"https://huggingface.co/{clean_model_id}/resolve/{version}/{filename}",
+                    filename,
+                )
+                for filename in files_to_download
+            ]
+            
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {
+                        executor.submit(download_file, url[0], 120): url[1]
+                        for url in urls_to_download
+                    }
+                    downloaded_count = 0
+                    for future in as_completed(futures):
+                        filename = futures[future]
+                        try:
+                            result = future.result()
+                            if result:
+                                zip_file.writestr(filename, result)
+                                downloaded_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to download {filename}: {e}")
+            
+            zip_content = output.getvalue()
+            if not zip_content or len(zip_content) == 0:
+                logger.error(f"Downloaded zip file is empty for model {clean_model_id}")
+                return False
+            
+            logger.info(f"Downloaded {len(zip_content):,} bytes ({len(zip_content) / (1024*1024):.2f} MB) from HuggingFace")
+            
+        except Exception as e:
+            logger.error(f"Failed to download model from HuggingFace: {str(e)}", exc_info=True)
+            return False
+        
+        # Upload to S3 performance path
+        try:
+            s3.put_object(
+                Bucket=ap_arn,
+                Key=s3_key,
+                Body=zip_content,
+                ContentType="application/zip"
+            )
+            logger.info(f"Uploaded model to performance path: {s3_key} ({len(zip_content):,} bytes)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to upload model to S3: {str(e)}", exc_info=True)
+            return False
+            
     except Exception as e:
-        return {
-            "llm_available": False,
-            "api_key_configured": False,
-            "status": "error",
-            "error": str(e),
-            "message": f"Error checking LLM status: {str(e)}"
-        }
+        logger.error(f"Error ensuring model in performance path: {str(e)}", exc_info=True)
+        return False
 
 
 @app.post("/health/performance/workload")
@@ -1650,16 +1798,13 @@ def reset_system(request: Request):
         _rating_results.clear()
         # Clear _artifact_storage (in-memory)
         global _artifact_storage
-
         _artifact_storage.clear()
-
         # Clear RDS artifacts if RDS is configured
         try:
             rds_endpoint = os.getenv("RDS_ENDPOINT")
             rds_password = os.getenv("RDS_PASSWORD")
             if rds_endpoint and rds_password:
                 from .services.rds_service import get_connection_pool
-
                 pool = get_connection_pool()
                 conn = pool.getconn()
                 cursor = conn.cursor()
@@ -1677,7 +1822,6 @@ def reset_system(request: Request):
         except Exception as e:
             # RDS might not be configured, which is okay
             logger.debug(f"RDS not available or not configured: {str(e)}")
-
         result = reset_registry()
         purge_tokens()
         ensure_default_admin()
@@ -3341,33 +3485,18 @@ def get_artifact(artifact_type: str, id: str, request: Request):
             if artifact:
                 logger.info(f"DEBUG: ✅ Found artifact in database: {artifact}")
                 if artifact.get("type") == "model":
-                    # Check rating status and block until complete
+                    # Check rating status - but don't block artifact retrieval
+                    # Rating status is informational only for GET /artifact endpoint
                     if id in _rating_status:
                         status = _rating_status[id]
                         logger.info(f"DEBUG: Rating status for id='{id}': {status}")
-
+                        # Don't wait for pending ratings - just log and continue
+                        # The rating endpoint will handle pending/completed/failed ratings
                         if status == "pending":
-                            # Block until rating completes (with timeout)
-                            logger.info(
-                                f"DEBUG: Rating pending, waiting for completion..."
-                            )
-                            if id in _rating_locks:
-                                # Wait up to 300 seconds (5 minutes) for rating to complete
-                                event = _rating_locks[id]
-                                if not event.wait(timeout=300):
-                                    logger.warning(
-                                        f"DEBUG: Rating timeout for id='{id}' after 300s, will continue without blocking"
-                                    )
-                                    # Don't raise error - just continue and let the request proceed
-                                    # The rating endpoint will handle it with synchronous fallback
-                                # Re-check status after wait
-                                status = _rating_status.get(id, "unknown")
-
-                        if status == "disqualified" or status == "failed":
-                            logger.warning(f"DEBUG: Rating {status} for id='{id}'")
-                            raise HTTPException(
-                                status_code=404, detail="Artifact does not exist."
-                            )
+                            logger.info(f"DEBUG: Rating pending for id='{id}', but continuing with artifact retrieval")
+                        elif status == "disqualified" or status == "failed":
+                            logger.warning(f"DEBUG: Rating {status} for id='{id}', but artifact still exists - continuing")
+                        # Always continue to return the artifact regardless of rating status
 
                     logger.info(
                         f"DEBUG: ✅ Artifact type matches 'model', returning immediately"
@@ -5126,32 +5255,32 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "name": model_name,
         "category": alias(rating, "category") or "unknown",
         "net_score": round(
-            float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "net_score", "NetScore", "netScore") or 0.0))), 2
         ),
         "net_score_latency": round(
             float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0), 2
         ),
         "ramp_up_time": round(
-            float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0),
+            min(1.0, max(0.0, float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0))),
             2,
         ),
         "ramp_up_time_latency": round(
             float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0), 2
         ),
         "bus_factor": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating, "bus_factor", "BusFactor", "score_bus_factor", "busFactor"
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "bus_factor_latency": round(
             float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0), 2
         ),
         "performance_claims": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "performance_claims",
@@ -5159,7 +5288,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_performance_claims",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "performance_claims_latency": round(
@@ -5170,13 +5299,13 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "license": round(
-            float(alias(rating, "license", "License", "score_license") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "license", "License", "score_license") or 0.0))), 2
         ),
         "license_latency": round(
             float(alias(rating, "license_latency", "LicenseLatency") or 0.0), 2
         ),
         "dataset_and_code_score": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "dataset_code",
@@ -5184,7 +5313,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_available_dataset_and_code",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "dataset_and_code_score_latency": round(
@@ -5199,12 +5328,12 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "dataset_quality": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating, "dataset_quality", "DatasetQuality", "score_dataset_quality"
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "dataset_quality_latency": round(
@@ -5214,17 +5343,17 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "code_quality": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(rating, "code_quality", "CodeQuality", "score_code_quality")
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "code_quality_latency": round(
             float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0), 2
         ),
         "reproducibility": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "reproducibility",
@@ -5232,7 +5361,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_reproducibility",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "reproducibility_latency": round(
@@ -5243,10 +5372,10 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "reviewedness": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(rating, "reviewedness", "Reviewedness", "score_reviewedness")
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "reviewedness_latency": round(
@@ -5254,7 +5383,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "tree_score": round(
-            float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0))), 2
         ),
         "tree_score_latency": round(
             float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0), 2
@@ -5416,11 +5545,19 @@ def get_model_rate(id: str, request: Request):
                     )
                     status = "timeout"
 
+            # Don't block rating endpoint if rating failed/disqualified
+            # Instead, try to compute rating synchronously as fallback
             if status == "disqualified" or status == "failed":
-                logger.warning(f"DEBUG: Rating {status} for id='{id}'")
-                raise HTTPException(status_code=404, detail="Artifact does not exist.")
-
-            if status == "completed":
+                logger.warning(f"DEBUG: Rating {status} for id='{id}', attempting synchronous fallback")
+                # Clear the failed status to allow retry
+                with _rating_lock:
+                    if id in _rating_status:
+                        del _rating_status[id]
+                    if id in _rating_results:
+                        del _rating_results[id]
+                # Fall through to synchronous rating below
+                rating = None
+            elif status == "completed":
                 # Use cached rating result
                 rating = _rating_results.get(id)
                 if not rating:
@@ -5572,7 +5709,6 @@ def get_model_lineage(id: str, request: Request):
 
         # Try to get lineage from config - try multiple versions
         result = None
-        last_error = None
         versions_to_try = ["1.0.0", "main", "latest"]
 
         for version in versions_to_try:
@@ -5584,23 +5720,18 @@ def get_model_lineage(id: str, request: Request):
                 if "error" not in test_result:
                     result = test_result
                     break
-                else:
-                    last_error = test_result
                 # If sanitized name fails, try with original name
                 if sanitized_model_name != model_name:
                     test_result = get_model_lineage_from_config(model_name, version)
                     if "error" not in test_result:
                         result = test_result
                         break
-                    else:
-                        last_error = test_result
             except Exception:
                 continue
 
         # If all versions failed, return empty lineage instead of error
         if not result or "error" in result:
-            error_result = result if result and "error" in result else last_error
-            error_msg = error_result.get("error", "").lower() if error_result else ""
+            error_msg = result.get("error", "").lower() if result else ""
             if (
                 "not found" in error_msg
                 or "does not exist" in error_msg
@@ -5827,40 +5958,7 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Check if artifact exists - try full metadata first
-        found = False
-        artifact = get_generic_artifact_metadata("model", id)
-        if not artifact:
-            artifact = get_artifact_from_db(id)
-        if artifact and artifact.get("type") == "model":
-            found = True
-
-        if not found:
-            try:
-                result_check = list_models(name_regex=f"^{re.escape(id)}$", limit=1000)
-                if result_check.get("models"):
-                    found = True
-                else:
-                    # Try common versions
-                    common_versions = ["1.0.0", "main", "latest"]
-                    for v in common_versions:
-                        try:
-                            s3_key = f"models/{id}/{v}/model.zip"
-                            s3.head_object(Bucket=ap_arn, Key=s3_key)
-                            found = True
-                            break
-                        except ClientError:
-                            continue
-            except Exception:
-                pass
-
-        if not found:
-            raise HTTPException(
-                status_code=404,
-                detail="The artifact or GitHub project could not be found.",
-            )
-
-        # Parse request body
+        # Parse request body first (needed for validation)
         try:
             body = (
                 await request.json()
@@ -5884,16 +5982,70 @@ async def check_model_license(id: str, request: Request):
                 detail="The license check request is malformed or references an unsupported usage context.",
             )
 
-        # Get model name for license extraction (models are stored by name, not ID)
-        model_name_for_license = _get_model_name_for_s3(id)
+        # Check if artifact exists - use same logic as get_artifact endpoint
+        artifact = None
+        artifact_name = None
+        s3_metadata = None
+        
+        # Try to get artifact from database first
+        artifact = get_generic_artifact_metadata("model", id)
+        if not artifact:
+            artifact = get_artifact_from_db(id)
+        
+        if artifact and artifact.get("type") == "model":
+            artifact_name = artifact.get("name", id)
+        else:
+            # Try to find in S3 metadata
+            s3_metadata = find_artifact_metadata_by_id(id)
+            if s3_metadata and s3_metadata.get("type") == "model":
+                artifact_name = s3_metadata.get("name", id)
+                artifact = s3_metadata
+            else:
+                # Try using ID as model name (for HuggingFace models)
+                artifact_name = id
+
+        # Get model name for license extraction
+        # Prefer artifact name if available, otherwise try to get from S3, otherwise use ID
+        model_name_for_license = artifact_name if artifact_name else _get_model_name_for_s3(id)
         if not model_name_for_license:
-            # Fallback: use ID directly (in case it was stored by ID)
             model_name_for_license = id
 
         # Extract licenses and check compatibility
         try:
-            model_license = extract_model_license(model_name_for_license)
-            if model_license is None:
+            # First, check if license is stored in artifact metadata
+            model_license = None
+            if artifact:
+                # Check various possible license fields in artifact metadata
+                license_info = (
+                    artifact.get("license") or
+                    artifact.get("metadata", {}).get("license") if isinstance(artifact.get("metadata"), dict) else None or
+                    artifact.get("metadata_json", {}).get("license") if isinstance(artifact.get("metadata_json"), dict) else None or
+                    artifact.get("rating", {}).get("license") if isinstance(artifact.get("rating"), dict) else None
+                )
+                if license_info:
+                    from ..services.license_compatibility import normalize_license
+                    model_license = normalize_license(str(license_info))
+                    if model_license and model_license != "no-license":
+                        logger.info(f"Found license in artifact metadata: {model_license}")
+            
+            # If not found in metadata, try to extract from model
+            if not model_license or model_license == "no-license":
+                # Try to extract model license - try multiple approaches
+                if model_name_for_license:
+                    model_license = extract_model_license(model_name_for_license)
+                
+                # If still None, try with artifact name or ID directly
+                if (not model_license or model_license == "no-license") and artifact_name and artifact_name != model_name_for_license:
+                    model_license = extract_model_license(artifact_name)
+                
+                if not model_license or model_license == "no-license":
+                    # Last resort: try with ID directly
+                    model_license = extract_model_license(id)
+            
+            # If model license still can't be found, return 404 (artifact exists but license info not found)
+            # Per spec: "The artifact or GitHub project could not be found" when license can't be extracted
+            if not model_license or model_license == "no-license":
+                logger.warning(f"Could not extract model license for {id} (tried: {model_name_for_license}, {artifact_name}, {id})")
                 raise HTTPException(
                     status_code=404,
                     detail="The artifact or GitHub project could not be found.",
@@ -5901,6 +6053,7 @@ async def check_model_license(id: str, request: Request):
 
             github_license = extract_github_license(github_url)
             if github_license is None:
+                logger.warning(f"Could not extract GitHub license from {github_url}")
                 raise HTTPException(
                     status_code=404,
                     detail="The artifact or GitHub project could not be found.",
