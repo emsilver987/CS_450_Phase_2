@@ -735,17 +735,21 @@ def register_routes(app: FastAPI):
                         "config": result.get("config", {}),
                     }
                 else:
-                    # Return empty lineage instead of error
+                    # Return empty lineage with no_results flag
                     lineage_data = {
                         "model_id": model_id or model_name,
                         "model_name": model_name,
                         "lineage_metadata": {},
                         "lineage_map": {},
                         "config": {},
+                        "no_results": True,
                     }
             except Exception as e:
                 logger.error(f"Lineage error: {e}", exc_info=True)
                 lineage_data = {"model_id": model_id or model_name, "model_name": model_name, "error": str(e)}
+        else:
+            # No search performed yet - set lineage_data to None so template shows form only
+            lineage_data = None
         ctx = {
             "request": request,
             "name": model_name or "",
