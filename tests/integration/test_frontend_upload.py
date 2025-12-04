@@ -160,14 +160,23 @@ class TestUploadFrontendUI:
         Creates a dummy zip file and attempts to upload it.
         Note: This tests the frontend UI upload mechanism, not backend processing.
         """
-        # Create a temporary zip file for testing using tempfile for cross-platform compatibility
+        # Create a temporary zip file for testing
+        # In CI environments, Chrome/Selenium may not access files in /tmp due to
+        # filesystem isolation. Use workspace directory in CI, /tmp locally.
         unique_id = uuid.uuid4().hex[:8]
-        temp_dir = tempfile.gettempdir()
         
-        # Ensure temp directory exists
-        os.makedirs(temp_dir, exist_ok=True)
+        # Determine file location: use workspace in CI, temp dir locally
+        workspace_dir = os.getenv("GITHUB_WORKSPACE", os.getcwd())
+        # Prefer workspace directory for CI compatibility, fallback to temp dir
+        if os.path.exists(workspace_dir) and os.access(workspace_dir, os.W_OK):
+            file_dir = workspace_dir
+        else:
+            file_dir = tempfile.gettempdir()
         
-        temp_zip_path = os.path.join(temp_dir, f"test_package_{unique_id}.zip")
+        # Ensure directory exists
+        os.makedirs(file_dir, exist_ok=True)
+        
+        temp_zip_path = os.path.join(file_dir, f"test_package_{unique_id}.zip")
         
         try:
             # Create a valid zip file with content
@@ -178,8 +187,19 @@ class TestUploadFrontendUI:
             assert os.path.exists(temp_zip_path), f"Zip file should exist at {temp_zip_path}"
             assert os.path.isfile(temp_zip_path), f"Zip file should be a file: {temp_zip_path}"
             
+            # Ensure file is readable (important for Chrome/Selenium access)
+            try:
+                os.chmod(temp_zip_path, 0o644)
+            except Exception:
+                # If chmod fails, continue - permissions might already be fine
+                pass
+            
             # Resolve to absolute path for Selenium
             absolute_path = os.path.abspath(temp_zip_path)
+            
+            # Final verification before using with Selenium
+            assert os.path.exists(absolute_path), f"File must exist at absolute path: {absolute_path}"
+            assert os.path.isfile(absolute_path), f"Path must be a file: {absolute_path}"
             
             driver.get(f"{base_url}/upload")
             
