@@ -14,3 +14,5 @@ aiohttp==3.9.1
 watchtower
 black
 psycopg2-binary
+selenium>=4.15.0
+webdriver-manager>=4.0.0

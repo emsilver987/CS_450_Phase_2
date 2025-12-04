@@ -3,10 +3,9 @@ from pathlib import Path
 import re
 import os
 import json
-import requests
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from starlette.datastructures import UploadFile
 import uvicorn
 import random
@@ -351,31 +350,39 @@ async def startup_event():
     logger.info("=== END REGISTERED ROUTES ===")
     ensure_default_admin()
 
-    # Initialize _artifact_storage from DynamoDB (for datasets and code)
+    # Initialize _artifact_storage from DynamoDB (for models, datasets, and code)
     # This ensures immediate consistency for queries
-    try:
-        global _artifact_storage
-        all_artifacts = list_all_artifacts()
-        for artifact in all_artifacts:
-            artifact_type = artifact.get("type", "")
-            if artifact_type in ["dataset", "code"]:
-                artifact_id = artifact.get("id", "")
-                if artifact_id:
-                    _artifact_storage[artifact_id] = {
-                        "name": artifact.get("name", ""),
-                        "type": artifact_type,
-                        "version": artifact.get("version", "main"),
-                        "id": artifact_id,
-                        "url": artifact.get("url", ""),
-                    }
-        logger.info(
-            f"Initialized _artifact_storage with {len(_artifact_storage)} dataset/code artifacts"
-        )
-    except Exception as e:
-        logger.warning(
-            f"Failed to initialize _artifact_storage from DynamoDB: {str(e)}"
-        )
-        # Continue without initialization - _artifact_storage will be populated as artifacts are created
+    # Run in background thread to avoid blocking startup and health checks
+    def load_artifacts_background():
+        try:
+            global _artifact_storage
+            logger.info("Starting background load of artifacts from DynamoDB...")
+            all_artifacts = list_all_artifacts()
+            for artifact in all_artifacts:
+                artifact_type = artifact.get("type", "")
+                if artifact_type in ["model", "dataset", "code"]:
+                    artifact_id = artifact.get("id", "")
+                    if artifact_id:
+                        _artifact_storage[artifact_id] = {
+                            "name": artifact.get("name", ""),
+                            "type": artifact_type,
+                            "version": artifact.get("version", "main"),
+                            "id": artifact_id,
+                            "url": artifact.get("url", ""),
+                        }
+            logger.info(
+                f"Initialized _artifact_storage with {len(_artifact_storage)} artifacts (models, datasets, and code)"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to initialize _artifact_storage from DynamoDB: {str(e)}"
+            )
+            # Continue without initialization - _artifact_storage will be populated as artifacts are created
+    
+    # Start background thread to load artifacts without blocking startup
+    import threading
+    threading.Thread(target=load_artifacts_background, daemon=True).start()
+    logger.info("Started background thread to load artifacts from DynamoDB")
 
 
 # Rating status tracking for async rating (kept in-memory as it's transient)
@@ -386,7 +393,7 @@ _rating_results = {}  # Store rating results by artifact_id
 _rating_start_times = {}  # Track when ratings started to detect stuck ratings
 _rating_lock = threading.Lock()  # Lock for thread-safe access to rating data structures
 
-# In-memory storage for dataset and code artifacts (for immediate consistency in queries)
+# In-memory storage for models, datasets, and code artifacts (for immediate consistency in queries)
 # Key: artifact_id, Value: dict with name, type, version, id, url
 # This provides immediate consistency like the reference code's _artifact_storage
 _artifact_storage = {}
@@ -1178,14 +1185,55 @@ async def list_artifacts(request: Request, offset: str = None):
                 )
             types_filter = query.get("types", [])
             if name == "*":
-                # Search S3 for models
+                # Priority order: Database (source of truth) -> _artifact_storage (immediate consistency) -> S3 (for models)
+                # First, get all artifacts from database (this is the authoritative source)
+                all_artifacts = list_all_artifacts()
+                seen_ids = set()
+                seen_model_names = set()
+                
+                # Add all matching artifacts from database first
+                for artifact in all_artifacts:
+                    artifact_type_stored = artifact.get("type", "")
+                    artifact_id = artifact.get("id", "")
+                    artifact_name = artifact.get("name", "")
+                    
+                    # Only add if matches filter
+                    if artifact_id and (not types_filter or artifact_type_stored in types_filter):
+                        results.append(
+                            {
+                                "name": artifact_name or artifact_id,
+                                "id": artifact_id,
+                                "type": artifact_type_stored,
+                            }
+                        )
+                        seen_ids.add(artifact_id)
+                        if artifact_type_stored == "model" and artifact_name:
+                            seen_model_names.add(artifact_name)
+                
+                # Then add from _artifact_storage (for immediate consistency - catches newly ingested items)
+                for artifact_id, artifact_data in _artifact_storage.items():
+                    artifact_type_stored = artifact_data.get("type", "")
+                    artifact_name = artifact_data.get("name", "")
+                    
+                    # Only add if not already in results and matches filter
+                    if artifact_id not in seen_ids and (
+                        not types_filter or artifact_type_stored in types_filter
+                    ):
+                        results.append(
+                            {
+                                "name": artifact_name or artifact_id,
+                                "id": artifact_id,
+                                "type": artifact_type_stored,
+                            }
+                        )
+                        seen_ids.add(artifact_id)
+                        if artifact_type_stored == "model" and artifact_name:
+                            seen_model_names.add(artifact_name)
+                
+                # Finally, search S3 for models (to catch any models not in database or _artifact_storage)
+                # Use pagination to get ALL models, not just the first 1000
                 if not types_filter or "model" in types_filter:
-                    result = list_models(limit=1000)
-                    if result is None:
-                        result = {"models": []}
-                    models = result.get("models") or []
-                    # Get all artifacts from database to map model names to artifact_ids
-                    all_artifacts = list_all_artifacts()
+                    # Build artifact_map from database for name-to-id mapping
                     artifact_map = {}
                     for artifact in all_artifacts:
                         if artifact.get("type") == "model":
@@ -1194,72 +1242,88 @@ async def list_artifacts(request: Request, offset: str = None):
                             if artifact_name and artifact_id:
                                 artifact_map[artifact_name] = artifact_id
                     
-                    for model in models:
+                    # Paginate through all models in S3
+                    continuation_token = None
+                    all_s3_models = []
+                    while True:
+                        result = list_models(limit=1000, continuation_token=continuation_token)
+                        if result is None:
+                            result = {"models": []}
+                        models = result.get("models") or []
+                        all_s3_models.extend(models)
+                        continuation_token = result.get("next_token")
+                        if not continuation_token or len(models) == 0:
+                            break
+                    
+                    # Process all models from S3
+                    for model in all_s3_models:
                         if isinstance(model, dict):
                             model_name = model.get("name", "")
-                            # Look up artifact_id from database, fallback to model id/name
-                            artifact_id = artifact_map.get(model_name, model.get("id", model_name))
-                            results.append(
-                                {
-                                    "name": model_name,
-                                    "id": artifact_id,
-                                    "type": "model",
-                                }
-                            )
-
-                # Search _artifact_storage for datasets and code (immediate consistency)
-                if (
-                    not types_filter
-                    or "dataset" in types_filter
-                    or "code" in types_filter
-                ):
-                    for artifact_id, artifact_data in _artifact_storage.items():
-                        artifact_type_stored = artifact_data.get("type", "")
-                        if not types_filter or artifact_type_stored in types_filter:
-                            results.append(
-                                {
-                                    "name": artifact_data.get("name", ""),
-                                    "id": artifact_id,
-                                    "type": artifact_type_stored,
-                                }
-                            )
-
-                # Also get artifacts from database (for models and any missing datasets/code)
-                all_artifacts = list_all_artifacts()
-                seen_ids = {r.get("id") for r in results}  # Avoid duplicates
-                for artifact in all_artifacts:
-                    artifact_type_stored = artifact.get("type", "")
-                    artifact_id = artifact.get("id", "")
-                    # Only add if not already in results and matches filter
-                    if artifact_id not in seen_ids and (
-                        not types_filter or artifact_type_stored in types_filter
-                    ):
-                        results.append(
-                            {
-                                "name": artifact.get("name", artifact_id),
-                                "id": artifact_id,
-                                "type": artifact_type_stored,
-                            }
-                        )
-                        seen_ids.add(artifact_id)
+                            # Skip if already in results (by name)
+                            if model_name in seen_model_names:
+                                continue
+                            
+                            # Try to find the original model name by checking if sanitized name matches
+                            # S3 stores models with sanitized names (e.g., "google-bert/bert-base-uncased" -> "google-bert_bert-base-uncased")
+                            # But database stores original names. Check if this sanitized name corresponds to a database model
+                            original_name = None
+                            for db_artifact in all_artifacts:
+                                if db_artifact.get("type") == "model":
+                                    db_name = db_artifact.get("name", "")
+                                    # Check if sanitizing the db_name would match the S3 model_name
+                                    sanitized_db_name = (
+                                        db_name.replace("/", "_")
+                                        .replace(":", "_")
+                                        .replace("\\", "_")
+                                    )
+                                    if sanitized_db_name == model_name:
+                                        original_name = db_name
+                                        # Use the database artifact_id and name (original name)
+                                        artifact_id = db_artifact.get("id")
+                                        if artifact_id and artifact_id not in seen_ids:
+                                            results.append(
+                                                {
+                                                    "name": original_name,
+                                                    "id": artifact_id,
+                                                    "type": "model",
+                                                }
+                                            )
+                                            seen_ids.add(artifact_id)
+                                            seen_model_names.add(original_name)
+                                            seen_model_names.add(model_name)  # Also mark sanitized name as seen
+                                        break
+                            
+                            # If no database match found, this is a model only in S3 (shouldn't happen, but handle it)
+                            if not original_name:
+                                artifact_id = artifact_map.get(model_name, model.get("id", model_name))
+                                # Only add if not already in results (by id) and if it's a valid artifact_id (not just the name)
+                                if artifact_id not in seen_ids and artifact_id != model_name:
+                                    results.append(
+                                        {
+                                            "name": model_name or artifact_id,
+                                            "id": artifact_id,
+                                            "type": "model",
+                                        }
+                                    )
+                                    seen_ids.add(artifact_id)
+                                    if model_name:
+                                        seen_model_names.add(model_name)
             else:
                 # Exact name match - need to return only a single package per spec requirement
                 # Check all sources but return only the first exact match found
                 seen_ids = set()
 
-                # Priority order: Database -> S3 -> In-memory storage
-                # Check database first (most authoritative)
-                all_artifacts = list_all_artifacts()
-                for artifact in all_artifacts:
-                    artifact_id = artifact.get("id", "")
-                    artifact_name = artifact.get("name", "")
-                    artifact_type_stored = artifact.get("type", "")
-                    # Exact name match (case-sensitive, no regex)
-                    # Ensure artifact_name is not None or empty
+                # Priority order: _artifact_storage (immediate consistency) -> Database -> S3
+                # Check _artifact_storage first (most up-to-date, updated immediately on ingestion)
+                for artifact_id, artifact_data in _artifact_storage.items():
+                    artifact_name = artifact_data.get("name", "")
+                    artifact_type_stored = artifact_data.get("type", "")
+                    # Exact name match (case-sensitive)
                     if (
-                        artifact_name
-                        and artifact_name == name
-                        and (not types_filter or artifact_type_stored in types_filter)
+                        artifact_name == name
+                        and (
+                            not types_filter or artifact_type_stored in types_filter
+                        )
                         and artifact_id not in seen_ids
                     ):
                         results.append(
@@ -1270,106 +1334,22 @@ async def list_artifacts(request: Request, offset: str = None):
                             }
                         )
                         seen_ids.add(artifact_id)
-                        # Return only the first match - single package requirement
+                        # Return only first match for exact name
                         break
 
-                # If not found in database, search S3 for models
-                if not results and (not types_filter or "model" in types_filter):
-                    escaped_name = re.escape(name)
-                    name_pattern = f"^{escaped_name}$"
-                    result = list_models(name_regex=name_pattern, limit=1000)
-                    if result is None:
-                        result = {"models": []}
-                    models = result.get("models") or []
-                    for model in models:
-                        if isinstance(model, dict):
-                            model_name = model.get("name", "")
-                            # Exact name match (not regex, direct comparison)
-                            if model_name == name:
-                                # Look up artifact_id from database by matching model name
-                                artifact_id = None
-                                all_artifacts = list_all_artifacts()
-                                for artifact in all_artifacts:
-                                    if (
-                                        artifact.get("name") == model_name
-                                        and artifact.get("type") == "model"
-                                    ):
-                                        artifact_id = artifact.get("id")
-                                        if artifact_id:
-                                            break
-                                
-                                # If not found in database, try to get artifact_id from S3 metadata
-                                if not artifact_id:
-                                    try:
-                                        # Sanitize model name for S3 path
-                                        sanitized_name = sanitize_model_id_for_s3(model_name)
-                                        version = model.get("version", "main")
-                                        safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
-                                        metadata_key = f"models/{sanitized_name}/{safe_version}/metadata.json"
-                                        
-                                        # Try to read metadata from S3
-                                        from botocore.exceptions import ClientError
-                                        try:
-                                            response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
-                                            metadata_json = response["Body"].read().decode("utf-8")
-                                            metadata = json.loads(metadata_json)
-                                            artifact_id = metadata.get("artifact_id")
-                                            
-                                            # If found in S3 metadata, restore to database for future queries
-                                            if artifact_id:
-                                                save_artifact(
-                                                    artifact_id,
-                                                    {
-                                                        "name": model_name,
-                                                        "type": "model",
-                                                        "version": version,
-                                                        "id": artifact_id,
-                                                        "url": metadata.get(
-                                                            "url",
-                                                            f"https://huggingface.co/{model_name}",
-                                                        ),
-                                                    },
-                                                )
-                                        except ClientError as e:
-                                            error_code = e.response.get("Error", {}).get("Code", "")
-                                            if error_code != "NoSuchKey":
-                                                logger.debug(f"Error reading S3 metadata {metadata_key}: {error_code}")
-                                        except Exception as e:
-                                            logger.debug(f"Error parsing S3 metadata {metadata_key}: {str(e)}")
-                                    except Exception as e:
-                                        logger.debug(f"Error accessing S3 metadata for {model_name}: {str(e)}")
-                                
-                                # Final fallback: use model id/name (should rarely happen)
-                                if not artifact_id:
-                                    artifact_id = model.get("id", model.get("name", ""))
-                                
-                                if artifact_id and artifact_id not in seen_ids:
-                                    results.append(
-                                        {
-                                            "name": model_name,
-                                            "id": artifact_id,
-                                            "type": "model",
-                                        }
-                                    )
-                                    seen_ids.add(artifact_id)
-                                    # Return only first match for exact name
-                                    break
-
-                # If still not found, search _artifact_storage for datasets and code
-                if not results and (
-                    not types_filter
-                    or "dataset" in types_filter
-                    or "code" in types_filter
-                ):
-                    for artifact_id, artifact_data in _artifact_storage.items():
-                        artifact_name = artifact_data.get("name", "")
-                        artifact_type_stored = artifact_data.get("type", "")
-                        # Exact name match (case-sensitive)
+                # If not found in _artifact_storage, check database (persistent storage)
+                if not results:
+                    all_artifacts = list_all_artifacts()
+                    for artifact in all_artifacts:
+                        artifact_id = artifact.get("id", "")
+                        artifact_name = artifact.get("name", "")
+                        artifact_type_stored = artifact.get("type", "")
+                        # Exact name match (case-sensitive, no regex)
+                        # Ensure artifact_name is not None or empty
                         if (
-                            artifact_name == name
-                            and (
-                                not types_filter or artifact_type_stored in types_filter
-                            )
+                            artifact_name
+                            and artifact_name == name
+                            and (not types_filter or artifact_type_stored in types_filter)
                             and artifact_id not in seen_ids
                         ):
                             results.append(
@@ -1380,8 +1360,61 @@ async def list_artifacts(request: Request, offset: str = None):
                                 }
                             )
                             seen_ids.add(artifact_id)
-                            # Return only first match for exact name
+                            # Return only the first match - single package requirement
                             break
+
+                # If still not found, search S3 for models (fallback)
+                # But first check if any model in database matches the name (to avoid duplicates)
+                if not results and (not types_filter or "model" in types_filter):
+                    # Check database first to see if a model with this name already exists
+                    # This prevents returning S3 models that are duplicates of database models
+                    all_artifacts = list_all_artifacts()
+                    model_exists_in_db = False
+                    for artifact in all_artifacts:
+                        if artifact.get("type") == "model" and artifact.get("name") == name:
+                            model_exists_in_db = True
+                            break
+                    
+                    # Only search S3 if model doesn't exist in database
+                    # This prevents duplicate entries when the same model is stored with different name formats
+                    if not model_exists_in_db:
+                        escaped_name = re.escape(name)
+                        name_pattern = f"^{escaped_name}$"
+                        result = list_models(name_regex=name_pattern, limit=1000)
+                        if result is None:
+                            result = {"models": []}
+                        models = result.get("models") or []
+                        for model in models:
+                            if isinstance(model, dict):
+                                model_name = model.get("name", "")
+                                # Exact name match (not regex, direct comparison)
+                                if model_name == name:
+                                    # Look up artifact_id from database by matching model name
+                                    artifact_id = None
+                                    for artifact in all_artifacts:
+                                        if (
+                                            artifact.get("name") == model_name
+                                            and artifact.get("type") == "model"
+                                        ):
+                                            artifact_id = artifact.get("id")
+                                            if artifact_id:
+                                                break
+                                    
+                                    # Fallback to model id/name if not found in database
+                                    if not artifact_id:
+                                        artifact_id = model.get("id", model.get("name", ""))
+                                    
+                                    if artifact_id not in seen_ids:
+                                        results.append(
+                                            {
+                                                "name": model_name,
+                                                "id": artifact_id,
+                                                "type": "model",
+                                            }
+                                        )
+                                        seen_ids.add(artifact_id)
+                                        # Return only first match for exact name
+                                        break
         if len(results) > 10000:
             raise HTTPException(status_code=413, detail="Too many artifacts returned")
 
@@ -1409,189 +1442,70 @@ async def list_artifacts(request: Request, offset: str = None):
         )
 
 
-def _build_regex_patterns():
-    hf_dataset_regex = r"https?://huggingface\.co/datasets/([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-]+)?)"
-    github_regex = r"https?://github\.com/([A-Za-z0-9_\-]+/[A-Za-z0-9_\-\.]+)"
-    yaml_dataset_regex = r"datasets:\s*\n\s*-\s*([A-Za-z0-9_\-/]+)"
-    foundation_model_regexes = [
-        r"fine[- ]?tuned (?:from|on) ([A-Za-z0-9_\-/]+)",
-        r"based on ([A-Za-z0-9_\-/]+)",
-        r"parent[_ ]model:\s*([A-Za-z0-9_\-/]+)",
-        r"model[_ ]name[_ ]or[_ ]path:\s*([A-Za-z0-9_\-/]+)",
-    ]
-    benchmark_regexes = [
-        r"evaluated on ([A-Za-z0-9_\-/]+)",
-        r"evaluation[_ ]dataset:\s*([A-Za-z0-9_\-/]+)",
-        r"tested on ([A-Za-z0-9_\-/]+)",
-    ]
-    return {
-        "hf_dataset": hf_dataset_regex,
-        "github": github_regex,
-        "yaml_dataset": yaml_dataset_regex,
-        "foundation_models": foundation_model_regexes,
-        "benchmarks": benchmark_regexes,
-    }
-
-def _apply_text_patterns(text_content: str) -> Dict[str, List[str]]:
-    if not text_content:
-        return {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
-    patterns = _build_regex_patterns()
-    findings = {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
-    hf_matches = re.findall(patterns["hf_dataset"], text_content)
-    findings["datasets"].extend([f"https://huggingface.co/datasets/{m}" for m in hf_matches])
-    
-    gh_matches = re.findall(patterns["github"], text_content)
-    findings["code_repos"].extend([f"https://github.com/{m}" for m in set(gh_matches)])
-    
-    yaml_matches = re.findall(patterns["yaml_dataset"], text_content, re.MULTILINE)
-    for match in yaml_matches:
-        url = f"https://huggingface.co/datasets/{match}"
-        if url not in findings["datasets"]:
-            findings["datasets"].append(url)
-    
-    for pattern in patterns["foundation_models"]:
-        matches = re.findall(pattern, text_content, re.IGNORECASE)
-        findings["parent_models"].extend(matches)
-    
-    for pattern in patterns["benchmarks"]:
-        matches = re.findall(pattern, text_content, re.IGNORECASE)
-        findings["evaluation_datasets"].extend(matches)
-    
-    for category in findings:
-        findings[category] = list(set(findings[category]))
-    
-    return findings
-
-def _complete_urls(raw_data: Dict[str, List[str]]) -> Dict[str, List[str]]:
-    completed = {"datasets": [], "code_repos": [], "parent_models": [], "evaluation_datasets": []}
-    
-    for item in raw_data.get("datasets", []):
-        if item.startswith("http"):
-            completed["datasets"].append(item)
-        else:
-            completed["datasets"].append(f"https://huggingface.co/datasets/{item}")
-    
-    for item in raw_data.get("code_repos", []):
-        if item.startswith("http"):
-            cleaned = item.rstrip("/").replace(".git", "")
-            completed["code_repos"].append(cleaned)
-        else:
-            completed["code_repos"].append(f"https://github.com/{item}")
-    
-    completed["parent_models"] = raw_data.get("parent_models", [])
-    completed["evaluation_datasets"] = raw_data.get("evaluation_datasets", [])
-    
-    return completed
-
-def _parse_dependencies(documentation_text: str, artifact_identifier: str) -> Dict[str, List[str]]:
-    text_length = len(documentation_text.strip()) if documentation_text else 0
-    if text_length < 50:
-        logger.warning(f"Documentation content too short for {artifact_identifier}")
-        raw_findings = _apply_text_patterns(documentation_text)
-        return _complete_urls(raw_findings)
-    
-    if len(documentation_text) > 10000:
-        documentation_text = documentation_text[:10000] + "\n...[truncated]"
-    
-    system_prompt = """You are tasked with analyzing documentation for a machine learning model to comprehensively extract all dependency relationships and artifact connections. Your objective is to carefully examine the provided documentation and identify every relevant reference to datasets, code repositories, foundation models, and evaluation benchmarks that are connected to this model.
-
-The documentation you receive contains information about a machine learning model, and your role is to systematically extract dependency information that reveals how this model relates to other artifacts in the machine learning ecosystem. You must identify training datasets that were used to develop the model, source code repositories where the implementation can be found, base or foundation models that this model was built upon or fine-tuned from, and evaluation datasets that were used to assess the model's performance.
-
-When examining the documentation, pay careful attention to explicit mentions of datasets used during training. These might appear as references to data collections, training data sources, or specific dataset names. Look for complete URLs when available, particularly for HuggingFace datasets which often appear as full web addresses. When only dataset identifiers are mentioned without full URLs, such as common benchmark names like "squad" or "imagenet-1k", include just those identifiers in your response.
-
-For source repositories, you should identify any references to codebases, GitHub repositories, or implementation links. These typically appear as GitHub URLs but may also be referenced in other formats. When you encounter repository references, ensure you capture the complete URL when available, and normalize any variations such as URLs ending with .git or trailing slashes.
-
-When identifying base models or foundation models, look for explicit statements about model inheritance, fine-tuning relationships, or mentions of pretrained models that this model builds upon. These relationships are crucial for understanding the model's lineage and dependencies. The documentation may use various phrasings such as "fine-tuned from", "based on", "derived from", or similar expressions that indicate a parent-child relationship between models.
-
-For evaluation datasets, search for references to benchmarks, test sets, validation data, or assessment datasets that were used to evaluate the model's capabilities. These might be mentioned in sections discussing model performance, evaluation results, or testing procedures.
-
-It is essential that you only extract information that is explicitly stated in the documentation. You must not make inferences, assumptions, or guesses about dependencies that are not clearly mentioned. If a particular category of dependency is not explicitly referenced in the documentation, you should return an empty array for that category rather than attempting to infer what might be related.
-
-Your response must be formatted as a single, valid JSON object with no additional text, explanations, or markdown formatting. The JSON structure should contain four arrays: data_sources for training datasets, source_repositories for code repositories, base_models for foundation models, and test_data for evaluation datasets. Each array should contain the relevant identifiers or URLs that you identified in the documentation. If no information is found for a particular category, use an empty array. The entire response must be valid JSON that can be parsed directly without any preprocessing or extraction of code blocks."""
-
-    api_key = os.getenv("GEN_AI_STUDIO_API_KEY")
-    if not api_key:
-        raw_findings = _apply_text_patterns(documentation_text)
-        return _complete_urls(raw_findings)
-    
-    try:
-        logger.info("Attempting to use LLM service for dependency analysis")
-        http_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        request_payload = {
-            "model": "llama4:latest",
-            "messages": [{"role": "user", "content": f"{system_prompt}\n\nDocumentation Content:\n{documentation_text}"}],
-            "temperature": 0.0,
-        }
-        http_response = requests.post(
-            "https://genai.api.purdue.edu/v1/chat/completions",
-            headers=http_headers,
-            json=request_payload,
-            timeout=30,
-        )
-        
-        if http_response.status_code == 200:
-            raw_output = http_response.json()["choices"][0]["message"]["content"].strip()
-            cleaned_output = raw_output
-            if "```json" in cleaned_output:
-                cleaned_output = cleaned_output.split("```json")[1].split("```")[0]
-            elif "```" in cleaned_output:
-                cleaned_output = cleaned_output.split("```")[1].split("```")[0]
-            
-            try:
-                json_data = json.loads(cleaned_output.strip())
-                if isinstance(json_data, dict):
-                    mapped_result = {
-                        "datasets": json_data.get("data_sources", []),
-                        "code_repos": json_data.get("source_repositories", []),
-                        "parent_models": json_data.get("base_models", []),
-                        "evaluation_datasets": json_data.get("test_data", []),
-                    }
-                    return _complete_urls(mapped_result)
-            except json.JSONDecodeError as parse_error:
-                logger.warning(f"Could not parse LLM response as JSON: {parse_error}")
-                logger.debug(f"Raw output: {raw_output}")
-        
-        logger.warning(f"LLM service returned status {http_response.status_code}")
-    except requests.exceptions.Timeout:
-        logger.error("LLM service request timed out")
-    except Exception as error:
-        logger.error(f"Error during LLM service call: {error}", exc_info=True)
-    
-    raw_findings = _apply_text_patterns(documentation_text)
-    return _complete_urls(raw_findings)
-
-def _extract_dataset_code_names_from_readme(readme_text: str, model_name: str = None) -> Dict[str, Any]:
+def _extract_dataset_code_names_from_readme(readme_text: str) -> Dict[str, str]:
+    """
+    Extract dataset and code names from README text using LLM-like analysis.
+    Looks for common patterns like "dataset:", "uses dataset", "code:", etc.
+    Returns dict with "dataset_name" and "code_name" keys (or None if not found).
+    """
     if not readme_text:
-        return {"dataset_name": None, "code_name": None, "parent_models": [], "lineage": {}}
-    
-    dependency_info = _parse_dependencies(readme_text, model_name or "unknown")
-    
+        return {"dataset_name": None, "code_name": None}
+
     dataset_name = None
-    if dependency_info.get("datasets"):
-        dataset_url = dependency_info["datasets"][0]
-        if dataset_url.startswith("https://huggingface.co/datasets/"):
-            dataset_name = dataset_url.replace("https://huggingface.co/datasets/", "")
-        else:
-            dataset_name = dataset_url
-    
     code_name = None
-    if dependency_info.get("code_repos"):
-        code_url = dependency_info["code_repos"][0]
-        if code_url.startswith("https://github.com/"):
-            code_name = code_url.replace("https://github.com/", "").rstrip("/").replace(".git", "")
-        else:
-            code_name = code_url
-    
-    parent_models = dependency_info.get("parent_models", [])
-    
-    return {
-        "dataset_name": dataset_name,
-        "code_name": code_name,
-        "parent_models": parent_models,
-        "lineage": dependency_info
-    }
+
+    # Common patterns for dataset mentions
+    dataset_patterns = [
+        r"dataset[:\s]+([A-Za-z0-9_\-/]+)",
+        r"uses?\s+([A-Za-z0-9_\-/]+)\s+dataset",
+        r"trained\s+on\s+([A-Za-z0-9_\-/]+)",
+        r"([A-Za-z0-9_\-/]+)\s+dataset",
+    ]
+
+    # Common patterns for code/library mentions
+    code_patterns = [
+        r"code[:\s]+([A-Za-z0-9_\-/]+)",
+        r"library[:\s]+([A-Za-z0-9_\-/]+)",
+        r"uses?\s+([A-Za-z0-9_\-/]+)\s+library",
+        r"built\s+with\s+([A-Za-z0-9_\-/]+)",
+        r"([A-Za-z0-9_\-/]+)\s+library",
+    ]
+
+    readme_lower = readme_text.lower()
+
+    # Try to extract dataset name
+    for pattern in dataset_patterns:
+        matches = re.finditer(pattern, readme_lower, re.IGNORECASE)
+        for match in matches:
+            candidate = match.group(1).strip()
+            # Filter out common false positives
+            if (
+                candidate
+                and len(candidate) > 2
+                and candidate not in ["the", "this", "that", "our"]
+            ):
+                dataset_name = candidate
+                break
+        if dataset_name:
+            break
+
+    # Try to extract code/library name
+    for pattern in code_patterns:
+        matches = re.finditer(pattern, readme_lower, re.IGNORECASE)
+        for match in matches:
+            candidate = match.group(1).strip()
+            # Filter out common false positives
+            if (
+                candidate
+                and len(candidate) > 2
+                and candidate not in ["the", "this", "that", "our"]
+            ):
+                code_name = candidate
+                break
+        if code_name:
+            break
+
+    return {"dataset_name": dataset_name, "code_name": code_name}
 
 
 def _link_model_to_datasets_code(
@@ -1627,7 +1541,8 @@ def _link_model_to_datasets_code(
     if not readme_text:
         return
 
-    extracted = _extract_dataset_code_names_from_readme(readme_text, model_name)
+    # Extract dataset and code names from README
+    extracted = _extract_dataset_code_names_from_readme(readme_text)
     dataset_name = extracted.get("dataset_name")
     code_name = extracted.get("code_name")
 
@@ -2407,14 +2322,9 @@ def get_artifact_by_name(name: str, request: Request):
                 detail="There is missing field(s) in the artifact_name or it is formed improperly, or is invalid.",
             )
 
-        # Search for models with matching name
+        # Search for artifacts with matching name
         escaped_name = re.escape(name)
         name_pattern = f"^{escaped_name}$"
-        logger.info(f"DEBUG: ===== SEARCHING S3 FOR MODELS =====")
-        logger.info(f"DEBUG: Searching S3 for models with name pattern: {name_pattern}")
-        result = list_models(name_regex=name_pattern, limit=1000)
-        models_found = len(result.get("models", []))
-        logger.info(f"DEBUG: list_models returned {models_found} models")
         artifacts = []
 
         # Track which artifact_ids we've already added to avoid duplicates
@@ -2423,6 +2333,61 @@ def get_artifact_by_name(name: str, request: Request):
         all_db_artifacts = list_all_artifacts()
         logger.info(f"DEBUG: ===== CHECKING DATABASE =====")
         logger.info(f"DEBUG: Database artifacts count: {len(all_db_artifacts)}")
+
+        # Priority 1: Search _artifact_storage first for all artifact types (immediate consistency)
+        logger.info(
+            f"DEBUG: Searching _artifact_storage for all artifact types with name='{name}'"
+        )
+        for artifact_id, artifact_data in _artifact_storage.items():
+            artifact_name = artifact_data.get("name", "")
+            artifact_type = artifact_data.get("type", "")
+            if (
+                artifact_name == name
+                and artifact_id
+                and artifact_id not in seen_artifact_ids
+            ):
+                logger.info(
+                    f"DEBUG: Found {artifact_type} in _artifact_storage: id='{artifact_id}', name='{artifact_name}'"
+                )
+                seen_artifact_ids.add(artifact_id)
+                artifacts.append(
+                    {
+                        "name": artifact_name,
+                        "id": artifact_id,
+                        "type": artifact_type,
+                    }
+                )
+
+        # Priority 2: Search database for all artifact types
+        logger.info(f"DEBUG: Searching database for artifacts with name='{name}'")
+        storage_matches = 0
+        for artifact in all_db_artifacts:
+            artifact_id = artifact.get("id", "")
+            if (
+                artifact.get("name") == name
+                and artifact_id
+                and artifact_id not in seen_artifact_ids
+            ):  # Exact match
+                storage_matches += 1
+                logger.info(
+                    f"DEBUG: Found artifact in database: id='{artifact_id}', name='{artifact.get('name')}', type='{artifact.get('type')}'"
+                )
+                seen_artifact_ids.add(artifact_id)
+                artifacts.append(
+                    {
+                        "name": artifact.get("name", artifact_id),
+                        "id": artifact_id,
+                        "type": artifact.get("type", "model"),
+                    }
+                )
+        logger.info(f"DEBUG: Found {storage_matches} additional artifacts in database")
+
+        # Priority 3: Search S3 for models (fallback for models not in _artifact_storage or database)
+        logger.info(f"DEBUG: ===== SEARCHING S3 FOR MODELS =====")
+        logger.info(f"DEBUG: Searching S3 for models with name pattern: {name_pattern}")
+        result = list_models(name_regex=name_pattern, limit=1000)
+        models_found = len(result.get("models", []))
+        logger.info(f"DEBUG: list_models returned {models_found} models")
 
         # Add models from S3 - find their artifact_ids from database
         for model in result.get("models", []):
@@ -2543,9 +2508,9 @@ def get_artifact_by_name(name: str, request: Request):
                             }
                         )
 
-        # Search _artifact_storage for datasets and code (immediate consistency)
+        # Search _artifact_storage for all artifact types (models, datasets, code) - immediate consistency
         logger.info(
-            f"DEBUG: Searching _artifact_storage for datasets and code with name='{name}'"
+            f"DEBUG: Searching _artifact_storage for all artifact types with name='{name}'"
         )
         for artifact_id, artifact_data in _artifact_storage.items():
             artifact_name = artifact_data.get("name", "")
@@ -3822,13 +3787,12 @@ async def post_artifact_ingest(request: Request):
                                     )
                                     break
                         if readme_text:
+                            # Extract dataset and code names from README
                             extracted = _extract_dataset_code_names_from_readme(
-                                readme_text, name
+                                readme_text
                             )
                             dataset_name = extracted.get("dataset_name")
                             code_name = extracted.get("code_name")
-                            parent_models = extracted.get("parent_models", [])
-                            lineage_data = extracted.get("lineage", {})
                 except Exception as e:
                     logger.debug(f"Could not extract README for linking: {str(e)}")
 
@@ -3848,6 +3812,16 @@ async def post_artifact_ingest(request: Request):
                 if code_name:
                     artifact_data["code_name"] = code_name
                 save_artifact(artifact_id, artifact_data)
+                
+                # Store in _artifact_storage for immediate consistency
+                global _artifact_storage
+                _artifact_storage[artifact_id] = {
+                    "name": name,
+                    "type": artifact_type,
+                    "version": version,
+                    "id": artifact_id,
+                    "url": url,
+                }
 
                 # Link to existing datasets/code if found
                 if readme_text:
@@ -4185,13 +4159,12 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                                     )
                                     break
                         if readme_text:
+                            # Extract dataset and code names from README
                             extracted = _extract_dataset_code_names_from_readme(
-                                readme_text, artifact_name
+                                readme_text
                             )
                             dataset_name = extracted.get("dataset_name")
                             code_name = extracted.get("code_name")
-                            parent_models = extracted.get("parent_models", [])
-                            lineage_data = extracted.get("lineage", {})
                 except Exception as e:
                     logger.debug(f"Could not extract README for linking: {str(e)}")
 
@@ -4211,6 +4184,16 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
                 if code_name:
                     artifact_data["code_name"] = code_name
                 save_artifact(artifact_id, artifact_data)
+                
+                # Store in _artifact_storage for immediate consistency
+                global _artifact_storage
+                _artifact_storage[artifact_id] = {
+                    "name": artifact_name,
+                    "type": artifact_type,
+                    "version": version,
+                    "id": artifact_id,
+                    "url": url,
+                }
 
                 # Link to existing datasets/code if found
                 if readme_text:
@@ -4517,18 +4500,56 @@ def delete_artifact_endpoint(artifact_type: str, id: str, request: Request):
     try:
         deleted = False
         artifact = get_artifact_from_db(id)
+        artifact_name = None
         if artifact and artifact.get("type") == artifact_type:
+            artifact_name = artifact.get("name")
             delete_artifact(id)
-            # Also remove from _artifact_storage if it's a dataset or code
-            if artifact_type in ["dataset", "code"]:
+            # Also remove from _artifact_storage for all artifact types (model, dataset, code)
+            if artifact_type in ["model", "dataset", "code"]:
                 if id in _artifact_storage:
                     del _artifact_storage[id]
+                    logger.info(f"Removed artifact {id} from _artifact_storage cache")
             deleted = True
+        # Delete metadata.json files and S3 files for all artifact types
         if artifact_type == "model":
-            deleted_count = 0
+            # Delete metadata.json files for models
+            model_name = artifact_name or id
+            sanitized_name = sanitize_model_id_for_s3(model_name)
             common_versions = ["1.0.0", "main", "latest"]
             for version in common_versions:
-                s3_key = f"models/{id}/{version}/model.zip"
+                metadata_key = f"models/{sanitized_name}/{version}/metadata.json"
+                try:
+                    s3.head_object(Bucket=ap_arn, Key=metadata_key)
+                    s3.delete_object(Bucket=ap_arn, Key=metadata_key)
+                    logger.info(f"Deleted metadata file: {metadata_key}")
+                except ClientError as e:
+                    error_code = e.response.get("Error", {}).get("Code", "")
+                    if error_code not in ["NoSuchKey", "404"]:
+                        logger.warning(f"Error deleting metadata {metadata_key}: {error_code}")
+            
+            # Also try to find and delete metadata files for all versions
+            try:
+                result = list_models(name_regex=f"^{re.escape(model_name)}$", limit=1000)
+                if result.get("models"):
+                    versions_to_try = [model["version"] for model in result["models"]]
+                    for version in versions_to_try:
+                        metadata_key = f"models/{sanitized_name}/{version}/metadata.json"
+                        try:
+                            s3.delete_object(Bucket=ap_arn, Key=metadata_key)
+                            logger.info(f"Deleted metadata file: {metadata_key}")
+                        except ClientError as e:
+                            error_code = e.response.get("Error", {}).get("Code", "")
+                            if error_code not in ["NoSuchKey", "404"]:
+                                logger.warning(f"Error deleting metadata {metadata_key}: {error_code}")
+            except Exception as e:
+                logger.debug(f"Error finding model versions for metadata deletion: {str(e)}")
+            
+            # Delete model.zip files
+            deleted_count = 0
+            common_versions = ["1.0.0", "main", "latest"]
+            # Use sanitized name for S3 key lookup
+            for version in common_versions:
+                s3_key = f"models/{sanitized_name}/{version}/model.zip"
                 try:
                     s3.head_object(Bucket=ap_arn, Key=s3_key)
                     s3.delete_object(Bucket=ap_arn, Key=s3_key)
@@ -4546,7 +4567,7 @@ def delete_artifact_endpoint(artifact_type: str, id: str, request: Request):
                             model["version"] for model in result["models"]
                         ]
                         for version in versions_to_try:
-                            s3_key = f"models/{id}/{version}/model.zip"
+                            s3_key = f"models/{sanitized_name}/{version}/model.zip"
                             try:
                                 s3.head_object(Bucket=ap_arn, Key=s3_key)
                                 s3.delete_object(Bucket=ap_arn, Key=s3_key)
@@ -4560,7 +4581,7 @@ def delete_artifact_endpoint(artifact_type: str, id: str, request: Request):
                     pass
             if deleted_count == 0 and not deleted:
                 for version in ["1.0.0", "main", "latest"]:
-                    s3_key = f"models/{id}/{version}/model.zip"
+                    s3_key = f"models/{sanitized_name}/{version}/model.zip"
                     try:
                         s3.head_object(Bucket=ap_arn, Key=s3_key)
                         s3.delete_object(Bucket=ap_arn, Key=s3_key)
@@ -4570,6 +4591,21 @@ def delete_artifact_endpoint(artifact_type: str, id: str, request: Request):
                         error_code = e.response.get("Error", {}).get("Code", "")
                         if error_code == "NoSuchKey" or error_code == "404":
                             continue
+        elif artifact_type in ["dataset", "code"]:
+            # Delete metadata.json files for datasets and code
+            artifact_name_for_s3 = artifact_name or id
+            sanitized_name = sanitize_model_id_for_s3(artifact_name_for_s3)
+            common_versions = ["1.0.0", "main", "latest"]
+            for version in common_versions:
+                safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
+                metadata_key = f"{artifact_type}s/{sanitized_name}/{safe_version}/metadata.json"
+                try:
+                    s3.delete_object(Bucket=ap_arn, Key=metadata_key)
+                    logger.info(f"Deleted metadata file: {metadata_key}")
+                except ClientError as e:
+                    error_code = e.response.get("Error", {}).get("Code", "")
+                    if error_code not in ["NoSuchKey", "404"]:
+                        logger.warning(f"Error deleting metadata {metadata_key}: {error_code}")
         if deleted:
             return Response(status_code=200)
         else:
@@ -4756,10 +4792,10 @@ def get_artifact_cost(
                 # Update main artifact's total_cost to include all dependencies
                 result[id]["total_cost"] = round(total_size_mb, 2)
             else:
-                # When dependency=false, return ONLY total_cost per spec
-                # Spec example: {"3847247294": {"total_cost": 412.5}}
+                # When dependency=false, return BOTH standalone_cost and total_cost (where standalone_cost = total_cost)
                 result = {
                     id: {
+                        "standalone_cost": round(standalone_size_mb, 2),
                         "total_cost": round(standalone_size_mb, 2),
                     }
                 }
@@ -4824,10 +4860,10 @@ def get_artifact_cost(
                 # For datasets/code, there are no dependencies, so total_cost = standalone_cost
                 result[id]["total_cost"] = round(total_size_mb, 2)
             else:
-                # When dependency=false, return ONLY total_cost per spec
-                # Spec example: {"3847247294": {"total_cost": 412.5}}
+                # When dependency=false, return BOTH standalone_cost and total_cost (where standalone_cost = total_cost)
                 result = {
                     id: {
+                        "standalone_cost": round(standalone_size_mb, 2),
                         "total_cost": round(standalone_size_mb, 2),
                     }
                 }
@@ -5055,14 +5091,14 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2
         ),
         "net_score_latency": round(
-            float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0), 2
         ),
         "ramp_up_time": round(
             float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0),
             2,
         ),
         "ramp_up_time_latency": round(
-            float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0), 2
         ),
         "bus_factor": round(
             float(
@@ -5074,7 +5110,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "bus_factor_latency": round(
-            float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "bus_factor_latency", "BusFactorLatency") or 0.0), 2
         ),
         "performance_claims": round(
             float(
@@ -5092,14 +5128,14 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(
                 alias(rating, "performance_claims_latency", "PerformanceClaimsLatency")
                 or 0.0
-            ) / 1000.0,
+            ),
             2,
         ),
         "license": round(
             float(alias(rating, "license", "License", "score_license") or 0.0), 2
         ),
         "license_latency": round(
-            float(alias(rating, "license_latency", "LicenseLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "license_latency", "LicenseLatency") or 0.0), 2
         ),
         "dataset_and_code_score": round(
             float(
@@ -5121,7 +5157,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "DatasetAndCodeScoreLatency",
                 )
                 or 0.0
-            ) / 1000.0,
+            ),
             2,
         ),
         "dataset_quality": round(
@@ -5136,7 +5172,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "dataset_quality_latency": round(
             float(
                 alias(rating, "dataset_quality_latency", "DatasetQualityLatency") or 0.0
-            ) / 1000.0,
+            ),
             2,
         ),
         "code_quality": round(
@@ -5147,7 +5183,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "code_quality_latency": round(
-            float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0), 2
         ),
         "reproducibility": round(
             float(
@@ -5165,7 +5201,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(
                 alias(rating, "reproducibility_latency", "ReproducibilityLatency")
                 or 0.0
-            ) / 1000.0,
+            ),
             2,
         ),
         "reviewedness": round(
@@ -5176,17 +5212,18 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "reviewedness_latency": round(
-            float(alias(rating, "reviewedness_latency", "ReviewednessLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "reviewedness_latency", "ReviewednessLatency") or 0.0),
+            2,
         ),
         "tree_score": round(
             float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2
         ),
         "tree_score_latency": round(
-            float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0), 2
         ),
         "size_score": _extract_size_scores(rating),
         "size_score_latency": round(
-            float(alias(rating, "size_score_latency", "SizeScoreLatency") or 0.0) / 1000.0, 2
+            float(alias(rating, "size_score_latency", "SizeScoreLatency") or 0.0), 2
         ),
     }
 

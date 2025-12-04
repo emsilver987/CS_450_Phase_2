@@ -465,8 +465,26 @@ def list_models(
                 key = item["Key"]
                 if key.endswith("/model.zip"):
                     if len(key.split("/")) >= 3:
-                        model_name = key.split("/")[1]
+                        sanitized_model_name = key.split("/")[1]
                         model_version = key.split("/")[2]
+                        
+                        # Try to get original name from metadata.json
+                        # Metadata is stored at: models/{sanitized_name}/{version}/metadata.json
+                        metadata_key = f"models/{sanitized_model_name}/{model_version}/metadata.json"
+                        model_name = sanitized_model_name  # Fallback to sanitized name
+                        
+                        try:
+                            metadata_response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
+                            metadata_json = metadata_response["Body"].read().decode("utf-8")
+                            metadata = json.loads(metadata_json)
+                            # Use original name from metadata if available
+                            if metadata.get("name"):
+                                model_name = metadata.get("name")
+                        except Exception:
+                            # If metadata doesn't exist or can't be read, use sanitized name
+                            # This handles legacy models that don't have metadata.json
+                            pass
+                        
                         if name_pattern and not name_pattern.search(model_name):
                             continue
                         if version_range:
@@ -477,8 +495,9 @@ def list_models(
                                 continue
                         if model_regex:
                             try:
+                                # Use sanitized name for searching model card content (S3 path)
                                 if not search_model_card_content(
-                                    model_name, model_version, model_regex
+                                    sanitized_model_name, model_version, model_regex
                                 ):
                                     continue
                             except re.error as e:
@@ -1869,30 +1888,6 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                     meta["license"] = license_text_lower
             if not meta.get("readme_text"):
                 print(f"[INGEST] Warning: No README text found for {model_id}")
-
-            readme_text = meta.get("readme_text", "")
-            if readme_text:
-                from ..index import _parse_dependencies
-                dependency_info = _parse_dependencies(readme_text, model_id)
-                
-                base_models = dependency_info.get("parent_models", [])
-                if base_models:
-                    if not meta.get("parents"):
-                        meta["parents"] = []
-                    for base_model in base_models:
-                        clean_base = base_model.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "").strip()
-                        if clean_base and clean_base != clean_model_id:
-                            base_exists = any(
-                                p.get("id") == clean_base for p in meta["parents"]
-                            )
-                            if not base_exists:
-                                meta["parents"].append({"id": clean_base, "score": None})
-                
-                if dependency_info.get("parent_models"):
-                    meta["lineage_parents"] = dependency_info["parent_models"]
-                
-                if dependency_info:
-                    meta["lineage"] = dependency_info
 
             print(f"[INGEST] Computing metrics...")
             metrics_start = time.time()
