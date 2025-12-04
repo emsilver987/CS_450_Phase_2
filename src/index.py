@@ -1617,7 +1617,34 @@ def reset_system(request: Request):
         _rating_results.clear()
         # Clear _artifact_storage (in-memory)
         global _artifact_storage
+
         _artifact_storage.clear()
+
+        # Clear RDS artifacts if RDS is configured
+        try:
+            rds_endpoint = os.getenv("RDS_ENDPOINT")
+            rds_password = os.getenv("RDS_PASSWORD")
+            if rds_endpoint and rds_password:
+                from .services.rds_service import get_connection_pool
+
+                pool = get_connection_pool()
+                conn = pool.getconn()
+                cursor = conn.cursor()
+                try:
+                    # Delete all artifacts from artifact_metadata table
+                    cursor.execute("DELETE FROM artifact_metadata")
+                    deleted_count = cursor.rowcount
+                    conn.commit()
+                    logger.info(f"Cleared {deleted_count} artifacts from RDS")
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Error clearing RDS artifacts: {str(e)}")
+                finally:
+                    pool.putconn(conn)
+        except Exception as e:
+            # RDS might not be configured, which is okay
+            logger.debug(f"RDS not available or not configured: {str(e)}")
+
         result = reset_registry()
         purge_tokens()
         ensure_default_admin()
