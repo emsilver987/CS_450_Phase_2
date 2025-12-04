@@ -77,6 +77,41 @@ def extract_model_license(model_id: str, version: str = "1.0.0") -> Optional[str
     try:
         from .s3_service import list_models, download_model
         from botocore.exceptions import ClientError
+        try:
+            from ..services.artifact_storage import get_generic_artifact_metadata, get_artifact_from_db
+            from ..services.s3_service import find_artifact_metadata_by_id
+        except ImportError:
+            # Fallback if imports fail
+            get_generic_artifact_metadata = None
+            get_artifact_from_db = None
+            find_artifact_metadata_by_id = None
+
+        # First, try to get license from artifact metadata (if it was stored during ingestion)
+        if get_generic_artifact_metadata:
+            try:
+                # Try to find artifact by ID or name
+                artifact = get_generic_artifact_metadata("model", model_id)
+                if not artifact and get_artifact_from_db:
+                    artifact = get_artifact_from_db(model_id)
+                if not artifact and find_artifact_metadata_by_id:
+                    # Try S3 metadata
+                    artifact = find_artifact_metadata_by_id(model_id)
+                
+                # Check if artifact has license in metadata
+                if artifact:
+                    # Check various possible license fields
+                    license_info = (
+                        artifact.get("license") or
+                        artifact.get("metadata", {}).get("license") if isinstance(artifact.get("metadata"), dict) else None or
+                        artifact.get("metadata_json", {}).get("license") if isinstance(artifact.get("metadata_json"), dict) else None
+                    )
+                    if license_info:
+                        normalized = normalize_license(str(license_info))
+                        if normalized and normalized != "no-license":
+                            return normalized
+            except Exception as e:
+                # If metadata lookup fails, continue to other methods
+                pass
 
         model_content = None
         found_version = None
@@ -103,20 +138,41 @@ def extract_model_license(model_id: str, version: str = "1.0.0") -> Optional[str
                         break
                 except:
                     continue
+        
+        # Try HuggingFace API - try multiple variations of the model name
         if not model_content:
             try:
                 clean_model_id = model_id
                 if model_id.startswith("https://huggingface.co/"):
-                    clean_model_id = model_id.replace("https://huggingface.co/", "")
+                    clean_model_id = model_id.replace("https://huggingface.co/", "").strip("/")
                 elif model_id.startswith("http://huggingface.co/"):
-                    clean_model_id = model_id.replace("http://huggingface.co/", "")
-                hf_meta = fetch_hf_metadata(f"https://huggingface.co/{clean_model_id}")
-                if hf_meta:
-                    license_info = hf_meta.get("license") or hf_meta.get(
-                        "cardData", {}
-                    ).get("license", "")
-                    if license_info:
-                        return normalize_license(str(license_info))
+                    clean_model_id = model_id.replace("http://huggingface.co/", "").strip("/")
+                else:
+                    clean_model_id = model_id.strip("/")
+                
+                # Try multiple variations
+                variations = [clean_model_id]
+                # If model_id has slashes, try as-is and also try with different separators
+                if "/" in clean_model_id:
+                    variations.append(clean_model_id.replace("/", "-"))
+                    variations.append(clean_model_id.replace("/", "_"))
+                
+                for var in variations:
+                    try:
+                        hf_url = f"https://huggingface.co/{var}"
+                        hf_meta = fetch_hf_metadata(hf_url)
+                        if hf_meta:
+                            license_info = (
+                                hf_meta.get("license") or
+                                hf_meta.get("cardData", {}).get("license", "") or
+                                hf_meta.get("modelId") and fetch_hf_metadata(f"https://huggingface.co/{hf_meta.get('modelId')}").get("license") or None
+                            )
+                            if license_info:
+                                normalized = normalize_license(str(license_info))
+                                if normalized and normalized != "no-license":
+                                    return normalized
+                    except:
+                        continue
             except:
                 pass
         if model_content:

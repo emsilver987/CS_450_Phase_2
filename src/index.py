@@ -5828,6 +5828,7 @@ async def check_model_license(id: str, request: Request):
         # Check if artifact exists - use same logic as get_artifact endpoint
         artifact = None
         artifact_name = None
+        s3_metadata = None
         
         # Try to get artifact from database first
         artifact = get_generic_artifact_metadata("model", id)
@@ -5854,33 +5855,51 @@ async def check_model_license(id: str, request: Request):
 
         # Extract licenses and check compatibility
         try:
-            # Try to extract model license - try multiple approaches
+            # First, check if license is stored in artifact metadata
             model_license = None
-            if model_name_for_license:
-                model_license = extract_model_license(model_name_for_license)
+            if artifact:
+                # Check various possible license fields in artifact metadata
+                license_info = (
+                    artifact.get("license") or
+                    artifact.get("metadata", {}).get("license") if isinstance(artifact.get("metadata"), dict) else None or
+                    artifact.get("metadata_json", {}).get("license") if isinstance(artifact.get("metadata_json"), dict) else None or
+                    artifact.get("rating", {}).get("license") if isinstance(artifact.get("rating"), dict) else None
+                )
+                if license_info:
+                    from ..services.license_compatibility import normalize_license
+                    model_license = normalize_license(str(license_info))
+                    if model_license and model_license != "no-license":
+                        logger.info(f"Found license in artifact metadata: {model_license}")
             
-            # If still None, try with artifact name or ID directly
-            if model_license is None and artifact_name and artifact_name != model_name_for_license:
-                model_license = extract_model_license(artifact_name)
+            # If not found in metadata, try to extract from model
+            if not model_license or model_license == "no-license":
+                # Try to extract model license - try multiple approaches
+                if model_name_for_license:
+                    model_license = extract_model_license(model_name_for_license)
+                
+                # If still None, try with artifact name or ID directly
+                if (not model_license or model_license == "no-license") and artifact_name and artifact_name != model_name_for_license:
+                    model_license = extract_model_license(artifact_name)
+                
+                if not model_license or model_license == "no-license":
+                    # Last resort: try with ID directly
+                    model_license = extract_model_license(id)
             
-            if model_license is None:
-                # Last resort: try with ID directly
-                model_license = extract_model_license(id)
-            
-            # If model license still can't be found, use a default or return error
-            if model_license is None:
+            # If model license still can't be found, return 404 (artifact exists but license info not found)
+            # Per spec: "The artifact or GitHub project could not be found" when license can't be extracted
+            if not model_license or model_license == "no-license":
                 logger.warning(f"Could not extract model license for {id} (tried: {model_name_for_license}, {artifact_name}, {id})")
                 raise HTTPException(
-                    status_code=502,
-                    detail="External license information could not be retrieved.",
+                    status_code=404,
+                    detail="The artifact or GitHub project could not be found.",
                 )
 
             github_license = extract_github_license(github_url)
             if github_license is None:
                 logger.warning(f"Could not extract GitHub license from {github_url}")
                 raise HTTPException(
-                    status_code=502,
-                    detail="External license information could not be retrieved.",
+                    status_code=404,
+                    detail="The artifact or GitHub project could not be found.",
                 )
 
             # Check compatibility (use_case is optional, defaults to fine-tune+inference)
