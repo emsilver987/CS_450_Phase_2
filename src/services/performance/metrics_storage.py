@@ -6,6 +6,7 @@ Stores metrics in DynamoDB and publishes to CloudWatch
 import boto3
 import os
 import uuid
+import json
 import logging
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -24,6 +25,114 @@ PERFORMANCE_METRICS_TABLE = os.getenv(
     "DDB_TABLE_PERFORMANCE_METRICS", "performance_metrics"
 )
 CLOUDWATCH_NAMESPACE = "ACME/Performance"
+
+# Special metric_id value for storing workload metadata
+WORKLOAD_METADATA_METRIC_ID = "workload_metadata"
+
+
+def store_workload_metadata(run_id: str, metadata: Dict[str, Any]) -> bool:
+    """
+    Store workload metadata JSON in DynamoDB.
+    
+    Args:
+        run_id: Unique run identifier (hash key)
+        metadata: Dictionary containing workload metadata to store
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        table = dynamodb.Table(PERFORMANCE_METRICS_TABLE)
+        
+        # Store metadata as JSON string in the item
+        item = {
+            "run_id": run_id,
+            "metric_id": WORKLOAD_METADATA_METRIC_ID,  # Range key
+            "metadata_json": json.dumps(metadata),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        
+        # Also store individual fields for easier querying if needed
+        if "status" in metadata:
+            item["status"] = str(metadata["status"])
+        if "num_clients" in metadata:
+            item["num_clients"] = int(metadata.get("num_clients", 0))
+        if "model_id" in metadata:
+            item["model_id"] = str(metadata.get("model_id", ""))
+        if "duration_seconds" in metadata:
+            item["duration_seconds"] = int(metadata.get("duration_seconds", 0))
+        if "started_at" in metadata:
+            item["started_at"] = str(metadata.get("started_at", ""))
+        
+        table.put_item(Item=item)
+        logger.info(f"Stored workload metadata for run_id={run_id} in DynamoDB")
+        return True
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        if error_code == "ResourceNotFoundException":
+            logger.warning(
+                f"Performance metrics table doesn't exist: {PERFORMANCE_METRICS_TABLE}"
+            )
+        else:
+            logger.error(f"Error storing workload metadata: {error_code} - {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error storing workload metadata: {type(e).__name__}: {str(e)}")
+        return False
+
+
+def get_workload_metadata(run_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve workload metadata JSON from DynamoDB.
+    
+    Args:
+        run_id: Unique run identifier
+        
+    Returns:
+        Dictionary with workload metadata if found, None otherwise
+    """
+    try:
+        table = dynamodb.Table(PERFORMANCE_METRICS_TABLE)
+        response = table.get_item(
+            Key={
+                "run_id": run_id,
+                "metric_id": WORKLOAD_METADATA_METRIC_ID,
+            }
+        )
+        
+        if "Item" in response:
+            item = response["Item"]
+            
+            # Try to parse metadata_json first
+            if "metadata_json" in item:
+                try:
+                    metadata = json.loads(item["metadata_json"])
+                    return metadata
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse metadata_json for run_id={run_id}: {str(e)}")
+            
+            # Fallback: reconstruct from individual fields
+            metadata = {
+                "run_id": run_id,
+                "status": item.get("status", "unknown"),
+                "num_clients": item.get("num_clients", 0),
+                "model_id": item.get("model_id", ""),
+                "duration_seconds": item.get("duration_seconds", 0),
+                "started_at": item.get("started_at", ""),
+            }
+            return metadata
+        
+        return None
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        if error_code == "ResourceNotFoundException":
+            logger.debug(f"Performance metrics table doesn't exist: {PERFORMANCE_METRICS_TABLE}")
+        else:
+            logger.debug(f"Error getting workload metadata: {error_code} - {str(e)}")
+        return None
+    except Exception as e:
+        logger.debug(f"Unexpected error getting workload metadata: {type(e).__name__}: {str(e)}")
+        return None
 
 
 def store_metrics_in_dynamodb(metrics: List[Dict[str, Any]]) -> int:

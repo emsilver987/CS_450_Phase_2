@@ -54,7 +54,7 @@ class LoadGenerator:
     def __init__(
         self,
         run_id: str,
-        base_url: str,
+        base_url: Optional[str] = None,
         num_clients: int = 100,
         model_id: str = "arnir0/Tiny-LLM",
         version: str = "main",
@@ -64,13 +64,14 @@ class LoadGenerator:
         use_direct_rds: bool = False,
         rds_endpoint: Optional[str] = None,
         storage_backend: str = "s3",
+        use_direct_calls: bool = False,
     ):
         """
         Initialize load generator.
 
         Args:
             run_id: Unique identifier for this workload run
-            base_url: Base URL of the API (e.g., "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod")
+            base_url: Base URL of the API (None to use direct function calls instead of HTTP)
             num_clients: Number of concurrent clients to simulate
             model_id: Model ID to download
             version: Model version (default: "main")
@@ -78,9 +79,10 @@ class LoadGenerator:
             use_performance_path: If True, use performance/ path instead of models/ path
             auth_token: Optional authentication token to include in requests (for production API)
             storage_backend: Storage backend to use ('s3' or 'rds')
+            use_direct_calls: If True, call download functions directly instead of HTTP (when base_url is None)
         """
         self.run_id = run_id
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url.rstrip("/") if base_url else None
         self.num_clients = num_clients
         self.model_id = model_id
         self.version = version
@@ -90,6 +92,7 @@ class LoadGenerator:
         self.use_direct_rds = use_direct_rds
         self.rds_endpoint = rds_endpoint or os.getenv("RDS_ENDPOINT", "")
         self.storage_backend = storage_backend.lower()
+        self.use_direct_calls = use_direct_calls or (base_url is None)
 
         # Store metrics
         self.metrics: List[Metric] = []
@@ -182,6 +185,38 @@ class LoadGenerator:
             logger.warning(f"Model check error: {str(e)}")
             return (False, {"error": str(e)})
 
+    def _download_from_s3_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
+        """
+        Directly download model from S3 (bypasses API/HTTP).
+        Calls the s3_service.download_model function directly.
+        
+        Args:
+            model_id: Model identifier (sanitized)
+            version: Model version
+            component: Component to download
+            
+        Returns:
+            Model file content as bytes
+        """
+        try:
+            from ..s3_service import download_model as s3_download_model
+            
+            # Call the S3 download function directly
+            file_content = s3_download_model(
+                model_id=model_id,
+                version=version,
+                component=component,
+                use_performance_path=self.use_performance_path
+            )
+            
+            return file_content
+        except Exception as e:
+            # Convert HTTPException to regular Exception for consistency
+            error_msg = str(e)
+            if "not found" in error_msg.lower():
+                raise Exception(f"Model {model_id} version {version} not found in S3")
+            raise Exception(f"S3 download failed: {error_msg}")
+
     def _download_from_rds_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
         """
         Directly download model from RDS (bypasses API).
@@ -263,7 +298,7 @@ class LoadGenerator:
         timestamp = datetime.now(timezone.utc)
         start_time = time.time()
         
-        # Sanitize model_id for RDS query
+        # Sanitize model_id for storage queries
         sanitized_model_id = (
             self.model_id.replace("/", "_")
             .replace(":", "_")
@@ -276,7 +311,67 @@ class LoadGenerator:
             .replace("|", "_")
         )
 
-        # Use direct RDS if enabled
+        # Use direct function calls if enabled (bypasses HTTP/API Gateway)
+        if self.use_direct_calls:
+            try:
+                # Run download in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                
+                if self.storage_backend == "rds":
+                    file_content = await loop.run_in_executor(
+                        None,
+                        self._download_from_rds_direct,
+                        sanitized_model_id,
+                        self.version,
+                        "full"
+                    )
+                else:
+                    # Default to S3
+                    file_content = await loop.run_in_executor(
+                        None,
+                        self._download_from_s3_direct,
+                        sanitized_model_id,
+                        self.version,
+                        "full"
+                    )
+                
+                end_time = time.time()
+                
+                latency_ms = (end_time - start_time) * 1000
+                bytes_transferred = len(file_content)
+                status_code = 200
+                
+                metric = Metric(
+                    run_id=self.run_id,
+                    client_id=client_id,
+                    request_latency_ms=latency_ms,
+                    bytes_transferred=bytes_transferred,
+                    status_code=status_code,
+                    timestamp=timestamp,
+                )
+                
+                logger.debug(
+                    f"Direct {self.storage_backend.upper()} download completed: client_id={client_id}, "
+                    f"status={status_code}, latency={latency_ms:.2f}ms, "
+                    f"bytes={bytes_transferred}"
+                )
+                
+                return metric
+            except Exception as e:
+                error_str = str(e).lower()
+                end_time = time.time()
+                latency_ms = (end_time - start_time) * 1000
+                logger.error(f"Direct {self.storage_backend.upper()} download error for client_id={client_id}: {str(e)}")
+                return Metric(
+                    run_id=self.run_id,
+                    client_id=client_id,
+                    request_latency_ms=latency_ms,
+                    bytes_transferred=0,
+                    status_code=0,
+                    timestamp=timestamp,
+                )
+
+        # Use direct RDS if enabled (legacy support)
         if self.use_direct_rds:
             try:
                 # Run RDS download in thread pool to avoid blocking
@@ -356,7 +451,10 @@ class LoadGenerator:
                         timestamp=timestamp,
                     )
         
-        # Otherwise use API endpoint
+        # Otherwise use API endpoint (HTTP requests)
+        if self.base_url is None:
+            raise Exception("base_url is required for HTTP requests, or enable use_direct_calls")
+        
         if session is None:
             raise Exception("HTTP session required for API requests")
         
@@ -530,18 +628,28 @@ class LoadGenerator:
         if self.auth_token:
             headers["X-Authorization"] = self.auth_token
 
-        # Always create HTTP session (needed for API fallback if direct RDS fails)
-        async with aiohttp.ClientSession(
-            timeout=timeout, connector=connector, headers=headers
-        ) as session:
-            # Create tasks for all clients (client_id is 1-based)
+        # Create HTTP session only if not using direct calls
+        # For direct calls, we don't need HTTP session
+        if self.use_direct_calls:
+            # Direct function calls - no HTTP session needed
             tasks = [
-                self._run_client(client_id, session)
+                self._run_client(client_id, None)
                 for client_id in range(1, self.num_clients + 1)
             ]
-            
-            # Run all clients concurrently
             await asyncio.gather(*tasks)
+        else:
+            # HTTP requests - need session
+            async with aiohttp.ClientSession(
+                timeout=timeout, connector=connector, headers=headers
+            ) as session:
+                # Create tasks for all clients (client_id is 1-based)
+                tasks = [
+                    self._run_client(client_id, session)
+                    for client_id in range(1, self.num_clients + 1)
+                ]
+                
+                # Run all clients concurrently
+                await asyncio.gather(*tasks)
 
         self.end_time = time.time()
 

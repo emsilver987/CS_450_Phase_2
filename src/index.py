@@ -919,6 +919,7 @@ async def trigger_performance_workload(request: Request):
     If the model doesn't exist, it will be downloaded from HuggingFace and uploaded to S3 automatically.
     """
     try:
+        from datetime import timedelta
         body = await request.json()
 
         # Extract parameters with defaults
@@ -953,23 +954,23 @@ async def trigger_performance_workload(request: Request):
         # Import and trigger workload
         from .services.performance.workload_trigger import trigger_workload
 
-        # Use API Gateway URL as the base URL for load generation
-        # This is where clients will actually make requests
-        # Can be overridden via environment variable
-        base_url = os.getenv(
-            "API_BASE_URL",
-            "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod",
-        )
-
+        # Don't pass base_url - this will use direct function calls instead of HTTP
+        # This is more efficient when called from within the API
+        # Only use HTTP if API_BASE_URL is explicitly set (for external testing)
         result = trigger_workload(
             num_clients=num_clients,
             model_id=model_id,
             artifact_id=artifact_id,
             duration_seconds=duration_seconds,
-            base_url=base_url,
+            base_url=None,  # None = use direct function calls (more efficient)
         )
 
-        return JSONResponse(status_code=202, content=result)  # Accepted
+        # Store the workload JSON in DynamoDB
+        from .services.performance.metrics_storage import store_workload_metadata
+        store_workload_metadata(result["run_id"], result)
+        logger.info(f"Stored workload metadata for run_id={result['run_id']} in DynamoDB")
+
+        return JSONResponse(status_code=202, content=result)
 
     except HTTPException:
         raise
@@ -985,28 +986,23 @@ def get_performance_results(run_id: str):
     """
     Get aggregated performance results for a workload run.
     Queries DynamoDB for raw metrics and calculates statistics.
+    Also returns the stored workload JSON if available.
     """
     try:
-        from .services.performance.results_retrieval import get_performance_results
-        from .services.performance.workload_trigger import get_workload_status
+        from .services.performance.metrics_storage import get_workload_metadata
 
-        # Get workload status from in-memory store
-        workload_status = get_workload_status(run_id)
-
-        # Get aggregated results
-        result = get_performance_results(run_id, workload_status)
-
-        # If run not found and no metrics in DynamoDB, return 404
-        if (
-            result.get("status") == "not_found"
-            and result["metrics"]["total_requests"] == 0
-        ):
+        # Try to get stored workload metadata from DynamoDB
+        stored_metadata = get_workload_metadata(run_id)
+        
+        # If stored metadata exists, return it directly
+        if stored_metadata:
+            logger.info(f"Retrieved stored workload metadata for run_id={run_id} from DynamoDB")
+            return JSONResponse(status_code=200, content=stored_metadata)
+        else: 
             raise HTTPException(
                 status_code=404,
-                detail=f"Performance run with run_id {run_id} not found",
+                detail=f"Probably wasn't found in metadata table"
             )
-
-        return JSONResponse(status_code=200, content=result)
 
     except HTTPException:
         raise

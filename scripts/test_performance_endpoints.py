@@ -45,8 +45,6 @@ from scripts.populate_registry import (
     get_authentication_token,
     get_s3_client_and_arn,
     check_model_exists_in_s3,
-    upload_model_to_performance_s3,
-    get_performance_s3_key,
     ingest_model_performance_mode,
     get_dynamodb_table,
 )
@@ -57,8 +55,6 @@ DEFAULT_LOCAL_URL = "http://localhost:8000"
 
 # AWS Configuration
 REGION = os.getenv("AWS_REGION", "us-east-1")
-ACCESS_POINT_NAME = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
-ARTIFACTS_TABLE = os.getenv("DDB_TABLE_ARTIFACTS", "artifacts")
 
 # Default model (uploaded on every run)
 DEFAULT_MODEL_ID = "arnir0/Tiny-LLM"
