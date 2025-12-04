@@ -99,6 +99,30 @@ resource "aws_ecs_task_definition" "validator_task" {
       {
         name  = "PYTHON_ENV"
         value = "production"
+      },
+      {
+        name  = "STORAGE_BACKEND"
+        value = var.storage_backend
+      },
+      {
+        name  = "RDS_ENDPOINT"
+        value = var.rds_endpoint
+      },
+      {
+        name  = "RDS_DATABASE"
+        value = var.rds_database
+      },
+      {
+        name  = "RDS_USERNAME"
+        value = var.rds_username
+      },
+      {
+        name  = "RDS_PASSWORD"
+        value = var.rds_password
+      },
+      {
+        name  = "RDS_PORT"
+        value = "5432"
       }
     ]
 
@@ -514,4 +538,16 @@ output "ecr_repository_url" {
 
 output "ecs_task_role_arn" {
   value = aws_iam_role.ecs_task_role.arn
+}
+
+output "vpc_id" {
+  value = aws_vpc.validator_vpc.id
+}
+
+output "subnet_ids" {
+  value = [aws_subnet.validator_subnet_1.id, aws_subnet.validator_subnet_2.id]
+}
+
+output "security_group_id" {
+  value = aws_security_group.validator_sg.id
 }

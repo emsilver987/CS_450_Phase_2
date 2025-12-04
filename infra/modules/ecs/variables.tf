@@ -17,3 +17,29 @@ variable "jwt_secret_arn" {
   type        = string
   description = "ARN of the JWT secret in Secrets Manager"
 }
+variable "storage_backend" {
+  type        = string
+  default     = "s3"
+  description = "Storage backend to use: 's3' or 'rds'"
+}
+variable "rds_endpoint" {
+  type        = string
+  default     = ""
+  description = "RDS endpoint (hostname only, without port)"
+}
+variable "rds_database" {
+  type        = string
+  default     = "acme"
+  description = "RDS database name"
+}
+variable "rds_username" {
+  type        = string
+  default     = "acme"
+  description = "RDS username"
+}
+variable "rds_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "RDS password"
+}

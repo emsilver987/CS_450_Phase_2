@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
+from botocore.exceptions import ClientError
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import get_credentials
@@ -340,6 +341,17 @@ def download_model(model_id: str, version: str, component: str = "full", use_per
                 raise HTTPException(status_code=400, detail=str(e))
         print(f"AWS S3 download successful: {model_id} v{version} (full) from {path_prefix}/")
         return zip_content
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code == "NoSuchKey":
+            print(f"AWS S3 download failed: Model {model_id} v{version} not found at {path_prefix}/{model_id}/{version}/model.zip")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model {model_id} version {version} not found in {path_prefix}/ path"
+            )
+        else:
+            print(f"AWS S3 download failed: {e}")
+            raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
     except Exception as e:
         print(f"AWS S3 download failed: {e}")
         raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
@@ -534,6 +546,46 @@ def reset_registry() -> Dict[str, str]:
         print(f"AWS S3 reset failed: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to reset registry: {str(e)}"
+        )
+
+
+def reset_performance_path() -> Dict[str, Any]:
+    """
+    Reset the performance/ S3 path by deleting all objects.
+    Only affects the performance/ path, not models/ or other paths.
+    
+    Returns:
+        Dictionary with deletion count and status
+    """
+    if not aws_available:
+        raise HTTPException(
+            status_code=503,
+            detail="AWS services not available. Please check your AWS configuration.",
+        )
+    try:
+        deleted_count = 0
+
+        # Use paginator to handle all objects, not just first 1000
+        paginator = s3.get_paginator("list_objects_v2")
+
+        # Delete only performance/ path
+        pages = paginator.paginate(Bucket=ap_arn, Prefix="performance/")
+        for page in pages:
+            if "Contents" in page:
+                for item in page["Contents"]:
+                    s3.delete_object(Bucket=ap_arn, Key=item["Key"])
+                    deleted_count += 1
+
+        logger.info(f"Performance path reset: Deleted {deleted_count} objects from performance/")
+        return {
+            "message": "Performance path reset successful",
+            "deleted_count": deleted_count,
+            "path": "performance/"
+        }
+    except Exception as e:
+        logger.error(f"Performance path reset failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset performance path: {str(e)}"
         )
 
 
@@ -1933,7 +1985,9 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                 },
             )
 
-        upload_model(zip_content, model_id, version)
+        # Use storage service abstraction to support both S3 and RDS backends
+        from ..services.storage_service import upload_model as storage_upload_model
+        storage_upload_model(zip_content, model_id, version, use_performance_path=False)
         total_time = time.time() - start_time
         print(f"[INGEST] Success in {total_time:.2f}s")
         return {

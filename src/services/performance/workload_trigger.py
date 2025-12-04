@@ -20,22 +20,24 @@ _load_generators: Dict[str, Any] = {}  # Store LoadGenerator instances
 
 def _run_load_generator_async(
     run_id: str,
-    base_url: str,
+    base_url: Optional[str],
     num_clients: int,
     model_id: str,
     version: str,
     duration_seconds: Optional[int],
+    storage_backend: str = "s3",
 ):
     """
     Run load generator in async event loop (called from thread).
 
     Args:
         run_id: Unique run identifier
-        base_url: Base URL of the API
+        base_url: Base URL of the API (None to use direct function calls)
         num_clients: Number of concurrent clients
         model_id: Model ID to download
         version: Model version
         duration_seconds: Optional duration limit
+        storage_backend: Storage backend to use ('s3' or 'rds')
     """
     try:
         from .load_generator import LoadGenerator
@@ -46,6 +48,7 @@ def _run_load_generator_async(
 
         # Create and run load generator
         # Use performance path for performance testing
+        # If base_url is None, use_direct_calls will be True (more efficient)
         generator = LoadGenerator(
             run_id=run_id,
             base_url=base_url,
@@ -54,6 +57,7 @@ def _run_load_generator_async(
             version=version,
             duration_seconds=duration_seconds,
             use_performance_path=True,  # Use performance/ path for performance testing
+            storage_backend=storage_backend,
         )
 
         _load_generators[run_id] = generator
@@ -101,17 +105,17 @@ def trigger_workload(
         base_url: Base URL of the API (defaults to environment variable or API Gateway URL)
 
     Returns:
-        Dictionary with run_id, status, and estimated_completion
+        Dictionary with run_id, status, num_clients, model_id, artifact_id, 
+        duration_seconds, started_at, and estimated_completion
     """
     # Generate unique run ID
     run_id = str(uuid.uuid4())
 
-    # Get base URL - try environment variable, then default to API Gateway URL
+    # If base_url is not provided, use direct function calls instead of HTTP
+    # This is more efficient when called from within the API
+    # Only use HTTP/API Gateway URL if explicitly provided or set in env var
     if not base_url:
-        base_url = os.getenv(
-            "API_BASE_URL",
-            "https://pc1plkgnbd.execute-api.us-east-1.amazonaws.com/prod",
-        )
+        base_url = os.getenv("API_BASE_URL", None)  # None = use direct calls
 
     # Calculate estimated completion time
     estimated_completion = datetime.now(timezone.utc) + timedelta(
@@ -119,7 +123,7 @@ def trigger_workload(
     )
 
     # Store run metadata
-    _workload_runs[run_id] = {
+    run_metadata = {
         "run_id": run_id,
         "status": "started",
         "num_clients": num_clients,
@@ -129,24 +133,27 @@ def trigger_workload(
         "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "estimated_completion": estimated_completion.isoformat().replace("+00:00", "Z"),
     }
+    
+    _workload_runs[run_id] = run_metadata
 
     logger.info(
         f"Performance workload triggered: run_id={run_id}, num_clients={num_clients}, model_id={model_id}"
     )
 
+    # Determine storage backend from environment or default to S3
+    storage_backend = os.getenv("PERFORMANCE_STORAGE_BACKEND", "s3").lower()
+    
     # Start load generator in background thread
+    # Pass None for base_url to use direct function calls (more efficient)
     thread = Thread(
         target=_run_load_generator_async,
-        args=(run_id, base_url, num_clients, model_id, "main", duration_seconds),
+        args=(run_id, base_url, num_clients, model_id, "main", duration_seconds, storage_backend),
         daemon=True,
     )
     thread.start()
 
-    return {
-        "run_id": run_id,
-        "status": "started",
-        "estimated_completion": estimated_completion.isoformat().replace("+00:00", "Z"),
-    }
+    # Return the complete metadata dictionary
+    return run_metadata
 
 
 def get_workload_status(run_id: str) -> Optional[Dict[str, Any]]:
