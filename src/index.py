@@ -5075,25 +5075,25 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "name": model_name,
         "category": alias(rating, "category") or "unknown",
         "net_score": round(
-            float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "net_score", "NetScore", "netScore") or 0.0))), 2
         ),
         "net_score_latency": round(
             float(alias(rating, "net_score_latency", "NetScoreLatency") or 0.0), 2
         ),
         "ramp_up_time": round(
-            float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0),
+            min(1.0, max(0.0, float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0))),
             2,
         ),
         "ramp_up_time_latency": round(
             float(alias(rating, "ramp_up_time_latency", "RampUpTimeLatency") or 0.0), 2
         ),
         "bus_factor": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating, "bus_factor", "BusFactor", "score_bus_factor", "busFactor"
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "bus_factor_latency": round(
@@ -5119,7 +5119,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "license": round(
-            float(alias(rating, "license", "License", "score_license") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "license", "License", "score_license") or 0.0))), 2
         ),
         "license_latency": round(
             float(alias(rating, "license_latency", "LicenseLatency") or 0.0), 2
@@ -5173,7 +5173,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             float(alias(rating, "code_quality_latency", "CodeQualityLatency") or 0.0), 2
         ),
         "reproducibility": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(
                     rating,
                     "reproducibility",
@@ -5181,7 +5181,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
                     "score_reproducibility",
                 )
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "reproducibility_latency": round(
@@ -5192,10 +5192,10 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "reviewedness": round(
-            float(
+            min(1.0, max(0.0, float(
                 alias(rating, "reviewedness", "Reviewedness", "score_reviewedness")
                 or 0.0
-            ),
+            ))),
             2,
         ),
         "reviewedness_latency": round(
@@ -5203,7 +5203,7 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
             2,
         ),
         "tree_score": round(
-            float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2
+            min(1.0, max(0.0, float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0))), 2
         ),
         "tree_score_latency": round(
             float(alias(rating, "tree_score_latency", "TreeScoreLatency") or 0.0), 2
