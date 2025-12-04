@@ -5,11 +5,13 @@ This module provides RDS-based storage for model files using PostgreSQL BYTEA.
 Designed for simple, non-scalable storage of up to 500 models.
 """
 import os
+import json
 import logging
 import psycopg2
 from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,33 @@ def _initialize_schema():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (model_id, version, component, path_prefix)
             );
+        """)
+        
+        # Create artifact_metadata table for storing metadata (not binary files)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS artifact_metadata (
+                artifact_id VARCHAR(255) NOT NULL PRIMARY KEY,
+                name VARCHAR(500) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                version VARCHAR(100) NOT NULL,
+                url TEXT,
+                stored_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata_json JSONB
+            );
+        """)
+        
+        # Create indexes for artifact_metadata
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifact_name 
+            ON artifact_metadata(name);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifact_type 
+            ON artifact_metadata(type);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifact_name_type 
+            ON artifact_metadata(name, type);
         """)
         
         # Create index if it doesn't exist
@@ -256,6 +285,132 @@ def model_exists(
     except Exception as e:
         logger.error(f"RDS model_exists check failed for {model_id} v{version}: {e}")
         return False
+    finally:
+        if conn:
+            pool.putconn(conn)
+
+
+def store_artifact_metadata(
+    artifact_id: str, artifact_name: str, artifact_type: str, version: str, url: str
+) -> Dict[str, str]:
+    """
+    Store artifact metadata in RDS for all artifact types (model, dataset, code).
+    This stores only metadata, not the actual binary files.
+    
+    Args:
+        artifact_id: Unique artifact identifier
+        artifact_name: Name of the artifact
+        artifact_type: Type of artifact ('model', 'dataset', 'code')
+        version: Version of the artifact
+        url: URL of the artifact
+        
+    Returns:
+        Dictionary with status and details
+    """
+    if not RDS_ENDPOINT or not RDS_PASSWORD:
+        return {"status": "skipped", "reason": "RDS not available"}
+    
+    try:
+        # Prepare metadata JSON
+        metadata = {
+            "artifact_id": artifact_id,
+            "name": artifact_name,
+            "type": artifact_type,
+            "version": version,
+            "url": url,
+            "stored_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        conn = None
+        try:
+            pool = get_connection_pool()
+            conn = pool.getconn()
+            cursor = conn.cursor()
+            
+            # Insert or update metadata
+            cursor.execute("""
+                INSERT INTO artifact_metadata (artifact_id, name, type, version, url, metadata_json)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (artifact_id)
+                DO UPDATE SET
+                    name = EXCLUDED.name,
+                    type = EXCLUDED.type,
+                    version = EXCLUDED.version,
+                    url = EXCLUDED.url,
+                    metadata_json = EXCLUDED.metadata_json,
+                    stored_at = CURRENT_TIMESTAMP
+            """, (
+                artifact_id,
+                artifact_name,
+                artifact_type,
+                version,
+                url,
+                Json(metadata)
+            ))
+            
+            conn.commit()
+            logger.info(
+                f"DEBUG: ✅✅✅ Successfully stored artifact metadata to RDS: "
+                f"artifact_id='{artifact_id}', name='{artifact_name}', type='{artifact_type}'"
+            )
+            logger.info(f"DEBUG: Metadata includes: artifact_id='{artifact_id}', name='{artifact_name}', type='{artifact_type}'")
+            return {"status": "success", "artifact_id": artifact_id}
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise
+        finally:
+            if conn:
+                pool.putconn(conn)
+    except Exception as e:
+        logger.error(f"Failed to store artifact metadata in RDS: {str(e)}", exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+
+def find_artifact_metadata_by_id(artifact_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Find artifact metadata by artifact_id in RDS.
+    
+    Args:
+        artifact_id: Artifact identifier to search for
+        
+    Returns:
+        Dictionary with artifact metadata if found, None otherwise
+    """
+    if not RDS_ENDPOINT or not RDS_PASSWORD:
+        return None
+    
+    conn = None
+    try:
+        pool = get_connection_pool()
+        conn = pool.getconn()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT artifact_id, name, type, version, url, metadata_json, stored_at
+            FROM artifact_metadata
+            WHERE artifact_id = %s
+        """, (artifact_id,))
+        
+        result = cursor.fetchone()
+        if result:
+            # Convert RealDictRow to regular dict
+            metadata = dict(result)
+            # If metadata_json exists, use it; otherwise construct from fields
+            if metadata.get("metadata_json"):
+                return dict(metadata["metadata_json"])
+            else:
+                return {
+                    "artifact_id": metadata.get("artifact_id"),
+                    "name": metadata.get("name"),
+                    "type": metadata.get("type"),
+                    "version": metadata.get("version"),
+                    "url": metadata.get("url"),
+                }
+        return None
+    except Exception as e:
+        logger.error(f"Failed to find artifact metadata in RDS: {str(e)}", exc_info=True)
+        return None
     finally:
         if conn:
             pool.putconn(conn)

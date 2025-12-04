@@ -391,11 +391,15 @@ def poll_for_results(
     max_wait_seconds: int = 300,
     poll_interval: int = 5,
 ) -> Optional[Dict[str, Any]]:
-    """Poll for workload results until complete or timeout"""
+    """
+    Poll the /health/performance/results/{run_id} endpoint until workload completes or timeout.
+    Uses the run_id returned from the trigger endpoint.
+    """
     print(f"\n{'='*80}")
     print(f"Polling for Results")
     print(f"{'='*80}")
     print(f"Run ID: {run_id}")
+    print(f"Endpoint: GET {api_base_url}/health/performance/results/{run_id}")
     print(f"Max wait time: {max_wait_seconds} seconds")
     print(f"Poll interval: {poll_interval} seconds")
     print()
@@ -408,20 +412,32 @@ def poll_for_results(
         elapsed = int(time.time() - start_time)
         print(f"Attempt {attempt} (elapsed: {elapsed}s)...", end=" ")
         
-        results = test_get_results(api_base_url, auth_token, run_id)
-        
-        if results:
-            status = results.get("status")
-            if status == "completed":
-                print(f"✓ Workload completed!")
-                return results
-            elif status == "failed":
-                print(f"✗ Workload failed!")
-                return results
+        try:
+            headers = {"Content-Type": "application/json"}
+            if auth_token:
+                headers["X-Authorization"] = auth_token
+            
+            url = f"{api_base_url}/health/performance/results/{run_id}"
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                status = data.get("status")
+                
+                if status == "completed":
+                    print(f"✓ Workload completed!")
+                    return data
+                elif status == "failed":
+                    print(f"✗ Workload failed!")
+                    return data
+                else:
+                    print(f"Status: {status} (still running...)")
+            elif response.status_code == 404:
+                print(f"Not found (workload may still be starting)...")
             else:
-                print(f"Status: {status} (still running...)")
-        else:
-            print(f"Not ready yet...")
+                print(f"Status: {response.status_code}")
+        except Exception as e:
+            print(f"Error: {str(e)}")
         
         if time.time() - start_time < max_wait_seconds:
             time.sleep(poll_interval)
@@ -571,14 +587,10 @@ Examples:
     test_health_components(api_base_url, auth_token)
     print()
     
-    # Step 4: Test download endpoints
-    print("Step 4: Testing download endpoints...")
-    test_download_endpoint(api_base_url, auth_token, args.model_id)
-    print()
     
     # Step 5: Trigger workload and get results (unless skipped)
     if not args.skip_workload:
-        print("Step 5: Triggering performance workload...")
+        print("Step 4: Triggering performance workload...")
         run_id = test_trigger_workload(
             api_base_url,
             auth_token,

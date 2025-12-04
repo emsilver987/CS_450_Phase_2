@@ -986,23 +986,51 @@ def get_performance_results(run_id: str):
     """
     Get aggregated performance results for a workload run.
     Queries DynamoDB for raw metrics and calculates statistics.
-    Also returns the stored workload JSON if available.
+    Returns stored metadata if workload is still running, or full results if completed.
     """
     try:
+        from .services.performance.results_retrieval import get_performance_results
+        from .services.performance.workload_trigger import get_workload_status
         from .services.performance.metrics_storage import get_workload_metadata
 
-        # Try to get stored workload metadata from DynamoDB
+        # Get workload status from in-memory store (most up-to-date)
+        workload_status = get_workload_status(run_id)
+        
+        # Get stored metadata from DynamoDB
         stored_metadata = get_workload_metadata(run_id)
         
-        # If stored metadata exists, return it directly
+        # If workload is completed, get full performance results with metrics
+        if workload_status and workload_status.get("status") == "completed":
+            logger.info(f"Workload {run_id} completed, retrieving full performance results")
+            result = get_performance_results(run_id, workload_status)
+            return JSONResponse(status_code=200, content=result)
+        
+        # If workload failed, return status
+        if workload_status and workload_status.get("status") == "failed":
+            error_info = {
+                "run_id": run_id,
+                "status": "failed",
+                "error": workload_status.get("error", "Unknown error"),
+            }
+            if stored_metadata:
+                error_info.update(stored_metadata)
+            return JSONResponse(status_code=200, content=error_info)
+        
+        # If workload is still running or we only have stored metadata, return that
         if stored_metadata:
-            logger.info(f"Retrieved stored workload metadata for run_id={run_id} from DynamoDB")
+            logger.info(f"Workload {run_id} still running, returning stored metadata")
             return JSONResponse(status_code=200, content=stored_metadata)
-        else: 
-            raise HTTPException(
-                status_code=404,
-                detail=f"Probably wasn't found in metadata table"
-            )
+        
+        # If no metadata found, try to get results anyway (might have metrics but no metadata)
+        if workload_status:
+            result = get_performance_results(run_id, workload_status)
+            return JSONResponse(status_code=200, content=result)
+        
+        # Nothing found
+        raise HTTPException(
+            status_code=404,
+            detail=f"Performance run with run_id {run_id} not found"
+        )
 
     except HTTPException:
         raise
@@ -5730,435 +5758,214 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
-@app.post("/artifact/model/{id}/upload-rds")
-async def upload_artifact_model_to_rds(
-    id: str,
-    request: Request,
-    file: UploadFile = File(...),
-    version: str = Query("main", description="Model version"),
-    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
-):
+@app.post("/artifact/model/{id}/ingest-rds")
+async def upload_artifact_model_to_rds(request: Request):
     """
     Upload model file directly to RDS.
     This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
     Supports both models/ and performance/ paths.
     """
-    # Optional authentication check
-    try:
-        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
-        if auth_header:
-            if not verify_auth_token(request):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Authentication failed due to invalid or missing AuthenticationToken"
-                )
-    except ImportError:
-        pass
-    
-    try:
-        # Check if RDS credentials are available (this endpoint always uses RDS)
-        rds_endpoint = os.getenv("RDS_ENDPOINT")
-        rds_database = os.getenv("RDS_DATABASE")
-        rds_username = os.getenv("RDS_USERNAME")
-        rds_password = os.getenv("RDS_PASSWORD")
-        
-        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
-            raise HTTPException(
-                status_code=500,
-                detail="RDS upload endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
-            )
-        
-        # Read file content
-        file_content = await file.read()
-        if not file_content:
-            raise HTTPException(status_code=400, detail="File content is empty")
-        
-        # Determine if we should use performance path
-        use_performance_path = (path_prefix.lower() == "performance")
-        
-        # Import RDS service and upload directly
-        from .services.rds_service import upload_model as rds_upload_model
-        
-        logger.info(f"[RDS UPLOAD] Request: id={id}, version={version}, path_prefix={path_prefix}, use_performance_path={use_performance_path}, size={len(file_content)} bytes")
-        
-        result = rds_upload_model(file_content, id, version, use_performance_path=use_performance_path)
-        
-        logger.info(f"[RDS UPLOAD] Success: id={id}, version={version}, path_prefix={path_prefix}, stored_path={result.get('path', 'unknown')}")
-        
-        return {
-            "message": "Upload successful",
-            "details": result,
-            "model_id": id,
-            "version": version,
-            "path_prefix": path_prefix,
-            "use_performance_path": use_performance_path
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"RDS upload failed for {id} v{version}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS upload failed: {str(e)}")
-
-
-@app.get("/artifact/model/{id}/upload-rds-url")
-async def get_rds_upload_url(
-    id: str,
-    request: Request,
-    version: str = Query("main", description="Model version"),
-    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'"),
-    expires_in: int = Query(3600, description="URL expiration time in seconds")
-):
-    """
-    Generate presigned S3 URL for large file uploads to RDS.
-    Client uploads file directly to S3 (bypasses API Gateway 10MB limit),
-    then calls /artifact/model/{id}/upload-rds-from-s3 to move from S3 to RDS.
-    """
-    try:
-        from .services.s3_service import s3, ap_arn, aws_available
-        
-        if not aws_available:
-            raise HTTPException(
-                status_code=503,
-                detail="AWS services not available. Please check your AWS configuration."
-            )
-        
-        # Sanitize model_id for S3 key (same as RDS)
-        sanitized_id = (
-            id.replace("https://huggingface.co/", "")
-            .replace("http://huggingface.co/", "")
-            .replace("/", "_")
-            .replace(":", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace('"', "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace("|", "_")
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
         )
-        
-        # Use a temporary S3 key for RDS uploads (will be moved to RDS)
-        s3_key = f"rds-uploads/{sanitized_id}/{version}/model.zip"
-        
-        url = s3.generate_presigned_url(
-            "put_object",
-            Params={"Bucket": ap_arn, "Key": s3_key, "ContentType": "application/zip"},
-            ExpiresIn=expires_in,
-        )
-        
-        return {
-            "upload_url": url,
-            "model_id": id,
-            "s3_key": s3_key,
-            "version": version,
-            "path_prefix": path_prefix,
-            "expires_in": expires_in,
-            "next_step": f"After uploading to S3, call POST /artifact/model/{id}/upload-rds-from-s3 with s3_key={s3_key}"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to generate RDS upload URL for {id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {str(e)}")
 
-
-@app.post("/artifact/model/{id}/upload-rds-from-s3")
-async def upload_rds_from_s3(
-    id: str,
-    request: Request,
-    s3_key: str = Query(..., description="S3 key of the uploaded file"),
-    version: str = Query("main", description="Model version"),
-    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Move a file from S3 to RDS. 
-    This endpoint accepts only the S3 key (small payload), so it can go through API Gateway.
-    The actual file was uploaded to S3 via presigned URL (bypassing API Gateway 10MB limit).
-    """
     try:
-        from .services.s3_service import s3, ap_arn, aws_available
-        from .services.rds_service import upload_model as rds_upload_model
-        
-        if not aws_available:
-            raise HTTPException(
-                status_code=503,
-                detail="AWS services not available. Please check your AWS configuration."
-            )
-        
-        # Check if RDS credentials are available
-        rds_endpoint = os.getenv("RDS_ENDPOINT")
-        rds_database = os.getenv("RDS_DATABASE")
-        rds_username = os.getenv("RDS_USERNAME")
-        rds_password = os.getenv("RDS_PASSWORD")
-        
-        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
-            raise HTTPException(
-                status_code=500,
-                detail="RDS upload endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
-            )
-        
-        # Download file from S3
-        try:
-            response = s3.get_object(Bucket=ap_arn, Key=s3_key)
-            file_content = response['Body'].read()
-        except Exception as e:
-            raise HTTPException(
-                status_code=404,
-                detail=f"File not found in S3: {s3_key}. Error: {str(e)}"
-            )
-        
-        if not file_content:
-            raise HTTPException(status_code=400, detail="File content is empty")
-        
-        # Determine if we should use performance path
-        use_performance_path = (path_prefix.lower() == "performance")
-        
-        logger.info(f"[RDS UPLOAD FROM S3] Request: id={id}, version={version}, path_prefix={path_prefix}, s3_key={s3_key}, size={len(file_content)} bytes")
-        
-        # Upload to RDS
-        result = rds_upload_model(file_content, id, version, use_performance_path=use_performance_path)
-        
-        # Optionally delete from S3 after successful RDS upload
-        try:
-            s3.delete_object(Bucket=ap_arn, Key=s3_key)
-            logger.info(f"[RDS UPLOAD FROM S3] Deleted temporary S3 file: {s3_key}")
-        except Exception as e:
-            logger.warning(f"[RDS UPLOAD FROM S3] Failed to delete temporary S3 file {s3_key}: {str(e)}")
-        
-        logger.info(f"[RDS UPLOAD FROM S3] Success: id={id}, version={version}, path_prefix={path_prefix}, stored_path={result.get('path', 'unknown')}")
-        
-        return {
-            "message": "Upload successful",
-            "details": result,
-            "model_id": id,
-            "version": version,
-            "path_prefix": path_prefix,
-            "use_performance_path": use_performance_path,
-            "s3_key": s3_key
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"RDS upload from S3 failed for {id} v{version}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS upload from S3 failed: {str(e)}")
+        # Parse form data
+        form = await request.form()
+        name = form.get("name")
+        version = form.get("version", "main")
+        artifact_type = form.get("type", "model")
 
+        # Validate name parameter
+        if not name or not name.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Name parameter is required. Provide 'name' in form data.",
+            )
 
-@app.get("/artifact/model/{id}/download")
-async def download_artifact_model(
-    id: str,
-    request: Request,
-    version: str = Query("main", description="Model version"),
-    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
-    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Download model file from S3. Supports both models/ and performance/ paths.
-    This endpoint is used by API Gateway for performance testing.
-    """
-    # Optional authentication check - verify token if provided
-    try:
-        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
-        if auth_header:
-            if not verify_auth_token(request):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Authentication failed due to invalid or missing AuthenticationToken"
+        name = name.strip()
+
+        # For models, use model_ingestion
+        if artifact_type == "model":
+            try:
+                # Check if artifact already exists
+                try:
+                    existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
+                    if existing.get("models"):
+                        raise HTTPException(
+                            status_code=409, detail="Artifact exists already."
+                        )
+                except HTTPException:
+                    raise
+                except:
+                    pass
+
+                # Ingest the model (synchronous - must complete)
+                model_ingestion(name, version)
+
+                # Generate artifact ID
+                logger.info(f"DEBUG: ===== GENERATING ARTIFACT ID =====")
+                artifact_id = str(random.randint(1000000000, 9999999999))
+                url = f"https://huggingface.co/{name}"
+                logger.info(
+                    f"DEBUG: Generated artifact_id: '{artifact_id}' for model '{name}'"
                 )
-    except ImportError:
-        # If verify_auth_token is not available, skip auth check (for local testing)
-        pass
-    
-    try:
-        # Determine if we should use performance path
-        use_performance_path = (path_prefix.lower() == "performance")
-        
-        # Use S3 service for this endpoint
-        from .services.s3_service import download_model as s3_download_model
-        
-        logger.info(f"[S3 DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, use_performance_path={use_performance_path}")
-        
-        file_content = s3_download_model(id, version, component, use_performance_path=use_performance_path)
-        
-        if file_content:
-            from fastapi.responses import Response
-            return Response(
-                content=file_content,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
-                    "Content-Length": str(len(file_content))
-                }
-            )
-        else:
-            raise HTTPException(status_code=404, detail=f"Model {id} version {version} not found")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Download failed for {id} v{version}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 
-
-@app.get("/artifact/model/{id}/download-rds")
-async def download_artifact_model_from_rds(
-    id: str,
-    request: Request,
-    version: str = Query("main", description="Model version"),
-    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
-    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Download model file from RDS. Supports both models/ and performance/ paths.
-    This endpoint is used by API Gateway for RDS performance testing.
-    """
-    # Optional authentication check - verify token if provided
-    try:
-        auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
-        if auth_header:
-            if not verify_auth_token(request):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Authentication failed due to invalid or missing AuthenticationToken"
-                )
-    except ImportError:
-        # If verify_auth_token is not available, skip auth check (for local testing)
-        pass
-    
-    try:
-        # Check if RDS credentials are available
-        rds_endpoint = os.getenv("RDS_ENDPOINT")
-        rds_database = os.getenv("RDS_DATABASE")
-        rds_username = os.getenv("RDS_USERNAME")
-        rds_password = os.getenv("RDS_PASSWORD")
-        
-        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
-            raise HTTPException(
-                status_code=500,
-                detail="RDS download endpoint requires RDS credentials (RDS_ENDPOINT, RDS_DATABASE, RDS_USERNAME, RDS_PASSWORD) to be configured"
-            )
-        
-        # Determine if we should use performance path
-        use_performance_path = (path_prefix.lower() == "performance")
-        
-        # Use RDS service for this endpoint
-        from .services.rds_service import download_model as rds_download_model
-        
-        logger.info(f"[RDS DOWNLOAD] Request: id={id}, version={version}, component={component}, path_prefix={path_prefix}, use_performance_path={use_performance_path}")
-        
-        # Log the exact query parameters we're using
-        expected_path = "performance" if use_performance_path else "models"
-        logger.info(f"[RDS DOWNLOAD] Querying RDS: model_id='{id}', version='{version}', component='{component}', path_prefix='{expected_path}'")
-        
-        file_content = rds_download_model(id, version, component, use_performance_path=use_performance_path)
-        
-        if file_content:
-            from fastapi.responses import Response
-            return Response(
-                content=file_content,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
-                    "Content-Length": str(len(file_content))
-                }
-            )
-        else:
-            raise HTTPException(status_code=404, detail=f"Model {id} version {version} not found in RDS")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"RDS download failed for {id} v{version}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS download failed: {str(e)}")
-
-
-@app.get("/artifact/model/{id}/check-rds")
-async def check_model_in_rds(
-    id: str,
-    request: Request,
-    version: str = Query("main", description="Model version"),
-    path_prefix: str = Query("performance", description="Path prefix: 'models' or 'performance'")
-):
-    """
-    Check if a model exists in RDS. Useful for debugging.
-    Returns information about the model if found, or 404 if not found.
-    """
-    try:
-        from .services.rds_service import get_connection_pool
-        
-        # Check if RDS credentials are available
-        rds_endpoint = os.getenv("RDS_ENDPOINT")
-        rds_database = os.getenv("RDS_DATABASE")
-        rds_username = os.getenv("RDS_USERNAME")
-        rds_password = os.getenv("RDS_PASSWORD")
-        
-        if not all([rds_endpoint, rds_database, rds_username, rds_password]):
-            raise HTTPException(
-                status_code=500,
-                detail="RDS check endpoint requires RDS credentials to be configured"
-            )
-        
-        use_performance_path = (path_prefix.lower() == "performance")
-        expected_path = "performance" if use_performance_path else "models"
-        
-        pool = get_connection_pool()
-        conn = pool.getconn()
-        cursor = conn.cursor()
-        
-        try:
-            # Check if model exists
-            cursor.execute("""
-                SELECT model_id, version, component, path_prefix, file_size, created_at
-                FROM model_files
-                WHERE model_id = %s AND version = %s AND path_prefix = %s
-            """, (id, version, expected_path))
-            
-            results = cursor.fetchall()
-            
-            if not results:
-                # Also check what models exist with similar names
-                cursor.execute("""
-                    SELECT model_id, version, component, path_prefix, file_size
-                    FROM model_files
-                    WHERE model_id LIKE %s AND path_prefix = %s
-                    LIMIT 10
-                """, (f"%{id}%", expected_path))
-                
-                similar = cursor.fetchall()
-                
-                return {
-                    "found": False,
-                    "model_id": id,
+                # Store artifact metadata in DynamoDB (for compatibility)
+                logger.info(f"DEBUG: Storing in database with key: '{artifact_id}'")
+                artifact_data = {
+                    "name": name,
+                    "type": artifact_type,
                     "version": version,
-                    "path_prefix": expected_path,
-                    "message": f"Model {id} version {version} not found in RDS ({expected_path}/)",
-                    "similar_models": [{"model_id": r[0], "version": r[1], "component": r[2], "path_prefix": r[3], "file_size": r[4]} for r in similar] if similar else []
+                    "id": artifact_id,
+                    "url": url,
                 }
-            
-            # Return all matching records
-            models = []
-            for row in results:
-                models.append({
-                    "model_id": row[0],
-                    "version": row[1],
-                    "component": row[2],
-                    "path_prefix": row[3],
-                    "file_size": row[4],
-                    "created_at": str(row[5]) if len(row) > 5 else None
-                })
-            
+                save_artifact(artifact_id, artifact_data)
+                logger.info(
+                    f"DEBUG: ✅ Stored in database: artifact_id='{artifact_id}'"
+                )
+
+                # Store artifact metadata in RDS (model file already stored via model_ingestion)
+                # This must complete synchronously so queries can find the artifact
+                logger.info(f"DEBUG: ===== STORING ARTIFACT METADATA IN RDS =====")
+                logger.info(
+                    f"DEBUG: artifact_id='{artifact_id}', name='{name}', type='{artifact_type}', version='{version}'"
+                )
+                try:
+                    from .services.rds_service import store_artifact_metadata, find_artifact_metadata_by_id
+                    
+                    result = store_artifact_metadata(
+                        artifact_id, name, artifact_type, version, url
+                    )
+                    logger.info(f"DEBUG: ✅ RDS metadata storage result: {result}")
+
+                    # Verify the metadata was stored by trying to read it back
+                    # This ensures the write completed and is immediately readable
+                    import time
+
+                    logger.info(f"DEBUG: Verifying RDS metadata is readable...")
+                    verify_metadata = None
+                    for verify_attempt in range(3):
+                        logger.info(
+                            f"DEBUG: Verification attempt {verify_attempt + 1}/3"
+                        )
+                        verify_metadata = find_artifact_metadata_by_id(artifact_id)
+                        if verify_metadata:
+                            logger.info(
+                                f"DEBUG: ✅✅✅ VERIFIED: RDS metadata exists for artifact_id '{artifact_id}' ✅✅✅"
+                            )
+                            logger.info(f"DEBUG: Verified metadata: {verify_metadata}")
+                            break
+                        else:
+                            logger.warning(
+                                f"DEBUG: ⚠️ Verification attempt {verify_attempt + 1} failed - metadata not found"
+                            )
+                        if verify_attempt < 2:
+                            logger.info(f"DEBUG: Waiting 0.1s before retry...")
+                            time.sleep(0.1)  # Small delay before retry
+
+                    if not verify_metadata:
+                        logger.error(
+                            f"DEBUG: ❌❌❌ WARNING: Could not verify RDS metadata for artifact_id '{artifact_id}' after 3 attempts ❌❌❌"
+                        )
+                        logger.error(
+                            f"DEBUG: This may cause query failures if hitting different instance"
+                        )
+                except Exception as rds_error:
+                    logger.error(
+                        f"DEBUG: ❌ Exception storing artifact metadata in RDS: {str(rds_error)}",
+                        exc_info=True,
+                    )
+                    # Don't fail ingestion if RDS metadata storage fails, but log it as an error
+
+                result = {
+                    "message": "Ingest successful",
+                    "details": {
+                        "name": name,
+                        "type": artifact_type,
+                        "version": version,
+                        "id": artifact_id,
+                        "url": url,
+                    },
+                }
+                logger.info(f"DEBUG: ===== INGESTION COMPLETE =====")
+                logger.info(
+                    f"DEBUG: ✅✅✅ Returning ingestion result: {result} ✅✅✅"
+                )
+                logger.info(f"DEBUG: Artifact should now be queryable by:")
+                logger.info(
+                    f"DEBUG:   - artifact_id: '{artifact_id}' (GET /package/{artifact_id})"
+                )
+                logger.info(f"DEBUG:   - name: '{name}' (GET /artifact/byName/{name})")
+                # Verify artifact was saved
+                saved_artifact = get_artifact_from_db(artifact_id)
+                if saved_artifact:
+                    logger.info(
+                        f"DEBUG: Verified artifact exists in database: id='{artifact_id}'"
+                    )
+                else:
+                    logger.warning(
+                        f"DEBUG: ⚠️ Could not verify artifact in database after save"
+                    )
+                return result
+            except HTTPException:
+                raise
+            except Exception as model_error:
+                logger.error(
+                    f"Error in model_ingestion for {name}: {str(model_error)}",
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Model ingestion failed: {str(model_error)}",
+                )
+        else:
+            # For non-model artifacts (dataset, code), store metadata in S3
+            artifact_id = str(random.randint(1000000000, 9999999999))
+            url = f"https://example.com/{artifact_type}/{name}"
+            save_artifact(
+                artifact_id,
+                {
+                    "name": name,
+                    "type": artifact_type,
+                    "version": version,
+                    "id": artifact_id,
+                    "url": url,
+                },
+            )
+
+            # Link this dataset/code to models that reference it
+            _link_dataset_code_to_models(artifact_id, name, artifact_type)
+
+            # Store artifact metadata in S3
+            try:
+                store_artifact_metadata(artifact_id, name, artifact_type, version, url)
+            except Exception as s3_error:
+                logger.warning(
+                    f"Failed to store artifact metadata in S3: {str(s3_error)}"
+                )
+                # Don't fail ingestion if S3 metadata storage fails
+
             return {
-                "found": True,
-                "model_id": id,
-                "version": version,
-                "path_prefix": expected_path,
-                "models": models
+                "message": "Ingest successful",
+                "details": {
+                    "name": name,
+                    "type": artifact_type,
+                    "version": version,
+                    "id": artifact_id,
+                    "url": url,
+                },
             }
-        finally:
-            pool.putconn(conn)
-            
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"RDS check failed for {id} v{version}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"RDS check failed: {str(e)}")
+        logger.error(
+            f"Error in POST /artifact/ingest endpoint: {str(e)}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
+
 
 
 # @app.get("/admin")
