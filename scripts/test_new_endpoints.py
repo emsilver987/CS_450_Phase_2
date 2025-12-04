@@ -332,30 +332,6 @@ def test_download_endpoint(
     if auth_token:
         headers["X-Authorization"] = auth_token
     
-    # Test 1: /performance/{model_id}/{version}/model.zip
-    print(f"\n1. Testing /performance/{sanitized_model_id}/{version}/model.zip")
-    try:
-        url = f"{api_base_url}/performance/{sanitized_model_id}/{version}/model.zip"
-        print(f"   GET {url}")
-        
-        response = requests.get(url, headers=headers, timeout=60, stream=True)
-        
-        if response.status_code == 200:
-            content_length = response.headers.get("Content-Length")
-            print(f"   ✓ Status: {response.status_code}")
-            print(f"     Content-Type: {response.headers.get('Content-Type')}")
-            print(f"     Content-Length: {content_length} bytes" if content_length else "     Content-Length: unknown")
-            # Read a small chunk to verify it works
-            chunk = next(response.iter_content(chunk_size=1024), None)
-            if chunk:
-                print(f"     ✓ Successfully received data ({len(chunk)} bytes chunk)")
-            return True
-        else:
-            print(f"   ✗ Status: {response.status_code}")
-            print(f"     Response: {response.text[:200]}")
-    except Exception as e:
-        print(f"   ✗ Error: {str(e)}")
-    
     # Test 2: /artifact/model/{model_id}/download?path_prefix=performance
     print(f"\n2. Testing /artifact/model/{sanitized_model_id}/download?path_prefix=performance")
     try:
@@ -382,6 +358,147 @@ def test_download_endpoint(
         print(f"   ✗ Error: {str(e)}")
     
     return False
+
+
+def test_rds_endpoints(
+    api_base_url: str,
+    auth_token: Optional[str],
+) -> bool:
+    """
+    Test RDS endpoints:
+    1. POST /artifact/model/{id}/ingest-rds - Upload model to RDS
+    2. GET /artifact/model/{id}/download-rds - Download model from RDS
+    3. DELETE /reset-rds - Reset RDS database
+    """
+    print(f"\n{'='*80}")
+    print(f"Testing RDS Endpoints")
+    print(f"{'='*80}")
+    
+    headers = {}
+    if auth_token:
+        headers["X-Authorization"] = auth_token
+    
+    # Test model ID (sanitized)
+    test_model_id = "test_model_rds"
+    test_version = "main"
+    
+    # Step 1: Test ingest-rds endpoint
+    print(f"\n1. Testing POST /artifact/model/{test_model_id}/ingest-rds")
+    try:
+        # Create a small test ZIP file
+        import zipfile
+        import io
+        
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr("config.json", '{"test": "data"}')
+            zip_file.writestr("README.md", "# Test Model")
+        
+        zip_content = zip_buffer.getvalue()
+        
+        url = f"{api_base_url}/artifact/model/{test_model_id}/ingest-rds"
+        params = {
+            "version": test_version,
+            "path_prefix": "models"
+        }
+        
+        print(f"   POST {url}?version={test_version}&path_prefix=models")
+        print(f"   File size: {len(zip_content)} bytes")
+        
+        files = {
+            'file': (f"{test_model_id}.zip", zip_content, 'application/zip')
+        }
+        
+        response = requests.post(url, files=files, params=params, headers=headers, timeout=30)
+        
+        if response.status_code in [200, 201, 202]:
+            data = response.json()
+            print(f"   ✓ Status: {response.status_code}")
+            print(f"     Message: {data.get('message', 'N/A')}")
+            print(f"     Model ID: {data.get('model_id', 'N/A')}")
+            print(f"     Version: {data.get('version', 'N/A')}")
+            ingest_success = True
+        else:
+            print(f"   ✗ Status: {response.status_code}")
+            print(f"     Response: {response.text[:500]}")
+            ingest_success = False
+    except Exception as e:
+        print(f"   ✗ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        ingest_success = False
+    
+    # Step 2: Test download-rds endpoint (only if ingest succeeded)
+    download_success = False
+    if ingest_success:
+        print(f"\n2. Testing GET /artifact/model/{test_model_id}/download-rds")
+        try:
+            url = f"{api_base_url}/artifact/model/{test_model_id}/download-rds"
+            params = {
+                "version": test_version,
+                "component": "full",
+                "path_prefix": "models"
+            }
+            
+            print(f"   GET {url}?version={test_version}&component=full&path_prefix=models")
+            
+            response = requests.get(url, params=params, headers=headers, timeout=30, stream=True)
+            
+            if response.status_code == 200:
+                content_length = response.headers.get("Content-Length")
+                print(f"   ✓ Status: {response.status_code}")
+                print(f"     Content-Type: {response.headers.get('Content-Type')}")
+                print(f"     Content-Length: {content_length} bytes" if content_length else "     Content-Length: unknown")
+                # Read a small chunk to verify it works
+                chunk = next(response.iter_content(chunk_size=1024), None)
+                if chunk:
+                    print(f"     ✓ Successfully received data ({len(chunk)} bytes chunk)")
+                download_success = True
+            else:
+                print(f"   ✗ Status: {response.status_code}")
+                print(f"     Response: {response.text[:500]}")
+        except Exception as e:
+            print(f"   ✗ Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print(f"\n2. Skipping download-rds test (ingest failed)")
+    
+    # Step 3: Test reset-rds endpoint
+    print(f"\n3. Testing DELETE /reset-rds")
+    try:
+        url = f"{api_base_url}/reset-rds"
+        print(f"   DELETE {url}")
+        
+        response = requests.delete(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"   ✓ Status: {response.status_code}")
+            print(f"     Message: {data.get('message', 'N/A')}")
+            deleted_count = data.get('deleted_count', 0)
+            if deleted_count is not None:
+                print(f"     Deleted Count: {deleted_count}")
+            reset_success = True
+        else:
+            print(f"   ✗ Status: {response.status_code}")
+            print(f"     Response: {response.text[:500]}")
+            reset_success = False
+    except Exception as e:
+        print(f"   ✗ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        reset_success = False
+    
+    # Summary
+    print(f"\n{'='*80}")
+    print(f"RDS Endpoints Test Summary")
+    print(f"{'='*80}")
+    print(f"  Ingest RDS:   {'✓' if ingest_success else '✗'}")
+    print(f"  Download RDS: {'✓' if download_success else '✗'}")
+    print(f"  Reset RDS:    {'✓' if reset_success else '✗'}")
+    
+    return ingest_success and download_success and reset_success
 
 
 def poll_for_results(
@@ -587,10 +704,15 @@ Examples:
     test_health_components(api_base_url, auth_token)
     print()
     
+    # Step 4: Test RDS endpoints
+    print("Step 4: Testing RDS endpoints...")
+    test_rds_endpoints(api_base_url, auth_token)
+    print()
+    
     
     # Step 5: Trigger workload and get results (unless skipped)
     if not args.skip_workload:
-        print("Step 4: Triggering performance workload...")
+        print("Step 5: Triggering performance workload...")
         run_id = test_trigger_workload(
             api_base_url,
             auth_token,

@@ -94,7 +94,10 @@ resource "aws_api_gateway_integration_response" "root_get_200" {
         model_upload_rds_url     = "/artifact/model/{id}/upload-rds-url"
         model_upload_rds_from_s3 = "/artifact/model/{id}/upload-rds-from-s3"
         model_check_rds          = "/artifact/model/{id}/check-rds"
+        model_ingest_rds         = "/artifact/model/{id}/ingest-rds"
         reset_rds               = "/reset-rds"
+        populate_s3_performance = "/populate/s3/performance"
+        populate_rds_performance = "/populate/rds/performance"
         artifact_ingest         = "/artifact/ingest"
         artifact_directory      = "/artifact/directory"
         upload                  = "/upload"
@@ -210,6 +213,41 @@ resource "aws_api_gateway_resource" "reset_rds" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
   path_part   = "reset-rds"
+}
+
+# /populate
+resource "aws_api_gateway_resource" "populate" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_rest_api.main_api.root_resource_id
+  path_part   = "populate"
+}
+
+# /populate/s3
+resource "aws_api_gateway_resource" "populate_s3" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate.id
+  path_part   = "s3"
+}
+
+# /populate/s3/performance
+resource "aws_api_gateway_resource" "populate_s3_performance" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate_s3.id
+  path_part   = "performance"
+}
+
+# /populate/rds
+resource "aws_api_gateway_resource" "populate_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate.id
+  path_part   = "rds"
+}
+
+# /populate/rds/performance
+resource "aws_api_gateway_resource" "populate_rds_performance" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate_rds.id
+  path_part   = "performance"
 }
 
 resource "aws_api_gateway_resource" "authenticate" {
@@ -355,6 +393,13 @@ resource "aws_api_gateway_resource" "artifact_model_id_download_rds" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   parent_id   = aws_api_gateway_resource.artifact_model_id.id
   path_part   = "download-rds"
+}
+
+# /artifact/model/{id}/ingest-rds
+resource "aws_api_gateway_resource" "artifact_model_id_ingest_rds" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.artifact_model_id.id
+  path_part   = "ingest-rds"
 }
 
 # /artifact/ingest
@@ -1177,6 +1222,82 @@ resource "aws_api_gateway_integration_response" "reset_rds_delete_403" {
     aws_api_gateway_integration.reset_rds_delete,
     aws_api_gateway_method_response.reset_rds_delete_403,
   ]
+}
+
+# POST /populate/s3/performance
+resource "aws_api_gateway_method" "populate_s3_performance_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.populate_s3_performance.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.querystring.repopulate" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "populate_s3_performance_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/populate/s3/performance"
+
+  request_parameters = {
+    "integration.request.querystring.repopulate" = "method.request.querystring.repopulate"
+  }
+}
+
+resource "aws_api_gateway_method_response" "populate_s3_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_post]
+}
+
+# POST /populate/rds/performance
+resource "aws_api_gateway_method" "populate_rds_performance_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.populate_rds_performance.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "populate_rds_performance_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/populate/rds/performance"
+}
+
+resource "aws_api_gateway_method_response" "populate_rds_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "populate_rds_performance_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_rds_performance.id
+  http_method = aws_api_gateway_method.populate_rds_performance_post.http_method
+  status_code = aws_api_gateway_method_response.populate_rds_performance_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_rds_performance_post]
 }
 
 # PUT /authenticate
@@ -3629,7 +3750,10 @@ resource "aws_api_gateway_method" "artifact_model_id_download_rds_get" {
 
   request_parameters = {
     "method.request.path.id"                = true
-    "method.request.header.X-Authorization" = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.component"  = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = false
   }
 }
 
@@ -3644,8 +3768,59 @@ resource "aws_api_gateway_integration" "artifact_model_id_download_rds_get" {
 
   request_parameters = {
     "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.component"  = "method.request.querystring.component"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
+}
+
+# POST /artifact/model/{id}/ingest-rds
+resource "aws_api_gateway_method" "artifact_model_id_ingest_rds_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method   = "POST"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.id"                = true
+    "method.request.querystring.version"    = false
+    "method.request.querystring.path_prefix" = false
+    "method.request.header.X-Authorization" = false
+  }
+}
+
+resource "aws_api_gateway_integration" "artifact_model_id_ingest_rds_post" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/artifact/model/{id}/ingest-rds"
+
+  request_parameters = {
+    "integration.request.path.id"                = "method.request.path.id"
+    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
+    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+  }
+}
+
+resource "aws_api_gateway_method_response" "artifact_model_id_ingest_rds_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "artifact_model_id_ingest_rds_post_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.artifact_model_id_ingest_rds.id
+  http_method = aws_api_gateway_method.artifact_model_id_ingest_rds_post.http_method
+  status_code = aws_api_gateway_method_response.artifact_model_id_ingest_rds_post_200.status_code
+
+  depends_on = [aws_api_gateway_integration.artifact_model_id_ingest_rds_post]
 }
 
 # GET /artifact/ingest
@@ -4730,7 +4905,10 @@ output "api_endpoints" {
     artifact_upload_rds    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
     artifact_download      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
     artifact_download_rds  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download-rds"
+    artifact_ingest_rds   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/ingest-rds"
     reset_rds              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset-rds"
+    populate_s3_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/s3/performance"
+    populate_rds_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/rds/performance"
     artifact_audit     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
     artifact_by_name   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
     artifact_by_regex  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"

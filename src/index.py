@@ -45,6 +45,7 @@ from .services.s3_service import (
     upload_model,
     download_model,
     reset_registry,
+    reset_performance_path,
     get_model_lineage_from_config,
     get_model_sizes,
     s3,
@@ -1994,6 +1995,382 @@ def reset_rds_system(request: Request):
     except Exception as e:
         logger.error(f"Error resetting RDS registry: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"RDS reset failed: {str(e)}")
+
+
+@app.post("/populate/s3/performance")
+def populate_s3_performance(repopulate: bool = Query(True, description="Repopulate with 500 models")):
+    """
+    Populate the S3 performance/ path with 500 models from HuggingFace.
+    First resets (deletes all objects), then repopulates.
+    Only affects the performance/ path, not models/ or other paths.
+    No authentication required.
+    """
+    try:
+        response_data = {
+            "message": "S3 performance path population started",
+            "path": "performance/"
+        }
+        
+        # Reset the performance path first
+        result = reset_performance_path()
+        deleted_count = result.get("deleted_count", 0)
+        response_data["deleted_count"] = deleted_count
+        response_data["reset_message"] = f"Deleted {deleted_count} objects from performance/ path"
+        
+        # Repopulate with models
+        if repopulate:
+            logger.info("Starting repopulation of S3 performance path with 500 models...")
+            repopulate_result = _repopulate_performance_path()
+            response_data["repopulate"] = repopulate_result
+        
+        return JSONResponse(status_code=200, content=response_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error populating S3 performance path: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"S3 performance path population failed: {str(e)}")
+
+
+def _repopulate_performance_path() -> Dict[str, Any]:
+    """
+    Repopulate the performance/ S3 path with 500 models from HuggingFace.
+    Uses the same logic as populate_registry.py for S3 mode.
+    """
+    try:
+        from .services.s3_service import s3, ap_arn, aws_available
+        import zipfile
+        import io
+        
+        if not aws_available or not s3 or not ap_arn:
+            raise HTTPException(
+                status_code=503,
+                detail="AWS services not available. Please check your AWS configuration.",
+            )
+        
+        # Import the hardcoded list of 500 models
+        try:
+            # Add parent directory to path to import from scripts
+            import sys
+            from pathlib import Path
+            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
+            if scripts_path not in sys.path:
+                sys.path.insert(0, scripts_path)
+            from huggingface_models_list import HF_MODELS_500
+            models = HF_MODELS_500.copy()
+        except ImportError:
+            # Fallback if import fails
+            models = [
+                "arnir0/Tiny-LLM",
+                "bert-base-uncased",
+                "distilbert-base-uncased",
+                "roberta-base",
+                "gpt2",
+                "t5-small",
+                "t5-base",
+                "facebook/bart-base",
+            ]
+        
+        # Ensure Tiny-LLM is first
+        REQUIRED_MODEL = "arnir0/Tiny-LLM"
+        if REQUIRED_MODEL in models:
+            models.remove(REQUIRED_MODEL)
+        models.insert(0, REQUIRED_MODEL)
+        models = models[:500]  # Limit to 500
+        
+        successful = 0
+        failed = 0
+        not_found = 0
+        target_successful = 500
+        
+        logger.info(f"Starting repopulation with {len(models)} models...")
+        
+        for i, model_id in enumerate(models, 1):
+            if successful >= target_successful:
+                break
+            
+            try:
+                # Check if model exists on HuggingFace
+                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
+                api_url = f"https://huggingface.co/api/models/{clean_model_id}"
+                response = requests.get(api_url, timeout=30)
+                
+                if response.status_code != 200:
+                    not_found += 1
+                    continue
+                
+                model_info = response.json()
+                all_files = []
+                for sibling in model_info.get("siblings", []):
+                    if sibling.get("rfilename"):
+                        all_files.append(sibling["rfilename"])
+                
+                # Download files (same logic as populate_registry.py)
+                is_tiny_llm = (model_id == REQUIRED_MODEL)
+                
+                if is_tiny_llm:
+                    # Tiny-LLM: download full model (essential + weight + tokenizer)
+                    essential_files = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
+                    weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite"])]
+                    main_weight_file = None
+                    for preferred in ["model.safetensors", "pytorch_model.bin"]:
+                        if preferred in weight_files:
+                            main_weight_file = preferred
+                            break
+                    if not main_weight_file and weight_files:
+                        root_files = [f for f in weight_files if "/" not in f]
+                        main_weight_file = root_files[0] if root_files else weight_files[0]
+                    tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and (f.endswith(".json") or f.endswith(".model") or "vocab" in f.lower())]
+                    files_to_download = essential_files.copy()
+                    if main_weight_file:
+                        files_to_download.append(main_weight_file)
+                    files_to_download.extend(tokenizer_files)
+                    files_to_download = list(dict.fromkeys(files_to_download))
+                else:
+                    # Other models: essential files only
+                    files_to_download = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
+                
+                if not files_to_download:
+                    not_found += 1
+                    continue
+                
+                # Download files and create ZIP
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for filename in files_to_download:
+                        try:
+                            url = f"https://huggingface.co/{clean_model_id}/resolve/main/{filename}"
+                            file_response = requests.get(url, timeout=120)
+                            if file_response.status_code == 200:
+                                zip_file.writestr(filename, file_response.content)
+                        except Exception:
+                            pass  # Skip failed files
+                
+                zip_content = output.getvalue()
+                if len(zip_content) == 0:
+                    failed += 1
+                    continue
+                
+                # Upload to S3 performance path
+                sanitized_model_id = (
+                    model_id.replace("https://huggingface.co/", "")
+                    .replace("http://huggingface.co/", "")
+                    .replace("/", "_")
+                    .replace(":", "_")
+                    .replace("\\", "_")
+                    .replace("?", "_")
+                    .replace("*", "_")
+                    .replace('"', "_")
+                    .replace("<", "_")
+                    .replace(">", "_")
+                    .replace("|", "_")
+                )
+                s3_key = f"performance/{sanitized_model_id}/main/model.zip"
+                
+                s3.put_object(
+                    Bucket=ap_arn,
+                    Key=s3_key,
+                    Body=zip_content,
+                    ContentType="application/zip"
+                )
+                
+                successful += 1
+                if i % 50 == 0:
+                    logger.info(f"Repopulation progress: {i}/{len(models)}, {successful} successful")
+                    
+            except Exception as e:
+                failed += 1
+                logger.warning(f"Failed to ingest {model_id}: {str(e)}")
+        
+        logger.info(f"Repopulation complete: {successful} successful, {failed} failed, {not_found} not found")
+        
+        return {
+            "successful": successful,
+            "failed": failed,
+            "not_found": not_found,
+            "target": target_successful
+        }
+        
+    except Exception as e:
+        logger.error(f"Error repopulating performance path: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Repopulation failed: {str(e)}")
+
+
+@app.post("/populate/rds/performance")
+def populate_rds_performance():
+    """
+    Populate the RDS performance/ path with 500 models from HuggingFace.
+    Downloads models and stores them directly in RDS (no ingest logic).
+    No authentication required.
+    """
+    try:
+        from .services.rds_service import upload_model, get_connection_pool
+        import zipfile
+        import io
+        
+        # Check if RDS is available
+        try:
+            pool = get_connection_pool()
+            if not pool:
+                raise HTTPException(
+                    status_code=503,
+                    detail="RDS not available. Please check your RDS configuration.",
+                )
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"RDS not available: {str(e)}",
+            )
+        
+        # Import the hardcoded list of 500 models
+        try:
+            # Add parent directory to path to import from scripts
+            import sys
+            from pathlib import Path
+            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
+            if scripts_path not in sys.path:
+                sys.path.insert(0, scripts_path)
+            from huggingface_models_list import HF_MODELS_500
+            models = HF_MODELS_500.copy()
+        except ImportError:
+            # Fallback if import fails
+            models = [
+                "arnir0/Tiny-LLM",
+                "bert-base-uncased",
+                "distilbert-base-uncased",
+                "roberta-base",
+                "gpt2",
+                "t5-small",
+                "t5-base",
+                "facebook/bart-base",
+            ]
+        
+        # Ensure Tiny-LLM is first
+        REQUIRED_MODEL = "arnir0/Tiny-LLM"
+        if REQUIRED_MODEL in models:
+            models.remove(REQUIRED_MODEL)
+        models.insert(0, REQUIRED_MODEL)
+        models = models[:500]  # Limit to 500
+        
+        successful = 0
+        failed = 0
+        not_found = 0
+        target_successful = 500
+        
+        logger.info(f"Starting RDS population with {len(models)} models...")
+        
+        for i, model_id in enumerate(models, 1):
+            if successful >= target_successful:
+                break
+            
+            try:
+                # Check if model exists on HuggingFace
+                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
+                api_url = f"https://huggingface.co/api/models/{clean_model_id}"
+                response = requests.get(api_url, timeout=30)
+                
+                if response.status_code != 200:
+                    not_found += 1
+                    continue
+                
+                model_info = response.json()
+                all_files = []
+                for sibling in model_info.get("siblings", []):
+                    if sibling.get("rfilename"):
+                        all_files.append(sibling["rfilename"])
+                
+                # Download files (same logic as populate_registry.py)
+                is_tiny_llm = (model_id == REQUIRED_MODEL)
+                
+                if is_tiny_llm:
+                    # Tiny-LLM: download full model (essential + weight + tokenizer)
+                    essential_files = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
+                    weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite"])]
+                    main_weight_file = None
+                    for preferred in ["model.safetensors", "pytorch_model.bin"]:
+                        if preferred in weight_files:
+                            main_weight_file = preferred
+                            break
+                    if not main_weight_file and weight_files:
+                        root_files = [f for f in weight_files if "/" not in f]
+                        main_weight_file = root_files[0] if root_files else weight_files[0]
+                    tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and (f.endswith(".json") or f.endswith(".model") or "vocab" in f.lower())]
+                    files_to_download = essential_files.copy()
+                    if main_weight_file:
+                        files_to_download.append(main_weight_file)
+                    files_to_download.extend(tokenizer_files)
+                    files_to_download = list(dict.fromkeys(files_to_download))
+                else:
+                    # Other models: essential files only
+                    files_to_download = [f for f in all_files if f.endswith((".json", ".md", ".txt", ".yml", ".yaml")) or f.startswith("README") or f in ["config.json", "LICENSE", "license"]]
+                
+                if not files_to_download:
+                    not_found += 1
+                    continue
+                
+                # Download files and create ZIP
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for filename in files_to_download:
+                        try:
+                            url = f"https://huggingface.co/{clean_model_id}/resolve/main/{filename}"
+                            file_response = requests.get(url, timeout=120)
+                            if file_response.status_code == 200:
+                                zip_file.writestr(filename, file_response.content)
+                        except Exception:
+                            pass  # Skip failed files
+                
+                zip_content = output.getvalue()
+                if len(zip_content) == 0:
+                    failed += 1
+                    continue
+                
+                # Upload to RDS performance path (no ingest logic, just upload)
+                sanitized_model_id = (
+                    model_id.replace("https://huggingface.co/", "")
+                    .replace("http://huggingface.co/", "")
+                    .replace("/", "_")
+                    .replace(":", "_")
+                    .replace("\\", "_")
+                    .replace("?", "_")
+                    .replace("*", "_")
+                    .replace('"', "_")
+                    .replace("<", "_")
+                    .replace(">", "_")
+                    .replace("|", "_")
+                )
+                
+                # Upload directly to RDS using upload_model (no ingest logic)
+                upload_model(
+                    zip_content,
+                    sanitized_model_id,
+                    "main",
+                    use_performance_path=True
+                )
+                
+                successful += 1
+                if i % 50 == 0:
+                    logger.info(f"RDS population progress: {i}/{len(models)}, {successful} successful")
+                    
+            except Exception as e:
+                failed += 1
+                logger.warning(f"Failed to populate {model_id} in RDS: {str(e)}")
+        
+        logger.info(f"RDS population complete: {successful} successful, {failed} failed, {not_found} not found")
+        
+        return {
+            "message": "RDS performance path population complete",
+            "successful": successful,
+            "failed": failed,
+            "not_found": not_found,
+            "target": target_successful,
+            "path": "performance/"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error populating RDS performance path: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS performance path population failed: {str(e)}")
 
 
 @app.get("/package/{id}")
@@ -5758,12 +6135,124 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
+@app.get("/artifact/model/{id}/download-rds")
+def download_model_from_rds(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Download model file from RDS PostgreSQL.
+    Supports both models/ and performance/ paths.
+    """
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+    
+    try:
+        from .services.rds_service import download_model
+        from fastapi.responses import Response
+        
+        # Sanitize model_id (id parameter is already sanitized from URL)
+        sanitized_model_id = id
+        
+        # Determine if using performance path
+        use_performance_path = (path_prefix == "performance")
+        
+        # Download from RDS
+        file_content = download_model(
+            sanitized_model_id,
+            version,
+            component,
+            use_performance_path=use_performance_path
+        )
+        
+        return Response(
+            content=file_content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
+                "Content-Length": str(len(file_content))
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading model from RDS: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS download failed: {str(e)}")
+
+
 @app.post("/artifact/model/{id}/ingest-rds")
-async def upload_artifact_model_to_rds(request: Request):
+async def upload_artifact_model_to_rds(
+    id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    version: str = Query("main", description="Model version"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
     """
     Upload model file directly to RDS.
     This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
     Supports both models/ and performance/ paths.
+    """
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+
+    try:
+        # Read file content
+        file_content = await file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File content is empty")
+        
+        # Validate file is ZIP
+        if not file.filename or not file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Only ZIP files are supported")
+        
+        # Sanitize model_id (id parameter is already sanitized from URL)
+        sanitized_model_id = id
+        
+        # Determine if using performance path
+        use_performance_path = (path_prefix == "performance")
+        
+        # Upload to RDS
+        from .services.rds_service import upload_model
+        
+        result = upload_model(
+            file_content,
+            sanitized_model_id,
+            version,
+            use_performance_path=use_performance_path
+        )
+        
+        return {
+            "message": "Upload successful",
+            "details": result,
+            "model_id": sanitized_model_id,
+            "version": version,
+            "path_prefix": path_prefix
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading model to RDS: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"RDS upload failed: {str(e)}")
+
+
+# Old ingest-rds endpoint (kept for backward compatibility but deprecated)
+@app.post("/artifact/model/{id}/ingest-rds-old")
+async def upload_artifact_model_to_rds_old(request: Request):
+    """
+    Upload model file directly to RDS.
+    This endpoint bypasses S3 and uploads directly to RDS PostgreSQL.
+    Supports both models/ and performance/ paths.
+    DEPRECATED: Use /artifact/model/{id}/ingest-rds with file upload instead.
     """
     if not verify_auth_token(request):
         raise HTTPException(
