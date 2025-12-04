@@ -767,7 +767,7 @@ def register_routes(app: FastAPI):
         else:
             # No search performed yet - set lineage_data to None so template shows form only
             lineage_data = None
-        ctx = enrich_context{
+        ctx = enrich_context({
             "request": request,
             "name": model_name or "",
             "id": model_id or "",

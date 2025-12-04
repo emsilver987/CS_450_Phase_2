@@ -78,8 +78,8 @@ def extract_model_license(model_id: str, version: str = "1.0.0") -> Optional[str
         from .s3_service import list_models, download_model
         from botocore.exceptions import ClientError
         try:
-            from ..services.artifact_storage import get_generic_artifact_metadata, get_artifact_from_db
-            from ..services.s3_service import find_artifact_metadata_by_id
+            from .artifact_storage import get_generic_artifact_metadata, get_artifact_from_db
+            from .s3_service import find_artifact_metadata_by_id
         except ImportError:
             # Fallback if imports fail
             get_generic_artifact_metadata = None
