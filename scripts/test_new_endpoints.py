@@ -1055,13 +1055,6 @@ Examples:
                     print(f"  Mean Latency: {mean_lat:.2f} ms")
                     print(f"  Median Latency: {median_lat:.2f} ms")
                     print(f"  P99 Latency: {p99_lat:.2f} ms")
-                    
-                    print(f"\nAdditional Metrics:")
-                    print(f"  Total Requests: {metrics.get('total_requests', 0)}")
-                    print(f"  Successful: {metrics.get('total_requests', 0) - int(metrics.get('error_rate', 0) * metrics.get('total_requests', 0) / 100)}")
-                    print(f"  Failed: {int(metrics.get('error_rate', 0) * metrics.get('total_requests', 0) / 100)}")
-                    print(f"  Error Rate: {metrics.get('error_rate', 0):.2f}%")
-                    print(f"  Total Bytes: {metrics.get('total_bytes', 0):,}")
         else:
             print("\n✗ Failed to trigger workload")
             return 1
