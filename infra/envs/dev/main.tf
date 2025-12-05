@@ -16,7 +16,9 @@ terraform {
     key            = "terraform/state"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-lock"
-    encrypt        = true
+    encrypt        = true  # Encryption enabled to protect IAM policies and secrets in state files
+    # Note: Versioning should be enabled on the state bucket via AWS Console or separate Terraform config
+    # This prevents unauthorized modifications by maintaining state file history
   }
 }
 

@@ -182,6 +182,15 @@ def upload_model_file(model_id: str, version: str, file: UploadFile = File(...))
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
     try:
         file_content = file.file.read()
+        
+        # Enforce file size limit to prevent large file DoS attacks
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        if len(file_content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+            )
+        
         result = upload_model(file_content, model_id, version)
         return result
     except HTTPException:
@@ -427,6 +436,15 @@ def upload_package(file: UploadFile = File(...), debloat: bool = Query(False)):
         model_id = filename
         version = "1.0.0"
         file_content = file.file.read()
+        
+        # Enforce file size limit to prevent large file DoS attacks
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        if len(file_content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+            )
+        
         result = upload_model(file_content, model_id, version, debloat)
         return result
     except HTTPException:

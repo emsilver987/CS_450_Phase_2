@@ -25,7 +25,12 @@ resource "aws_iam_policy" "group106_policy" {
       {
         Effect : "Allow",
         Action : ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"],
-        Resource : values(var.ddb_tables_arnmap)
+        # Restrict write access: exclude users and tokens tables for security
+        # Only ECS task role (auth service) should write to users table
+        Resource : [
+          for table_name, table_arn in var.ddb_tables_arnmap : table_arn
+          if table_name != "users" && table_name != "tokens"
+        ]
       }
     ]
   })

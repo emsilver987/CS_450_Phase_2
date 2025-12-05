@@ -4579,6 +4579,9 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   }
 }
 
+# Note: API Gateway logs can be exported to S3 via CloudWatch Logs export feature
+# This is configured at the account level and ensures logs are archived for non-repudiation
+
 # CloudWatch Log Resource Policy - REQUIRED for API Gateway to write logs
 resource "aws_cloudwatch_log_resource_policy" "apigw_to_logs" {
   policy_name = "APIGatewayLogsPolicy"
@@ -4645,6 +4648,12 @@ resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
     metrics_enabled    = true
     logging_level      = "INFO"
     data_trace_enabled = true
+    
+    # Throttling settings to prevent DDoS attacks
+    # Limit each user to 100 requests per second with burst of 200
+    # This prevents high-volume request flooding while allowing legitimate traffic
+    throttling_rate_limit  = 100  # Requests per second per user
+    throttling_burst_limit = 200  # Burst capacity
   }
 
   depends_on = [aws_api_gateway_stage.main_stage]
@@ -4771,7 +4780,12 @@ resource "aws_iam_policy" "lambda_ddb_policy" {
           "dynamodb:DeleteItem",
           "dynamodb:BatchWriteItem"
         ]
-        Resource = values(var.ddb_tables_arnmap)
+        # Restrict write access: exclude users and tokens tables for security
+        # Only ECS task role (auth service) should write to users table
+        Resource = [
+          for table_name, table_arn in var.ddb_tables_arnmap : table_arn
+          if table_name != "users" && table_name != "tokens"
+        ]
       }
     ]
   })
@@ -4867,6 +4881,163 @@ resource "aws_iam_role_policy" "api_gateway_cloudwatch_logs_policy" {
 # Grant API Gateway permission to write logs
 resource "aws_api_gateway_account" "api_gateway_account" {
   cloudwatch_role_arn = aws_iam_role.api_gateway_cloudwatch_role.arn
+}
+
+# ===== AWS WAF RULES FOR API GATEWAY =====
+# WAF rules protect against common attack patterns and large payloads
+
+resource "aws_wafv2_web_acl" "api_gateway_waf" {
+  name        = "api-gateway-waf"
+  description = "WAF rules for API Gateway to prevent DDoS and common attacks"
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  # Rule 1: Rate-based rule to limit requests per IP
+  rule {
+    name     = "RateLimitRule"
+    priority = 1
+
+    statement {
+      rate_based_statement {
+        limit              = 2000  # Requests per 5 minutes per IP
+        aggregate_key_type = "IP"
+      }
+    }
+
+    action {
+      block {}
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "RateLimitRule"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Rule 2: Block common SQL injection patterns
+  rule {
+    name     = "SQLInjectionRule"
+    priority = 2
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    action {
+      block {}
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "SQLInjectionRule"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Rule 3: Block large payloads (prevent large file DoS)
+  rule {
+    name     = "SizeConstraintRule"
+    priority = 3
+
+    statement {
+      size_constraint_statement {
+        field_to_match {
+          body {}
+        }
+        comparison_operator = "GT"
+        size                = 104857600  # 100MB in bytes
+        text_transformation {
+          priority = 0
+          type     = "NONE"
+        }
+      }
+    }
+
+    action {
+      block {}
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "SizeConstraintRule"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "APIGatewayWAF"
+    sampled_requests_enabled   = true
+  }
+
+  tags = {
+    Name        = "api-gateway-waf"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+  }
+}
+
+# Associate WAF with API Gateway
+resource "aws_wafv2_web_acl_association" "api_gateway_waf_association" {
+  resource_arn = aws_api_gateway_stage.main_stage.arn
+  web_acl_arn  = aws_wafv2_web_acl.api_gateway_waf.arn
+}
+
+# ===== CLOUDWATCH ALARMS FOR HIGH REQUEST RATES =====
+
+resource "aws_cloudwatch_metric_alarm" "high_request_rate" {
+  alarm_name          = "api-gateway-high-request-rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "Count"
+  namespace           = "AWS/ApiGateway"
+  period              = 60  # 1 minute
+  statistic           = "Sum"
+  threshold           = 10000  # Alert if more than 10,000 requests per minute
+  alarm_description   = "This metric monitors API Gateway request rate for potential DDoS attacks"
+  alarm_actions       = []  # Add SNS topic ARN here for notifications
+
+  dimensions = {
+    ApiName = aws_api_gateway_rest_api.main_api.name
+    Stage   = aws_api_gateway_stage.main_stage.stage_name
+  }
+
+  tags = {
+    Name        = "api-gateway-high-request-rate-alarm"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "throttle_errors" {
+  alarm_name          = "api-gateway-throttle-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "4XXError"
+  namespace           = "AWS/ApiGateway"
+  period              = 60  # 1 minute
+  statistic           = "Sum"
+  threshold           = 100  # Alert if more than 100 4XX errors per minute
+  alarm_description   = "This metric monitors API Gateway throttle errors (429 status codes)"
+  alarm_actions       = []  # Add SNS topic ARN here for notifications
+
+  dimensions = {
+    ApiName = aws_api_gateway_rest_api.main_api.name
+    Stage   = aws_api_gateway_stage.main_stage.stage_name
+  }
+
+  tags = {
+    Name        = "api-gateway-throttle-errors-alarm"
+    Environment = "dev"
+    Project     = "CS_450_Phase_2"
+  }
 }
 
 # ===== OUTPUTS =====

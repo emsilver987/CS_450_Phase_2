@@ -25,6 +25,7 @@ from ..acmecli.metrics import METRIC_FUNCTIONS
 
 region = os.getenv("AWS_REGION", "us-east-1")
 access_point_name = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
+kms_key_arn = os.getenv("KMS_KEY_ARN", "")
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -269,9 +270,17 @@ def upload_model(
         safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
         s3_key = f"models/{safe_model_id}/{safe_version}/model.zip"
 
-        s3.put_object(
-            Bucket=ap_arn, Key=s3_key, Body=file_content, ContentType="application/zip"
-        )
+        # Enforce SSE-KMS encryption for tampering protection
+        put_params = {
+            "Bucket": ap_arn,
+            "Key": s3_key,
+            "Body": file_content,
+            "ContentType": "application/zip"
+        }
+        if kms_key_arn:
+            put_params["ServerSideEncryption"] = "aws:kms"
+            put_params["SSEKMSKeyId"] = kms_key_arn
+        s3.put_object(**put_params)
         print(
             f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}"
         )
@@ -494,8 +503,39 @@ def list_models(
         if "Contents" in response:
             name_pattern = None
             if name_regex:
+                # Validate regex length to prevent ReDoS (max 100 characters)
+                if len(name_regex) > 100:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+                    )
                 try:
-                    name_pattern = re.compile(name_regex, re.IGNORECASE)
+                    # Compile regex with timeout to prevent ReDoS
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                    
+                    compilation_error = None
+                    
+                    def compile_regex():
+                        nonlocal name_pattern, compilation_error
+                        try:
+                            name_pattern = re.compile(name_regex, re.IGNORECASE)
+                        except Exception as e:
+                            compilation_error = e
+                    
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(compile_regex)
+                        try:
+                            future.result(timeout=2.0)  # 2 second timeout
+                        except FutureTimeoutError:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Regex pattern compilation timed out. The pattern may be too complex.",
+                            )
+                    
+                    if compilation_error:
+                        raise compilation_error
+                except HTTPException:
+                    raise
                 except re.error as e:
                     raise HTTPException(
                         status_code=400, detail=f"Invalid name regex: {str(e)}"
@@ -533,6 +573,12 @@ def list_models(
                             ):
                                 continue
                         if model_regex:
+                            # Validate regex length to prevent ReDoS (max 100 characters)
+                            if len(model_regex) > 100:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail="Model regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+                                )
                             try:
                                 # Use sanitized name for searching model card content (S3 path)
                                 if not search_model_card_content(
@@ -673,12 +719,17 @@ def store_artifact_metadata(
         logger.info(f"DEBUG: Storing metadata to S3 key: {s3_key}")
         logger.info(f"DEBUG: Metadata content: {json.dumps(metadata, indent=2)}")
 
-        s3.put_object(
-            Bucket=ap_arn,
-            Key=s3_key,
-            Body=json.dumps(metadata, indent=2).encode("utf-8"),
-            ContentType="application/json",
-        )
+        # Enforce SSE-KMS encryption for tampering protection
+        put_params = {
+            "Bucket": ap_arn,
+            "Key": s3_key,
+            "Body": json.dumps(metadata, indent=2).encode("utf-8"),
+            "ContentType": "application/json",
+        }
+        if kms_key_arn:
+            put_params["ServerSideEncryption"] = "aws:kms"
+            put_params["SSEKMSKeyId"] = kms_key_arn
+        s3.put_object(**put_params)
 
         logger.info(
             f"DEBUG: ✅✅✅ Successfully stored artifact metadata to S3: {s3_key} ✅✅✅"

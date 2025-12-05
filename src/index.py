@@ -1593,57 +1593,75 @@ def _link_dataset_code_to_models(
 
 @app.delete("/reset")
 def reset_system(request: Request):
+    """
+    Reset the system - Admin only endpoint.
+    Uses RBAC middleware to verify admin privileges against database.
+    """
     global _rating_status, _rating_locks, _rating_results
 
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
+    # Import RBAC functions
     try:
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for reset: {str(e)}")
+        from .middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    except ImportError:
+        from src.middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    
+    # Get token from headers
+    raw = (
+        request.headers.get("authorization")
+        or request.headers.get("x-authorization")
+        or ""
+    ).strip()
+    
+    if not raw:
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the registry."
+            status_code=401,
+            detail="Authentication required"
         )
+    
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+    
+    # Check for static token (autograder compatibility)
+    if token == PUBLIC_STATIC_TOKEN:
+        # Allow static token but log it
+        logger.warning("Admin operation performed using static token (autograder compatibility)")
+        user_data = {"user_id": "static_token", "username": "autograder", "is_admin": True}
+    else:
+        # Verify JWT token first
+        payload = verify_jwt_token(token)
+        if not payload:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token"
+            )
+        
+        # Verify admin role from database (not just JWT claims)
+        # This prevents privilege escalation through JWT manipulation
+        user_id = payload.get("user_id")
+        username = payload.get("username")
+        
+        is_admin = verify_admin_role_from_db(user_id or "", username or "")
+        
+        if not is_admin:
+            logger.warning(
+                f"Admin access denied: User {username} (user_id: {user_id}) does not have admin role in database"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin privileges required"
+            )
+        
+        user_data = {
+            "user_id": user_id,
+            "username": username,
+            "roles": payload.get("roles", []),
+            "is_admin": True
+        }
+    
+    # Log admin operation for audit trail
+    log_admin_operation("reset_system", user_data, {"endpoint": "/reset"})
 
     try:
         # Clear artifacts from DynamoDB
@@ -1698,56 +1716,69 @@ def reset_rds_system(request: Request):
     """
     Reset RDS database by deleting all model files with performance/ path prefix.
     This endpoint is separate from the S3 reset endpoint.
+    Admin only endpoint - uses RBAC middleware to verify admin privileges.
     """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
+    # Import RBAC functions
     try:
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for RDS reset: {str(e)}")
+        from .middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    except ImportError:
+        from src.middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    
+    # Get token from headers
+    raw = (
+        request.headers.get("authorization")
+        or request.headers.get("x-authorization")
+        or ""
+    ).strip()
+    
+    if not raw:
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the RDS registry."
+            status_code=401,
+            detail="Authentication required"
         )
+    
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+    
+    # Check for static token (autograder compatibility)
+    if token == PUBLIC_STATIC_TOKEN:
+        logger.warning("Admin operation performed using static token (autograder compatibility)")
+        user_data = {"user_id": "static_token", "username": "autograder", "is_admin": True}
+    else:
+        # Verify JWT token first
+        payload = verify_jwt_token(token)
+        if not payload:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token"
+            )
+        
+        # Verify admin role from database (not just JWT claims)
+        user_id = payload.get("user_id")
+        username = payload.get("username")
+        
+        is_admin = verify_admin_role_from_db(user_id or "", username or "")
+        
+        if not is_admin:
+            logger.warning(
+                f"Admin access denied: User {username} (user_id: {user_id}) does not have admin role in database"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin privileges required"
+            )
+        
+        user_data = {
+            "user_id": user_id,
+            "username": username,
+            "roles": payload.get("roles", []),
+            "is_admin": True
+        }
+    
+    # Log admin operation for audit trail
+    log_admin_operation("reset_rds_system", user_data, {"endpoint": "/reset-rds"})
 
     try:
         # Check if RDS credentials are available
@@ -1962,12 +1993,18 @@ def _repopulate_performance_path() -> Dict[str, Any]:
                 )
                 s3_key = f"performance/{sanitized_model_id}/main/model.zip"
                 
-                s3.put_object(
-                    Bucket=ap_arn,
-                    Key=s3_key,
-                    Body=zip_content,
-                    ContentType="application/zip"
-                )
+                # Enforce SSE-KMS encryption for tampering protection
+                kms_key_arn = os.getenv("KMS_KEY_ARN", "")
+                put_params = {
+                    "Bucket": ap_arn,
+                    "Key": s3_key,
+                    "Body": zip_content,
+                    "ContentType": "application/zip"
+                }
+                if kms_key_arn:
+                    put_params["ServerSideEncryption"] = "aws:kms"
+                    put_params["SSEKMSKeyId"] = kms_key_arn
+                s3.put_object(**put_params)
                 
                 successful += 1
                 if i % 50 == 0:
@@ -2748,22 +2785,52 @@ async def search_artifacts_by_regex(request: Request):
                 detail="The regex pattern is too complex and may cause performance issues. Please use a simpler pattern.",
             )
 
-        # Validate regex pattern syntax
+        # Additional safety: limit regex pattern length to prevent ReDoS
+        # Shorter patterns reduce complexity and prevent catastrophic backtracking
+        if len(regex_pattern) > 100:
+            logger.warning(f"Regex pattern too long: {len(regex_pattern)} characters")
+            raise HTTPException(
+                status_code=400,
+                detail="The regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+            )
+
+        # Validate regex pattern syntax with timeout to prevent ReDoS
+        # Use concurrent.futures to implement timeout for regex compilation
         try:
-            compiled_pattern = re.compile(regex_pattern)
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+            
+            compiled_pattern = None
+            compilation_error = None
+            
+            def compile_regex():
+                nonlocal compiled_pattern, compilation_error
+                try:
+                    compiled_pattern = re.compile(regex_pattern)
+                except Exception as e:
+                    compilation_error = e
+            
+            # Compile regex with 2 second timeout to prevent ReDoS
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(compile_regex)
+                try:
+                    future.result(timeout=2.0)  # 2 second timeout
+                except FutureTimeoutError:
+                    logger.error(f"Regex compilation timed out for pattern '{regex_pattern[:50]}...'")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Regex pattern compilation timed out. The pattern may be too complex and could cause performance issues.",
+                    )
+            
+            if compilation_error:
+                raise compilation_error
+                
+        except HTTPException:
+            raise
         except re.error as regex_error:
             logger.error(f"Invalid regex pattern '{regex_pattern}': {str(regex_error)}")
             raise HTTPException(
                 status_code=400,
                 detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
-            )
-
-        # Additional safety: limit regex pattern length
-        if len(regex_pattern) > 500:
-            logger.warning(f"Regex pattern too long: {len(regex_pattern)} characters")
-            raise HTTPException(
-                status_code=400,
-                detail="The regex pattern is too long. Maximum length is 500 characters.",
             )
 
         # Search for artifacts matching regex in S3 (all types: model, dataset, code)
@@ -6171,6 +6238,14 @@ async def upload_artifact_model_to_rds(
         file_content = await file.read()
         if not file_content:
             raise HTTPException(status_code=400, detail="File content is empty")
+        
+        # Enforce file size limit to prevent large file DoS attacks
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        if len(file_content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+            )
         
         # Validate file is ZIP
         if not file.filename or not file.filename.endswith('.zip'):

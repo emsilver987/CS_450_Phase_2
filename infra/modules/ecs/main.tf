@@ -98,6 +98,10 @@ resource "aws_ecs_task_definition" "validator_task" {
         value = "tokens"
       },
       {
+        name  = "KMS_KEY_ARN"
+        value = var.kms_key_arn
+      },
+      {
         name  = "DDB_TABLE_ARTIFACTS"
         value = "artifacts"
       },
@@ -438,6 +442,9 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         ]
       },
       {
+        # ECS task role (auth service) is the ONLY role with write access to users table
+        # This prevents username spoofing by restricting who can modify user data
+        # Least-privilege: Restrict to only specific DynamoDB tables needed by the registry
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
@@ -449,7 +456,16 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
           "dynamodb:BatchGetItem",
           "dynamodb:BatchWriteItem"
         ]
-        Resource = values(var.ddb_tables_arnmap)
+        # Restrict to only registry-related tables (not all tables in account)
+        Resource = [
+          var.ddb_tables_arnmap["users"],
+          var.ddb_tables_arnmap["tokens"],
+          var.ddb_tables_arnmap["packages"],
+          var.ddb_tables_arnmap["uploads"],
+          var.ddb_tables_arnmap["downloads"],
+          var.ddb_tables_arnmap["artifacts"],
+          var.ddb_tables_arnmap["performance_metrics"]
+        ]
       },
       {
         Sid    = "KMSViaS3Service"
@@ -487,6 +503,7 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         ]
       },
       {
+        # Least-privilege: Restrict CloudWatch Logs access to only specific log groups
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
@@ -500,6 +517,7 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         ]
       },
       {
+        # Least-privilege: Restrict CloudWatch metrics to specific namespace
         Effect = "Allow"
         Action = [
           "cloudwatch:PutMetricData"
@@ -516,12 +534,18 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
 }
 
 # CloudWatch Log Group for ECS container logs
+# Retention policy ensures logs are preserved for audit trail (non-repudiation)
 resource "aws_cloudwatch_log_group" "validator_logs" {
   name              = "/ecs/validator-service"
   retention_in_days = 7
+
+  # Note: Logs can be exported to S3 via CloudWatch Logs export feature
+  # This should be configured to archive logs periodically for long-term retention
+  # and protection against log deletion/modification
 }
 
 # CloudWatch Log Group for application API logs
+# Retention policy ensures logs are preserved for audit trail (non-repudiation)
 resource "aws_cloudwatch_log_group" "application_api_logs" {
   name              = "/acme-api/application-logs"
   retention_in_days = 7
@@ -531,6 +555,9 @@ resource "aws_cloudwatch_log_group" "application_api_logs" {
     Environment = "dev"
     Project     = "CS_450_Phase_2"
   }
+
+  # Note: Logs should be exported to S3 periodically via CloudWatch Logs export
+  # This provides long-term retention and protection against tampering
 }
 
 # Outputs

@@ -588,89 +588,96 @@ def register_routes(app: FastAPI):
                 # Read ZIP file content
                 file_content = await file.read()
                 
-                # Extract model name from filename if not provided
-                if not name or not name.strip():
-                    name = file.filename.replace(".zip", "").strip()
-                
-                name = name.strip()
-                
-                # For models, upload ZIP and use ingest logic
-                if artifact_type == "model":
-                    try:
-                        # Check if artifact already exists
-                        existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
-                        if existing.get("models"):
-                            result = {"error": "Artifact exists already."}
-                        else:
-                            # Upload the ZIP file to S3
-                            upload_model(file_content, name, version)
-                            
-                            # Generate artifact ID (same as index.py)
-                            artifact_id = str(random.randint(1000000000, 9999999999))
-                            url = f"https://huggingface.co/{name}"
-                            
-                            # Initialize rating status
-                            with _rating_lock:
-                                _rating_status[artifact_id] = "pending"
-                                _rating_locks[artifact_id] = threading.Event()
-                                _rating_start_times[artifact_id] = time.time()
-                            
-                            # Store artifact metadata
-                            artifact_data = {
-                                "name": name,
-                                "type": artifact_type,
-                                "version": version,
-                                "id": artifact_id,
-                                "url": url,
-                            }
-                            save_artifact(artifact_id, artifact_data)
-                            
-                            # Store in S3 metadata
-                            try:
-                                store_artifact_metadata(artifact_id, name, artifact_type, version, url)
-                            except Exception as s3_error:
-                                logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
-                            
-                            result = {
-                                "message": "Upload successful",
-                                "details": {
+                # Enforce file size limit to prevent large file DoS attacks
+                MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+                if len(file_content) > MAX_FILE_SIZE:
+                    result = {
+                        "error": f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+                    }
+                else:
+                    # Extract model name from filename if not provided
+                    if not name or not name.strip():
+                        name = file.filename.replace(".zip", "").strip()
+                    
+                    name = name.strip()
+                    
+                    # For models, upload ZIP and use ingest logic
+                    if artifact_type == "model":
+                        try:
+                            # Check if artifact already exists
+                            existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
+                            if existing.get("models"):
+                                result = {"error": "Artifact exists already."}
+                            else:
+                                # Upload the ZIP file to S3
+                                upload_model(file_content, name, version)
+                                
+                                # Generate artifact ID (same as index.py)
+                                artifact_id = str(random.randint(1000000000, 9999999999))
+                                url = f"https://huggingface.co/{name}"
+                                
+                                # Initialize rating status
+                                with _rating_lock:
+                                    _rating_status[artifact_id] = "pending"
+                                    _rating_locks[artifact_id] = threading.Event()
+                                    _rating_start_times[artifact_id] = time.time()
+                                
+                                # Store artifact metadata
+                                artifact_data = {
                                     "name": name,
                                     "type": artifact_type,
                                     "version": version,
                                     "id": artifact_id,
                                     "url": url,
+                                }
+                                save_artifact(artifact_id, artifact_data)
+                                
+                                # Store in S3 metadata
+                                try:
+                                    store_artifact_metadata(artifact_id, name, artifact_type, version, url)
+                                except Exception as s3_error:
+                                    logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
+                                
+                                result = {
+                                    "message": "Upload successful",
+                                    "details": {
+                                        "name": name,
+                                        "type": artifact_type,
+                                        "version": version,
+                                        "id": artifact_id,
+                                        "url": url,
                                 },
                             }
-                    except HTTPException as e:
-                        error_detail = e.detail
-                        if isinstance(error_detail, dict) and "error" in error_detail:
-                            result = {
-                                "error": error_detail.get("message", "Upload failed"),
-                                "details": {
-                                    "metric_scores": error_detail.get("metric_scores"),
-                                    "model_id": name,
-                                    "version": version,
-                                    "ingestible": False,
-                                },
-                            }
-                        else:
-                            result = {
-                                "error": (
-                                    str(error_detail)
-                                    if isinstance(error_detail, str)
-                                    else "Upload failed"
-                                ),
-                                "details": {
-                                    "model_id": name,
-                                    "version": version,
-                                    "ingestible": False,
-                                },
-                            }
-                    except Exception as e:
-                        logger.error(f"Error uploading model {name}: {str(e)}", exc_info=True)
-                        result = {"error": f"Model upload failed: {str(e)}"}
-                else:
-                    result = {"error": "Only model artifacts are supported via ZIP upload."}
+                        except HTTPException as e:
+                            error_detail = e.detail
+                            if isinstance(error_detail, dict) and "error" in error_detail:
+                                result = {
+                                    "error": error_detail.get("message", "Upload failed"),
+                                    "details": {
+                                        "metric_scores": error_detail.get("metric_scores"),
+                                        "model_id": name,
+                                        "version": version,
+                                        "ingestible": False,
+                                    },
+                                }
+                            else:
+                                result = {
+                                    "error": (
+                                        str(error_detail)
+                                        if isinstance(error_detail, str)
+                                        else "Upload failed"
+                                    ),
+                                    "details": {
+                                        "model_id": name,
+                                        "version": version,
+                                        "ingestible": False,
+                                    },
+                                }
+                        except Exception as e:
+                            logger.error(f"Error uploading model {name}: {str(e)}", exc_info=True)
+                            result = {"error": f"Model upload failed: {str(e)}"}
+                    else:
+                        result = {"error": "Only model artifacts are supported via ZIP upload."}
         except Exception as e:
             logger.error(f"Error in POST /upload endpoint: {str(e)}", exc_info=True)
             result = {"error": f"Upload failed: {str(e)}"}
