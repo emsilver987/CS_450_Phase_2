@@ -43,10 +43,19 @@ logger = logging.getLogger(__name__)
 # Also support PURDUE_GENAI_API_KEY for backward compatibility
 def _load_api_key() -> Optional[str]:
     """Load API key from environment variables, handling JSON secrets if needed."""
-    api_key = os.getenv("GEN_AI_STUDIO_API_KEY") or os.getenv("PURDUE_GENAI_API_KEY")
+    # Try multiple environment variable names
+    api_key = (
+        os.getenv("GEN_AI_STUDIO_API_KEY") or 
+        os.getenv("PURDUE_GENAI_API_KEY") or
+        os.getenv("GENAI_API_KEY")
+    )
     
     if not api_key:
+        logger.debug("No API key found in environment variables: GEN_AI_STUDIO_API_KEY, PURDUE_GENAI_API_KEY, GENAI_API_KEY")
         return None
+    
+    # Log that we found something (but don't log the actual key)
+    logger.debug(f"Found API key in environment (length: {len(api_key)}, starts with: {api_key[:4] if len(api_key) >= 4 else 'N/A'})")
     
     # If the secret is stored as JSON in AWS Secrets Manager, ECS might inject it as JSON string
     # Try to parse it if it looks like JSON
@@ -55,12 +64,22 @@ def _load_api_key() -> Optional[str]:
             parsed = json.loads(api_key)
             # Check if it's a JSON object with the key
             if isinstance(parsed, dict):
-                api_key = parsed.get("GEN_AI_STUDIO_API_KEY") or parsed.get("PURDUE_GENAI_API_KEY") or api_key
-        except (json.JSONDecodeError, TypeError):
+                api_key = (
+                    parsed.get("GEN_AI_STUDIO_API_KEY") or 
+                    parsed.get("PURDUE_GENAI_API_KEY") or 
+                    parsed.get("GENAI_API_KEY") or
+                    api_key
+                )
+                logger.debug("Parsed JSON secret and extracted API key")
+        except (json.JSONDecodeError, TypeError) as e:
             # Not JSON, use as-is
+            logger.debug(f"Secret is not JSON format: {e}")
             pass
     
-    return api_key.strip() if api_key else None
+    result = api_key.strip() if api_key else None
+    if result:
+        logger.debug(f"Successfully loaded API key (length: {len(result)})")
+    return result
 
 # Purdue GenAI Studio API configuration
 PURDUE_GENAI_API_URL = os.getenv(
@@ -579,6 +598,23 @@ Return JSON format:
         return None
 
 
+def get_api_key_status() -> Dict[str, Any]:
+    """
+    Get API key status information for diagnostics.
+    Returns a dictionary with status information.
+    """
+    api_key = _load_api_key()
+    env_key = (
+        os.getenv("GEN_AI_STUDIO_API_KEY") or 
+        os.getenv("PURDUE_GENAI_API_KEY") or
+        os.getenv("GENAI_API_KEY")
+    )
+    return {
+        "api_key_loaded": bool(api_key and api_key.strip() and api_key != "None"),
+        "env_key_present": bool(env_key and env_key.strip() and env_key != "None"),
+        "module_key_set": bool(PURDUE_GENAI_API_KEY and PURDUE_GENAI_API_KEY.strip() and PURDUE_GENAI_API_KEY != "None"),
+    }
+
 def is_llm_available() -> bool:
     """
     Check if LLM service is available (API key is set).
@@ -586,9 +622,11 @@ def is_llm_available() -> bool:
     This function checks both the module-level variable and environment variables
     directly, and logs the status for debugging purposes.
     """
+    global PURDUE_GENAI_API_KEY  # Declare global at the start since we may modify it
+    
     # Check the module-level variable first
     if PURDUE_GENAI_API_KEY and PURDUE_GENAI_API_KEY.strip() and PURDUE_GENAI_API_KEY != "None":
-        logger.debug("LLM API key found in module-level variable")
+        logger.info(f"LLM API key found in module-level variable (length: {len(PURDUE_GENAI_API_KEY)})")
         return True
     
     # Also check environment variables directly (in case they were set after module load)
@@ -596,15 +634,19 @@ def is_llm_available() -> bool:
     api_key = _load_api_key()
     if api_key and api_key.strip() and api_key != "None":
         # Update the module-level variable for future calls
-        global PURDUE_GENAI_API_KEY
         PURDUE_GENAI_API_KEY = api_key
-        logger.info("LLM API key found in environment variables - LLM service is available")
+        logger.info(f"LLM API key found in environment variables - LLM service is available (length: {len(api_key)})")
         return True
     
-    # Log warning only once to avoid spam
+    # Check what environment variables are actually set (for debugging)
+    genai_key = os.getenv("GEN_AI_STUDIO_API_KEY")
+    purdue_key = os.getenv("PURDUE_GENAI_API_KEY")
+    
+    # Log warning only once to avoid spam, but include diagnostic info
     if not hasattr(is_llm_available, '_warned'):
         logger.warning(
-            "LLM API key not available - GEN_AI_STUDIO_API_KEY and PURDUE_GENAI_API_KEY are not set. "
+            f"LLM API key not available - GEN_AI_STUDIO_API_KEY={'SET' if genai_key else 'NOT SET'}, "
+            f"PURDUE_GENAI_API_KEY={'SET' if purdue_key else 'NOT SET'}. "
             "AI-enhanced features will be disabled."
         )
         is_llm_available._warned = True

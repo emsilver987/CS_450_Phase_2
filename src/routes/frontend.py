@@ -57,16 +57,20 @@ def get_llm_status() -> bool:
     try:
         from ..services.llm_service import is_llm_available
         status = is_llm_available()
-        logger.debug(f"LLM status check: {status}")
+        # Use info level so it shows up in logs for debugging
+        logger.info(f"LLM status check result: {status}")
         return status
     except Exception as e:
-        logger.warning(f"Error checking LLM status: {e}", exc_info=True)
+        logger.error(f"Error checking LLM status: {e}", exc_info=True)
         return False
 
 # Helper function to enrich template context with LLM status
 def enrich_context(ctx: Dict[str, Any]) -> Dict[str, Any]:
     """Add LLM status to template context"""
-    ctx["llm_available"] = get_llm_status()
+    llm_status = get_llm_status()
+    ctx["llm_available"] = llm_status
+    # Log for debugging
+    logger.info(f"Enriched context with llm_available={llm_status}")
     return ctx
 
 # Shared rating state (same as index.py)
@@ -609,17 +613,19 @@ def register_routes(app: FastAPI):
             "api_key_set": False,
             "api_url": None,
             "api_model": None,
+            "env_key_present": False,
         }
         try:
-            from ..services.llm_service import PURDUE_GENAI_API_KEY, PURDUE_GENAI_API_URL, PURDUE_GENAI_MODEL
-            llm_status_detail["api_key_set"] = bool(PURDUE_GENAI_API_KEY and PURDUE_GENAI_API_KEY.strip())
+            from ..services.llm_service import PURDUE_GENAI_API_URL, PURDUE_GENAI_MODEL, get_api_key_status
+            # Get API key status using the public helper function
+            api_status = get_api_key_status()
+            llm_status_detail["api_key_set"] = api_status["api_key_loaded"]
+            llm_status_detail["env_key_present"] = api_status["env_key_present"]
             llm_status_detail["api_url"] = PURDUE_GENAI_API_URL
             llm_status_detail["api_model"] = PURDUE_GENAI_MODEL
-            # Check environment variables directly
-            env_key = os.getenv("GEN_AI_STUDIO_API_KEY") or os.getenv("PURDUE_GENAI_API_KEY")
-            llm_status_detail["env_key_present"] = bool(env_key and env_key.strip())
+            logger.info(f"LLM status detail: api_key_set={llm_status_detail['api_key_set']}, env_key_present={llm_status_detail['env_key_present']}, module_key_set={api_status['module_key_set']}")
         except Exception as e:
-            logger.warning(f"Error getting LLM status details: {e}")
+            logger.error(f"Error getting LLM status details: {e}", exc_info=True)
         
         ctx = enrich_context({
             "request": request,
