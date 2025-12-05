@@ -1,11 +1,13 @@
 """
 LLM Service for Phase 2 - Simple integration for license analysis, 
-model card search, and error message improvement.
+model card search, error message improvement, lineage extraction, and treescore calculation.
 
 This service uses Purdue GenAI Studio API to assist with:
 1. License compatibility analysis for complex license texts
 2. Model card content understanding for semantic search
 3. Improved error message generation
+4. Lineage extraction from complex config.json files
+5. Treescore calculation (supply-chain health score) from lineage information
 """
 
 import os
@@ -323,6 +325,8 @@ def analyze_lineage_config(config_json: Dict[str, Any]) -> Optional[Dict[str, An
     """
     Use LLM to analyze and extract lineage information from complex config.json files.
     
+    This is used as a fallback when rule-based parsing doesn't find lineage information.
+    
     Args:
         config_json: Model configuration dictionary
         
@@ -346,6 +350,23 @@ Look for fields like:
 - base_model_name_or_path
 - pretrained_model_name_or_path
 - parent_model
+- base_model
+- parent
+- from_pretrained
+- model_name_or_path
+- source_model
+- original_model
+- foundation_model
+- backbone
+- teacher_model
+- student_model
+- checkpoint
+- checkpoint_path
+- init_checkpoint
+- load_from
+- from_checkpoint
+- resume_from
+- transfer_from
 - architecture references
 
 Return JSON format:
@@ -370,6 +391,122 @@ Return JSON format:
         return result
     except json.JSONDecodeError:
         logger.warning(f"Failed to parse LLM lineage analysis response: {response}")
+        return None
+
+
+def calculate_treescore(
+    config_json: Dict[str, Any],
+    parent_scores: Optional[Dict[str, float]] = None,
+    uploaded_models: Optional[List[str]] = None
+) -> Optional[float]:
+    """
+    Use LLM to calculate treescore (supply-chain health score) from lineage information.
+    
+    Treescore is the average of the total model scores (net_score) of all parents
+    according to the lineage graph. This is used as a fallback when rule-based
+    calculation is uncertain or when lineage extraction needs LLM assistance.
+    
+    Args:
+        config_json: Model configuration dictionary
+        parent_scores: Optional dictionary mapping parent model IDs to their net_scores
+        uploaded_models: Optional list of model IDs currently uploaded to the system
+        
+    Returns:
+        Treescore value (0.0-1.0) or None if LLM unavailable
+    """
+    system_msg = (
+        "You are an expert at analyzing AI model lineage and calculating supply-chain health scores. "
+        "Extract lineage from config.json and calculate treescore as the average of parent net_scores. "
+        "Return a JSON object with the treescore value."
+    )
+    
+    config_str = json.dumps(config_json, indent=2)[:2000]
+    
+    parent_scores_str = json.dumps(parent_scores or {}, indent=2) if parent_scores else "{}"
+    uploaded_models_str = json.dumps(uploaded_models or [], indent=2) if uploaded_models else "[]"
+    
+    prompt = f"""Analyze this model configuration to extract lineage and calculate treescore.
+
+Config.json:
+{config_str}
+
+Parent Scores (net_score for uploaded parents):
+{parent_scores_str}
+
+Uploaded Models (check if parents are in this list):
+{uploaded_models_str}
+
+TASK 1: Extract lineage graph from config.json
+Look for parent model fields like:
+- base_model_name_or_path
+- _name_or_path
+- parent_model
+- pretrained_model_name_or_path
+- base_model
+- parent
+- from_pretrained
+- model_name_or_path
+- source_model
+- original_model
+- foundation_model
+- backbone
+- teacher_model
+- student_model
+- checkpoint
+- checkpoint_path
+- init_checkpoint
+- load_from
+- from_checkpoint
+- resume_from
+- transfer_from
+
+TASK 2: Calculate Treescore
+Treescore = average of net_scores of all parents that are:
+1. Found in the lineage graph (from config.json)
+2. Currently uploaded to the system (in uploaded_models list)
+3. Have scores available (in parent_scores dictionary)
+
+Rules:
+- If no parents found in lineage graph → treescore = 0.5
+- If parents found but none are uploaded to system → treescore = 0.5
+- If parents found and uploaded but no scores available → treescore = 0.5
+- Otherwise → treescore = average of available parent net_scores (must be between 0.0 and 1.0)
+
+Return JSON format:
+{{
+    "parent_models_found": ["parent1", "parent2"],
+    "uploaded_parents": ["parent1"],
+    "parent_scores_used": {{"parent1": 0.85}},
+    "treescore": 0.85
+}}"""
+    
+    response = _call_llm_api(prompt, system_msg)
+    if not response:
+        return None
+    
+    try:
+        response = response.strip()
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].split("```")[0].strip()
+        
+        result = json.loads(response)
+        treescore = result.get("treescore") or result.get("tree_score") or result.get("score")
+        
+        if treescore is not None:
+            try:
+                score = float(treescore)
+                # Clamp to valid range
+                score = max(0.0, min(1.0, score))
+                return round(score, 2)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid treescore value from LLM: {treescore}")
+                return None
+        
+        return None
+    except json.JSONDecodeError:
+        logger.warning(f"Failed to parse LLM treescore calculation response: {response}")
         return None
 
 

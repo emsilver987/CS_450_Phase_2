@@ -52,7 +52,12 @@
       </div>
     {% else %}
       <div class="card" role="region" aria-labelledby="lineage-heading">
-        <h2 id="lineage-heading">Lineage Information</h2>
+        <h2 id="lineage-heading">
+          Lineage Information
+          {% if lineage.llm_enhanced %}
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+          {% endif %}
+        </h2>
         <dl>
           <dt>Model ID:</dt>
           <dd>{{ lineage.model_id }}</dd>
@@ -64,6 +69,11 @@
         
         {% if lineage.lineage_metadata %}
           <h3>Base Model Information</h3>
+          {% if lineage.lineage_metadata.llm_notes %}
+          <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #f0f9ff; border-left: 3px solid #3b82f6; border-radius: 4px;">
+            <strong>AI Analysis Note:</strong> {{ lineage.lineage_metadata.llm_notes }}
+          </div>
+          {% endif %}
           <ul>
             <li><strong>Base Model:</strong> {{ lineage.lineage_metadata.base_model or 'Not specified' }}</li>
             <li><strong>Architecture:</strong> {{ lineage.lineage_metadata.architecture or 'Not specified' }}</li>

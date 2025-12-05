@@ -1245,6 +1245,31 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
         if lineage_metadata.get("base_model"):
             parent_model = lineage_metadata["base_model"]
             lineage_map[parent_model] = [model_id]
+        
+        # If rule-based parsing didn't find lineage, try LLM analysis as fallback
+        if not lineage_metadata.get("base_model"):
+            try:
+                from .llm_service import analyze_lineage_config, is_llm_available
+                
+                if is_llm_available():
+                    llm_result = analyze_lineage_config(config)
+                    if llm_result and llm_result.get("parent_models"):
+                        parent_models = llm_result.get("parent_models", [])
+                        if parent_models:
+                            # Use the first parent model found by LLM
+                            lineage_metadata["base_model"] = parent_models[0]
+                            lineage_map[parent_models[0]] = [model_id]
+                            # Add LLM-extracted information
+                            if llm_result.get("base_architecture"):
+                                lineage_metadata["architecture"] = llm_result.get("base_architecture")
+                            if llm_result.get("lineage_notes"):
+                                lineage_metadata["llm_notes"] = llm_result.get("lineage_notes")
+                            lineage_metadata["llm_enhanced"] = True
+            except Exception as e:
+                # If LLM fails, fall through to return rule-based result
+                import logging
+                logging.getLogger(__name__).debug(f"LLM lineage analysis failed: {e}")
+        
         return {
             "model_id": model_id,
             "lineage_metadata": lineage_metadata,

@@ -654,12 +654,14 @@ def register_routes(app: FastAPI):
                         continue
                 
                 if result and "error" not in result:
+                    lineage_metadata = result.get("lineage_metadata", {})
                     lineage_data = {
                         "model_id": model_id or model_name,
                         "model_name": model_name,
-                        "lineage_metadata": result.get("lineage_metadata", {}),
+                        "lineage_metadata": lineage_metadata,
                         "lineage_map": result.get("lineage_map", {}),
                         "config": result.get("config", {}),
+                        "llm_enhanced": lineage_metadata.get("llm_enhanced", False),
                     }
                 else:
                     # Return empty lineage instead of error
@@ -669,6 +671,7 @@ def register_routes(app: FastAPI):
                         "lineage_metadata": {},
                         "lineage_map": {},
                         "config": {},
+                        "llm_enhanced": False,
                     }
             except Exception as e:
                 logger.error(f"Lineage error: {e}", exc_info=True)
