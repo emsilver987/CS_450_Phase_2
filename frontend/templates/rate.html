@@ -68,7 +68,12 @@
           <dd aria-label="Reviewedness">{{ '%.2f'|format(rating.reviewedness if rating.reviewedness is defined else (rating.Reviewedness if rating.Reviewedness is defined else rating.get('Reviewedness', 0))) }}</dd>
         </div>
         <div class="metric-item">
-          <dt>Treescore:</dt>
+          <dt>
+            Treescore:
+            {% if rating.treescore_llm_enhanced or rating.get('treescore_llm_enhanced') %}
+            <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; background-color: #dbeafe; color: #1e40af; border-radius: 4px; font-size: 0.75rem; font-weight: normal;">AI-Enhanced</span>
+            {% endif %}
+          </dt>
           <dd aria-label="Treescore">{{ '%.2f'|format(rating.treescore if rating.treescore is defined else (rating.Treescore if rating.Treescore is defined else rating.get('Treescore', 0))) }}</dd>
         </div>
         {% if rating.dataset_and_code_score is defined or rating.get('DatasetCode') %}

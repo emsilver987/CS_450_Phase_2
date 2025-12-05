@@ -170,7 +170,7 @@ def _find_model_by_id(id: str) -> tuple[bool, Optional[str]]:
 
 
 def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str, Any]:
-    """Build ModelRating response with all required fields (same as index.py)"""
+    """Build ModelRating response with all required fields and LLM usage flags"""
     return {
         "name": model_name,
         "category": alias(rating, "category") or "unknown",
@@ -185,6 +185,8 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
         "reproducibility": round(float(alias(rating, "reproducibility", "Reproducibility", "score_reproducibility") or 0.0), 2),
         "reviewedness": round(float(alias(rating, "reviewedness", "Reviewedness", "score_reviewedness") or 0.0), 2),
         "treescore": round(float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2),
+        # LLM usage flags for frontend indicators
+        "treescore_llm_enhanced": rating.get("treescore_llm_enhanced", False) or rating.get("meta", {}).get("treescore_llm_enhanced", False),
     }
 
 

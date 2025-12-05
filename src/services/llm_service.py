@@ -331,15 +331,24 @@ def analyze_lineage_config(config_json: Dict[str, Any]) -> Optional[Dict[str, An
         config_json: Model configuration dictionary
         
     Returns:
-        Dictionary with extracted lineage information or None if LLM unavailable
+        Dictionary with extracted lineage information or None if LLM unavailable or fails
     """
-    system_msg = (
-        "You are an expert at analyzing AI model configurations. "
-        "Extract parent model information and lineage relationships from config files. "
-        "Return a JSON object with lineage information."
-    )
-    
-    config_str = json.dumps(config_json, indent=2)[:2000]
+    try:
+        if not config_json or not isinstance(config_json, dict):
+            logger.debug("Invalid config_json provided to analyze_lineage_config")
+            return None
+        
+        system_msg = (
+            "You are an expert at analyzing AI model configurations. "
+            "Extract parent model information and lineage relationships from config files. "
+            "Return a JSON object with lineage information."
+        )
+        
+        try:
+            config_str = json.dumps(config_json, indent=2)[:2000]
+        except (TypeError, ValueError) as json_error:
+            logger.warning(f"Failed to serialize config_json: {json_error}")
+            return None
     
     prompt = f"""Analyze this model configuration and extract lineage/parent information:
 
@@ -376,21 +385,31 @@ Return JSON format:
     "lineage_notes": "any relevant notes"
 }}"""
     
-    response = _call_llm_api(prompt, system_msg)
-    if not response:
-        return None
-    
-    try:
-        response = response.strip()
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[1].split("```")[0].strip()
+        response = _call_llm_api(prompt, system_msg)
+        if not response:
+            return None
         
-        result = json.loads(response)
-        return result
-    except json.JSONDecodeError:
-        logger.warning(f"Failed to parse LLM lineage analysis response: {response}")
+        try:
+            response = response.strip()
+            if "```json" in response:
+                response = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                response = response.split("```")[1].split("```")[0].strip()
+            
+            result = json.loads(response)
+            if not isinstance(result, dict):
+                logger.warning(f"LLM lineage response is not a dict: {type(result)}")
+                return None
+            return result
+        except json.JSONDecodeError as json_error:
+            logger.warning(f"Failed to parse LLM lineage analysis response: {json_error}")
+            return None
+        except Exception as parse_error:
+            logger.warning(f"Unexpected error parsing LLM lineage response: {parse_error}")
+            return None
+    except Exception as e:
+        # Catch any other unexpected errors (e.g., in prompt construction)
+        logger.warning(f"Unexpected error in analyze_lineage_config: {e}", exc_info=True)
         return None
 
 
@@ -412,18 +431,33 @@ def calculate_treescore(
         uploaded_models: Optional list of model IDs currently uploaded to the system
         
     Returns:
-        Treescore value (0.0-1.0) or None if LLM unavailable
+        Treescore value (0.0-1.0) or None if LLM unavailable or fails
     """
-    system_msg = (
-        "You are an expert at analyzing AI model lineage and calculating supply-chain health scores. "
-        "Extract lineage from config.json and calculate treescore as the average of parent net_scores. "
-        "Return a JSON object with the treescore value."
-    )
-    
-    config_str = json.dumps(config_json, indent=2)[:2000]
-    
-    parent_scores_str = json.dumps(parent_scores or {}, indent=2) if parent_scores else "{}"
-    uploaded_models_str = json.dumps(uploaded_models or [], indent=2) if uploaded_models else "[]"
+    try:
+        if not config_json or not isinstance(config_json, dict):
+            logger.debug("Invalid config_json provided to calculate_treescore")
+            return None
+        
+        system_msg = (
+            "You are an expert at analyzing AI model lineage and calculating supply-chain health scores. "
+            "Extract lineage from config.json and calculate treescore as the average of parent net_scores. "
+            "Return a JSON object with the treescore value."
+        )
+        
+        try:
+            config_str = json.dumps(config_json, indent=2)[:2000]
+        except (TypeError, ValueError) as json_error:
+            logger.warning(f"Failed to serialize config_json: {json_error}")
+            return None
+        
+        try:
+            parent_scores_str = json.dumps(parent_scores or {}, indent=2) if parent_scores else "{}"
+            uploaded_models_str = json.dumps(uploaded_models or [], indent=2) if uploaded_models else "[]"
+        except (TypeError, ValueError) as json_error:
+            logger.warning(f"Failed to serialize parent_scores or uploaded_models: {json_error}")
+            # Continue with empty strings if serialization fails
+            parent_scores_str = "{}"
+            uploaded_models_str = "[]"
     
     prompt = f"""Analyze this model configuration to extract lineage and calculate treescore.
 
@@ -480,33 +514,44 @@ Return JSON format:
     "treescore": 0.85
 }}"""
     
-    response = _call_llm_api(prompt, system_msg)
-    if not response:
-        return None
-    
-    try:
-        response = response.strip()
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[1].split("```")[0].strip()
+        response = _call_llm_api(prompt, system_msg)
+        if not response:
+            return None
         
-        result = json.loads(response)
-        treescore = result.get("treescore") or result.get("tree_score") or result.get("score")
-        
-        if treescore is not None:
-            try:
-                score = float(treescore)
-                # Clamp to valid range
-                score = max(0.0, min(1.0, score))
-                return round(score, 2)
-            except (TypeError, ValueError):
-                logger.warning(f"Invalid treescore value from LLM: {treescore}")
+        try:
+            response = response.strip()
+            if "```json" in response:
+                response = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                response = response.split("```")[1].split("```")[0].strip()
+            
+            result = json.loads(response)
+            if not isinstance(result, dict):
+                logger.warning(f"LLM treescore response is not a dict: {type(result)}")
                 return None
-        
-        return None
-    except json.JSONDecodeError:
-        logger.warning(f"Failed to parse LLM treescore calculation response: {response}")
+            
+            treescore = result.get("treescore") or result.get("tree_score") or result.get("score")
+            
+            if treescore is not None:
+                try:
+                    score = float(treescore)
+                    # Clamp to valid range
+                    score = max(0.0, min(1.0, score))
+                    return round(score, 2)
+                except (TypeError, ValueError) as convert_error:
+                    logger.warning(f"Invalid treescore value from LLM: {treescore} (error: {convert_error})")
+                    return None
+            
+            return None
+        except json.JSONDecodeError as json_error:
+            logger.warning(f"Failed to parse LLM treescore calculation response: {json_error}")
+            return None
+        except Exception as parse_error:
+            logger.warning(f"Unexpected error parsing LLM treescore response: {parse_error}")
+            return None
+    except Exception as e:
+        # Catch any other unexpected errors (e.g., in prompt construction)
+        logger.warning(f"Unexpected error in calculate_treescore: {e}", exc_info=True)
         return None
 
 

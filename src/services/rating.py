@@ -671,6 +671,10 @@ def run_acme_metrics(
     if "net_score_latency" not in scores:
         scores["net_score_latency"] = int(net_score_latency)
 
+    # Pass through LLM usage flags from meta for frontend indicators
+    if meta.get("treescore_llm_enhanced"):
+        scores["treescore_llm_enhanced"] = True
+
     return scores
 
 

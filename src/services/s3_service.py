@@ -1215,17 +1215,52 @@ def parse_lineage_from_config(config: Dict[str, Any], model_id: str) -> Dict[str
         "vocab_size": None,
         "hidden_size": None,
     }
+    # Expanded list of fields to check for parent/base model information
     base_model_fields = [
         "base_model_name_or_path",
         "_name_or_path",
         "parent_model",
         "pretrained_model_name_or_path",
+        "base_model",
+        "parent",
+        "from_pretrained",
+        "model_name_or_path",
+        "source_model",
+        "original_model",
+        "foundation_model",
+        "backbone",
+        "teacher_model",
+        "student_model",
+        "checkpoint",
+        "checkpoint_path",
+        "init_checkpoint",
+        "load_from",
+        "from_checkpoint",
+        "resume_from",
+        "transfer_from",
     ]
     for field in base_model_fields:
         if field in config:
-            lineage_metadata["base_model"] = config[field]
-            break
-    lineage_metadata["architecture"] = config.get("model_type")
+            value = config[field]
+            if value and isinstance(value, str) and value.strip():
+                lineage_metadata["base_model"] = value.strip()
+                break
+    
+    # Also check nested structures
+    if not lineage_metadata["base_model"]:
+        # Check lineage_metadata field if present
+        if "lineage_metadata" in config and isinstance(config["lineage_metadata"], dict):
+            lineage_metadata["base_model"] = config["lineage_metadata"].get("base_model")
+        # Check lineage field if present
+        if not lineage_metadata["base_model"] and "lineage" in config:
+            if isinstance(config["lineage"], dict):
+                lineage_metadata["base_model"] = config["lineage"].get("base_model") or config["lineage"].get("parent")
+            elif isinstance(config["lineage"], list) and len(config["lineage"]) > 0:
+                first_lineage = config["lineage"][0]
+                if isinstance(first_lineage, dict):
+                    lineage_metadata["base_model"] = first_lineage.get("base_model") or first_lineage.get("parent")
+    
+    lineage_metadata["architecture"] = config.get("model_type") or config.get("architecture")
     lineage_metadata["model_type"] = config.get("model_type")
     lineage_metadata["transformers_version"] = config.get("transformers_version")
     lineage_metadata["architectures"] = config.get("architectures") or []
@@ -1252,23 +1287,34 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
                 from .llm_service import analyze_lineage_config, is_llm_available
                 
                 if is_llm_available():
-                    llm_result = analyze_lineage_config(config)
-                    if llm_result and llm_result.get("parent_models"):
-                        parent_models = llm_result.get("parent_models", [])
-                        if parent_models:
-                            # Use the first parent model found by LLM
-                            lineage_metadata["base_model"] = parent_models[0]
-                            lineage_map[parent_models[0]] = [model_id]
-                            # Add LLM-extracted information
-                            if llm_result.get("base_architecture"):
-                                lineage_metadata["architecture"] = llm_result.get("base_architecture")
-                            if llm_result.get("lineage_notes"):
-                                lineage_metadata["llm_notes"] = llm_result.get("lineage_notes")
-                            lineage_metadata["llm_enhanced"] = True
-            except Exception as e:
-                # If LLM fails, fall through to return rule-based result
+                    try:
+                        llm_result = analyze_lineage_config(config)
+                        if llm_result and isinstance(llm_result, dict) and llm_result.get("parent_models"):
+                            parent_models = llm_result.get("parent_models", [])
+                            if parent_models and isinstance(parent_models, list) and len(parent_models) > 0:
+                                # Use the first parent model found by LLM
+                                first_parent = parent_models[0]
+                                if first_parent and isinstance(first_parent, str) and first_parent.strip():
+                                    lineage_metadata["base_model"] = first_parent.strip()
+                                    lineage_map[first_parent.strip()] = [model_id]
+                                    # Add LLM-extracted information
+                                    if llm_result.get("base_architecture"):
+                                        lineage_metadata["architecture"] = llm_result.get("base_architecture")
+                                    if llm_result.get("lineage_notes"):
+                                        lineage_metadata["llm_notes"] = llm_result.get("lineage_notes")
+                                    lineage_metadata["llm_enhanced"] = True
+                    except Exception as llm_error:
+                        # LLM analysis itself failed - fall back to rule-based result
+                        import logging
+                        logging.getLogger(__name__).debug(f"LLM lineage analysis error: {llm_error}")
+            except ImportError as import_error:
+                # LLM service not available - fall back to rule-based result
                 import logging
-                logging.getLogger(__name__).debug(f"LLM lineage analysis failed: {e}")
+                logging.getLogger(__name__).debug(f"LLM service import failed: {import_error}")
+            except Exception as e:
+                # Any other unexpected error - log but don't crash, fall back to rule-based result
+                import logging
+                logging.getLogger(__name__).warning(f"Unexpected error in LLM lineage fallback: {e}", exc_info=True)
         
         return {
             "model_id": model_id,
