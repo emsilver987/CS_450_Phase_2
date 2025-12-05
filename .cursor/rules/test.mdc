@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+To improve coverage, only touch test-related files and configs.
+**Do NOT change main source code logic, behavior, or architecture just to raise coverage.
