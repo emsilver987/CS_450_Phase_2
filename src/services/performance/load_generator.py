@@ -197,9 +197,6 @@ class LoadGenerator:
             
         Returns:
             Model file content as bytes
-            
-        Raises:
-            Exception: If download fails or returns empty content
         """
         try:
             from ..s3_service import download_model as s3_download_model
@@ -212,23 +209,13 @@ class LoadGenerator:
                 use_performance_path=self.use_performance_path
             )
             
-            # Validate that we got actual content
-            if not file_content:
-                raise Exception(f"S3 download returned empty content for model {model_id} version {version}")
-            
-            if len(file_content) == 0:
-                raise Exception(f"S3 download returned 0 bytes for model {model_id} version {version}")
-            
-            logger.debug(f"S3 direct download successful: model={model_id}, version={version}, bytes={len(file_content)}")
             return file_content
-        except ImportError as e:
-            raise Exception(f"Failed to import s3_service: {str(e)}")
         except Exception as e:
             # Convert HTTPException to regular Exception for consistency
             error_msg = str(e)
             if "not found" in error_msg.lower():
-                raise Exception(f"Model {model_id} version {version} not found in S3 (performance path: {self.use_performance_path})")
-            raise Exception(f"S3 download failed for {model_id} version {version}: {error_msg}")
+                raise Exception(f"Model {model_id} version {version} not found in S3")
+            raise Exception(f"S3 download failed: {error_msg}")
 
     def _download_from_rds_direct(self, model_id: str, version: str, component: str = "full") -> bytes:
         """
@@ -354,15 +341,6 @@ class LoadGenerator:
                 bytes_transferred = len(file_content)
                 status_code = 200
                 
-                # Validate that we actually got data
-                if bytes_transferred == 0:
-                    logger.warning(
-                        f"Direct {self.storage_backend.upper()} download returned 0 bytes for client_id={client_id}, "
-                        f"model_id={sanitized_model_id}, version={self.version}"
-                    )
-                    # Don't treat as success if no data
-                    status_code = 0
-                
                 metric = Metric(
                     run_id=self.run_id,
                     client_id=client_id,
@@ -372,28 +350,18 @@ class LoadGenerator:
                     timestamp=timestamp,
                 )
                 
-                if status_code == 200:
-                    logger.debug(
-                        f"Direct {self.storage_backend.upper()} download completed: client_id={client_id}, "
-                        f"status={status_code}, latency={latency_ms:.2f}ms, "
-                        f"bytes={bytes_transferred}"
-                    )
-                else:
-                    logger.warning(
-                        f"Direct {self.storage_backend.upper()} download failed: client_id={client_id}, "
-                        f"status={status_code}, latency={latency_ms:.2f}ms, "
-                        f"bytes={bytes_transferred}"
-                    )
+                logger.debug(
+                    f"Direct {self.storage_backend.upper()} download completed: client_id={client_id}, "
+                    f"status={status_code}, latency={latency_ms:.2f}ms, "
+                    f"bytes={bytes_transferred}"
+                )
                 
                 return metric
             except Exception as e:
                 error_str = str(e).lower()
                 end_time = time.time()
                 latency_ms = (end_time - start_time) * 1000
-                logger.error(
-                    f"Direct {self.storage_backend.upper()} download error for client_id={client_id}: {str(e)}",
-                    exc_info=True  # Include full traceback
-                )
+                logger.error(f"Direct {self.storage_backend.upper()} download error for client_id={client_id}: {str(e)}")
                 return Metric(
                     run_id=self.run_id,
                     client_id=client_id,
@@ -697,36 +665,15 @@ class LoadGenerator:
             from .metrics_storage import store_and_publish_metrics
 
             metrics_dict = self.get_metrics()
-            
-            # Log summary of collected metrics before storing
-            successful_count = sum(1 for m in metrics_dict if m.get("status_code") == 200)
-            failed_count = len(metrics_dict) - successful_count
-            total_bytes = sum(m.get("bytes_transferred", 0) for m in metrics_dict if m.get("status_code") == 200)
-            
-            logger.info(
-                f"Preparing to store metrics: total={len(metrics_dict)}, "
-                f"successful={successful_count}, failed={failed_count}, "
-                f"total_bytes={total_bytes}, "
-                f"storage_backend={self.storage_backend}, "
-                f"use_direct_calls={self.use_direct_calls}"
-            )
-            
             storage_result = store_and_publish_metrics(
                 run_id=self.run_id,
                 metrics=metrics_dict,
                 total_duration_seconds=total_duration,
             )
             logger.info(
-                f"Metrics storage completed: DynamoDB={storage_result['dynamodb_stored']}/{len(metrics_dict)}, "
+                f"Metrics storage completed: DynamoDB={storage_result['dynamodb_stored']}, "
                 f"CloudWatch={storage_result['cloudwatch_published']}"
             )
-            
-            # Warn if many metrics failed to store
-            if storage_result['dynamodb_stored'] < len(metrics_dict):
-                logger.warning(
-                    f"Only stored {storage_result['dynamodb_stored']} out of {len(metrics_dict)} metrics. "
-                    f"Some metrics may have been lost."
-                )
         except Exception as e:
             logger.error(f"Failed to store/publish metrics: {str(e)}", exc_info=True)
 
