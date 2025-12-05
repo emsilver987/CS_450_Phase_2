@@ -424,7 +424,7 @@ def test_rds_endpoints(
             if skip_if_not_configured:
                 print(f"   ⚠ Status: {response.status_code}")
                 print(f"     RDS not configured - skipping RDS endpoint tests")
-                print(f"     (Set RDS_ENDPOINT and RDS_PASSWORD environment variables to enable)")
+                print(f"     (RDS configuration is hardcoded in the script - check RDS_ENDPOINT value)")
                 print(f"     (Or use --skip-rds flag to skip RDS tests entirely)")
                 ingest_success = False
                 # Skip remaining RDS tests
@@ -911,21 +911,23 @@ Examples:
     
     args = parser.parse_args()
     
-    # Set RDS environment variables from Terraform configuration
+    # Hardcode RDS configuration values (not using environment variables)
     # Values from infra/envs/dev/main.tf and infra/modules/rds/
-    # These are set here so they're available if the API server is started in the same environment
-    if not os.getenv("RDS_DATABASE"):
-        os.environ["RDS_DATABASE"] = "acme"  # From infra/modules/rds/variables.tf
-    if not os.getenv("RDS_USERNAME"):
-        os.environ["RDS_USERNAME"] = "acme"  # From infra/modules/rds/variables.tf
-    if not os.getenv("RDS_PASSWORD"):
-        os.environ["RDS_PASSWORD"] = "acme_rds_password_123"  # From infra/envs/dev/main.tf line 108
-    if not os.getenv("RDS_PORT"):
-        os.environ["RDS_PORT"] = "5432"  # Default PostgreSQL port
-    if not os.getenv("RDS_ENDPOINT"):
-        # Hardcoded RDS endpoint - update with actual endpoint from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
-        # Format: acme-rds.xxxxx.us-east-1.rds.amazonaws.com
-        os.environ["RDS_ENDPOINT"] = "acme-rds.xxxxx.us-east-1.rds.amazonaws.com"  # Update with actual endpoint
+    # These are hardcoded directly in the script
+    RDS_DATABASE = "acme"  # From infra/modules/rds/variables.tf
+    RDS_USERNAME = "acme"  # From infra/modules/rds/variables.tf
+    RDS_PASSWORD = "acme_rds_password_123"  # From infra/envs/dev/main.tf line 108
+    RDS_PORT = "5432"  # Default PostgreSQL port
+    # Hardcoded RDS endpoint - update with actual endpoint from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
+    # Format: acme-rds.xxxxx.us-east-1.rds.amazonaws.com
+    RDS_ENDPOINT = "acme-rds.xxxxx.us-east-1.rds.amazonaws.com"  # Update with actual endpoint
+    
+    # Set as environment variables for the API server if it's started in the same environment
+    os.environ["RDS_DATABASE"] = RDS_DATABASE
+    os.environ["RDS_USERNAME"] = RDS_USERNAME
+    os.environ["RDS_PASSWORD"] = RDS_PASSWORD
+    os.environ["RDS_PORT"] = RDS_PORT
+    os.environ["RDS_ENDPOINT"] = RDS_ENDPOINT
     
     # Determine base URL
     if args.base_url:

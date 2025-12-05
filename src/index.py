@@ -6210,6 +6210,57 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
+@app.get("/artifact/model/{id}/download")
+def download_model_from_s3(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Download model file from S3.
+    Supports both models/ and performance/ paths.
+    """
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+    
+    try:
+        from .services.s3_service import download_model
+        from fastapi.responses import Response
+        
+        # Sanitize model_id (id parameter is already sanitized from URL)
+        sanitized_model_id = id
+        
+        # Determine if using performance path
+        use_performance_path = (path_prefix == "performance")
+        
+        # Download from S3
+        file_content = download_model(
+            sanitized_model_id,
+            version,
+            component,
+            use_performance_path=use_performance_path
+        )
+        
+        return Response(
+            content=file_content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
+                "Content-Length": str(len(file_content))
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading model from S3: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"S3 download failed: {str(e)}")
+
+
 @app.get("/artifact/model/{id}/download-rds")
 def download_model_from_rds(
     id: str,
