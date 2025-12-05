@@ -156,6 +156,30 @@ def store_metrics_in_dynamodb(metrics: List[Dict[str, Any]]) -> int:
         with table.batch_writer() as batch:
             for idx, metric in enumerate(metrics):
                 try:
+                    # Validate metric has required fields
+                    if "run_id" not in metric:
+                        logger.warning(f"Skipping metric {idx}: missing run_id")
+                        continue
+                    
+                    # Validate metric values are reasonable
+                    status_code = int(metric.get("status_code", 0))
+                    bytes_transferred = int(metric.get("bytes_transferred", 0))
+                    latency_ms = float(metric.get("request_latency_ms", 0))
+                    
+                    # Log warnings for suspicious metrics (but still store them)
+                    if status_code == 0 and bytes_transferred == 0:
+                        # This is a failed request - log but still store for analysis
+                        logger.debug(
+                            f"Metric {idx} has status_code=0 and bytes_transferred=0 "
+                            f"(client_id={metric.get('client_id', 'unknown')})"
+                        )
+                    elif status_code == 200 and bytes_transferred == 0:
+                        # Successful status but no data - this is suspicious
+                        logger.warning(
+                            f"Metric {idx} has status_code=200 but bytes_transferred=0 "
+                            f"(client_id={metric.get('client_id', 'unknown')})"
+                        )
+                    
                     # Generate unique metric_id for range key
                     # Use client_id and index to ensure uniqueness
                     metric_id = (
@@ -170,17 +194,15 @@ def store_metrics_in_dynamodb(metrics: List[Dict[str, Any]]) -> int:
                         ),
                         "client_id": int(metric.get("client_id", 0)),
                         # DynamoDB requires Decimal for float values, not float
-                        "request_latency_ms": Decimal(
-                            str(metric.get("request_latency_ms", 0))
-                        ),
-                        "bytes_transferred": int(metric.get("bytes_transferred", 0)),
-                        "status_code": int(metric.get("status_code", 0)),
+                        "request_latency_ms": Decimal(str(latency_ms)),
+                        "bytes_transferred": bytes_transferred,
+                        "status_code": status_code,
                     }
 
                     batch.put_item(Item=item)
                     stored_count += 1
                 except Exception as e:
-                    logger.warning(f"Failed to store metric: {str(e)}")
+                    logger.warning(f"Failed to store metric {idx}: {str(e)}", exc_info=True)
 
         logger.info(f"Stored {stored_count}/{len(metrics)} metrics in DynamoDB")
         return stored_count

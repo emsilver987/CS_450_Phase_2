@@ -19,6 +19,20 @@ jobs:
       - name: Install dependencies
         run: ./run install
 
+  test-performance-endpoints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: ./run install
+      - name: Run performance endpoints test script
+        run: python scripts/test_new_endpoints.py
+        
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -30,8 +44,5 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: ./run install
-      - name: Run endpoint tests
-        run: python scripts/test_new_endpoints.py --skip-workload
-        continue-on-error: true
       - name: Run tests
         run: ./run test

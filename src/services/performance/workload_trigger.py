@@ -111,11 +111,19 @@ def trigger_workload(
     # Generate unique run ID
     run_id = str(uuid.uuid4())
 
-    # If base_url is not provided, use direct function calls instead of HTTP
-    # This is more efficient when called from within the API
-    # Only use HTTP/API Gateway URL if explicitly provided or set in env var
+    # If base_url is not provided, try to determine the correct URL
+    # For local development, use localhost; for production, use API Gateway
+    # If API_BASE_URL is explicitly set, use that; otherwise use direct calls
     if not base_url:
-        base_url = os.getenv("API_BASE_URL", None)  # None = use direct calls
+        base_url = os.getenv("API_BASE_URL", None)
+        # If still None, try to use localhost for local development
+        # This ensures HTTP requests work even when direct calls might fail
+        if base_url is None:
+            # Check if we're in a local environment (not in AWS)
+            if not os.getenv("AWS_EXECUTION_ENV"):  # Not in Lambda/ECS
+                base_url = "http://localhost:8000"
+                logger.info("Using localhost:8000 for performance workload (local environment)")
+            # Otherwise, base_url stays None to use direct calls
 
     # Calculate estimated completion time
     estimated_completion = datetime.now(timezone.utc) + timedelta(

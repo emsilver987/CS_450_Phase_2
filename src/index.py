@@ -808,10 +808,6 @@ async def trigger_performance_workload(request: Request):
 
         # Ensure model exists in performance path (automatic, transparent to user)
         logger.info(f"Ensuring model {model_id} exists in performance path...")
-        model_ready = _ensure_model_in_performance_path(model_id, version="main")
-        if not model_ready:
-            logger.warning(f"Model {model_id} may not be available in performance path - workload may fail")
-            # Don't fail here - let the workload try and fail gracefully if model is missing
 
         # Import and trigger workload
         from .services.performance.workload_trigger import trigger_workload
@@ -1791,6 +1787,102 @@ def reset_rds_system(request: Request):
     except Exception as e:
         logger.error(f"Error resetting RDS registry: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"RDS reset failed: {str(e)}")
+# Status tracking for async repopulation (in-memory, similar to workload runs)
+_populate_status: Dict[str, Dict[str, Any]] = {}
+_populate_lock = threading.Lock()
+
+
+def _run_repopulate_background(repopulate: bool):
+    """
+    Run repopulation in background thread to avoid API Gateway timeout.
+    Updates _populate_status when complete.
+    """
+    global _populate_status
+    
+    job_id = "current"  # Single job at a time
+    start_time = time.time()
+    
+    try:
+        with _populate_lock:
+            _populate_status[job_id] = {
+                "status": "running",
+                "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "repopulate": repopulate,
+            }
+        
+        response_data = {
+            "message": "S3 performance path population started",
+            "path": "performance/"
+        }
+        
+        # Reset the performance path first (if it exists)
+        # Don't fail the whole pipeline if reset fails - performance path might not exist yet
+        try:
+            result = reset_performance_path()
+            deleted_count = result.get("deleted_count", 0)
+            response_data["deleted_count"] = deleted_count
+            response_data["reset_message"] = f"Deleted {deleted_count} objects from performance/ path"
+        except HTTPException as e:
+            # If reset fails (e.g., performance path doesn't exist), log warning and continue
+            logger.warning(f"Reset performance path failed (may not exist yet): {str(e.detail)}")
+            response_data["deleted_count"] = 0
+            response_data["reset_message"] = "Reset skipped (performance path may not exist yet)"
+            response_data["reset_warning"] = str(e.detail)
+        except Exception as e:
+            # Catch any other exceptions during reset
+            logger.warning(f"Reset performance path failed: {str(e)}")
+            response_data["deleted_count"] = 0
+            response_data["reset_message"] = "Reset skipped due to error"
+            response_data["reset_warning"] = str(e)
+        
+        # Repopulate with models
+        if repopulate:
+            logger.info("Starting repopulation of S3 performance path with 500 models...")
+            repopulate_result = _repopulate_performance_path()
+            response_data["repopulate"] = repopulate_result
+            
+            # Update message with actual results
+            successful_count = repopulate_result.get("successful", 0)
+            failed_count = repopulate_result.get("failed", 0)
+            not_found_count = repopulate_result.get("not_found", 0)
+            target_count = repopulate_result.get("target", 500)
+            response_data["message"] = f"Repopulation complete: {successful_count} successful, {failed_count} failed, {not_found_count} not found (target: {target_count})"
+        
+        elapsed_time = time.time() - start_time
+        
+        # Update status to completed
+        with _populate_lock:
+            _populate_status[job_id] = {
+                "status": "completed",
+                "started_at": _populate_status[job_id]["started_at"],
+                "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "elapsed_seconds": elapsed_time,
+                "repopulate": repopulate,
+                "result": response_data,
+            }
+        
+        logger.info(f"Repopulation completed in {elapsed_time:.2f} seconds")
+        
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        error_msg = str(e)
+        logger.error(f"Error in background repopulation: {error_msg}", exc_info=True)
+        
+        # Update status to failed
+        with _populate_lock:
+            if job_id in _populate_status:
+                _populate_status[job_id]["status"] = "failed"
+                _populate_status[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                _populate_status[job_id]["elapsed_seconds"] = elapsed_time
+                _populate_status[job_id]["error"] = error_msg
+            else:
+                _populate_status[job_id] = {
+                    "status": "failed",
+                    "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "elapsed_seconds": elapsed_time,
+                    "error": error_msg,
+                }
 
 
 @app.post("/populate/s3/performance")
@@ -1800,31 +1892,83 @@ def populate_s3_performance(repopulate: bool = Query(True, description="Repopula
     First resets (deletes all objects), then repopulates.
     Only affects the performance/ path, not models/ or other paths.
     No authentication required.
+    
+    This endpoint runs asynchronously to avoid API Gateway timeout (30s limit).
+    The repopulation process runs in a background thread and may take several minutes.
+    Use GET /populate/s3/performance/status to check progress.
     """
     try:
-        response_data = {
-            "message": "S3 performance path population started",
-            "path": "performance/"
-        }
+        job_id = "current"
         
-        # Reset the performance path first
-        result = reset_performance_path()
-        deleted_count = result.get("deleted_count", 0)
-        response_data["deleted_count"] = deleted_count
-        response_data["reset_message"] = f"Deleted {deleted_count} objects from performance/ path"
+        # Check if a repopulation is already running
+        with _populate_lock:
+            if job_id in _populate_status:
+                current_status = _populate_status[job_id].get("status")
+                if current_status == "running":
+                    # Return current status instead of starting a new job
+                    return JSONResponse(
+                        status_code=200,
+                        content={
+                            "message": "Repopulation already in progress",
+                            "status": "running",
+                            "started_at": _populate_status[job_id].get("started_at"),
+                            "path": "performance/",
+                        }
+                    )
         
-        # Repopulate with models
-        if repopulate:
-            logger.info("Starting repopulation of S3 performance path with 500 models...")
-            repopulate_result = _repopulate_performance_path()
-            response_data["repopulate"] = repopulate_result
+        # Start repopulation in background thread
+        logger.info("Starting async repopulation of S3 performance path...")
+        thread = threading.Thread(
+            target=_run_repopulate_background,
+            args=(repopulate,),
+            daemon=True,
+        )
+        thread.start()
         
-        return JSONResponse(status_code=200, content=response_data)
-    except HTTPException:
-        raise
+        # Return immediately with status
+        return JSONResponse(
+            status_code=202,  # Accepted - operation started
+            content={
+                "message": "S3 performance path population started (running asynchronously)",
+                "status": "started",
+                "path": "performance/",
+                "repopulate": repopulate,
+                "note": "This operation may take several minutes. Use GET /populate/s3/performance/status to check progress.",
+            }
+        )
     except Exception as e:
-        logger.error(f"Error populating S3 performance path: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"S3 performance path population failed: {str(e)}")
+        logger.error(f"Error starting S3 performance path population: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start S3 performance path population: {str(e)}")
+
+
+@app.get("/populate/s3/performance/status")
+def get_populate_s3_performance_status():
+    """
+    Get the status of the current S3 performance path repopulation job.
+    Returns the current status, progress, and results if completed.
+    No authentication required.
+    """
+    job_id = "current"
+    
+    with _populate_lock:
+        if job_id not in _populate_status:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "No repopulation job found",
+                    "status": "not_found",
+                }
+            )
+        
+        status_data = _populate_status[job_id].copy()
+        
+        if status_data.get("status") == "completed":
+            return JSONResponse(status_code=200, content=status_data)
+        elif status_data.get("status") == "failed":
+            return JSONResponse(status_code=500, content=status_data)
+        else:
+            # Running
+            return JSONResponse(status_code=200, content=status_data)
 
 
 def _repopulate_performance_path() -> Dict[str, Any]:
@@ -1836,42 +1980,24 @@ def _repopulate_performance_path() -> Dict[str, Any]:
         from .services.s3_service import s3, ap_arn, aws_available
         import zipfile
         import io
+        import requests
         
         if not aws_available or not s3 or not ap_arn:
             raise HTTPException(
                 status_code=503,
                 detail="AWS services not available. Please check your AWS configuration.",
             )
-        
+    
         # Import the hardcoded list of 500 models
-        try:
-            # Add parent directory to path to import from scripts
-            import sys
-            from pathlib import Path
-            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
-            if scripts_path not in sys.path:
-                sys.path.insert(0, scripts_path)
-            from huggingface_models_list import HF_MODELS_500
-            models = HF_MODELS_500.copy()
-        except ImportError:
-            # Fallback if import fails
-            models = [
-                "arnir0/Tiny-LLM",
-                "bert-base-uncased",
-                "distilbert-base-uncased",
-                "roberta-base",
-                "gpt2",
-                "t5-small",
-                "t5-base",
-                "facebook/bart-base",
-            ]
+        from .huggingface_models_list import HF_MODELS_500
+        
+        models = HF_MODELS_500.copy()
         
         # Ensure Tiny-LLM is first
         REQUIRED_MODEL = "arnir0/Tiny-LLM"
         if REQUIRED_MODEL in models:
             models.remove(REQUIRED_MODEL)
         models.insert(0, REQUIRED_MODEL)
-        models = models[:500]  # Limit to 500
         
         successful = 0
         failed = 0
@@ -1929,22 +2055,71 @@ def _repopulate_performance_path() -> Dict[str, Any]:
                     not_found += 1
                     continue
                 
-                # Download files and create ZIP
+                # Download files and create ZIP (using improved logic from populate_registry.py)
                 output = io.BytesIO()
+                downloaded_count = 0
+                failed_count = 0
+                total_size = 0
+                
                 with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     for filename in files_to_download:
                         try:
                             url = f"https://huggingface.co/{clean_model_id}/resolve/main/{filename}"
-                            file_response = requests.get(url, timeout=120)
+                            
+                            # Use streaming for large files (model weights)
+                            is_large_file = any(filename.endswith(ext) for ext in [".bin", ".safetensors", ".pt", ".pth", ".ckpt"])
+                            
+                            if is_large_file:
+                                file_response = requests.get(url, timeout=600, stream=True)
+                            else:
+                                file_response = requests.get(url, timeout=120)
+                            
                             if file_response.status_code == 200:
-                                zip_file.writestr(filename, file_response.content)
-                        except Exception:
-                            pass  # Skip failed files
+                                # Stream large files to avoid memory issues
+                                if is_large_file and hasattr(file_response, 'iter_content'):
+                                    content = b""
+                                    for chunk in file_response.iter_content(chunk_size=8192):
+                                        if chunk:
+                                            content += chunk
+                                else:
+                                    content = file_response.content
+                                
+                                zip_file.writestr(filename, content)
+                                downloaded_count += 1
+                                total_size += len(content)
+                            else:
+                                failed_count += 1
+                                # Fail if critical file (config.json) is missing
+                                if filename == "config.json":
+                                    raise Exception(f"Failed to download critical file: {filename} (HTTP {file_response.status_code})")
+                        except requests.exceptions.Timeout:
+                            failed_count += 1
+                            logger.warning(f"Timeout downloading {filename} for {model_id}")
+                            # Don't fail completely unless it's config.json
+                            if filename == "config.json":
+                                raise Exception(f"Timeout downloading critical file: {filename}")
+                        except Exception as e:
+                            failed_count += 1
+                            logger.warning(f"Error downloading {filename} for {model_id}: {str(e)}")
+                            # Don't fail completely unless it's config.json
+                            if filename == "config.json":
+                                raise
                 
                 zip_content = output.getvalue()
-                if len(zip_content) == 0:
+                
+                # Check if we downloaded at least some files
+                if downloaded_count == 0:
+                    logger.warning(f"Failed to download any files for {model_id}")
                     failed += 1
                     continue
+                
+                if len(zip_content) == 0:
+                    logger.warning(f"ZIP file is empty for {model_id} (downloaded {downloaded_count} files)")
+                    failed += 1
+                    continue
+                
+                if failed_count > 0:
+                    logger.info(f"Downloaded {downloaded_count} files for {model_id} ({failed_count} failed, continuing)")
                 
                 # Upload to S3 performance path
                 sanitized_model_id = (
@@ -1975,7 +2150,7 @@ def _repopulate_performance_path() -> Dict[str, Any]:
                     
             except Exception as e:
                 failed += 1
-                logger.warning(f"Failed to ingest {model_id}: {str(e)}")
+                logger.error(f"Failed to ingest {model_id}: {str(e)}", exc_info=True)
         
         logger.info(f"Repopulation complete: {successful} successful, {failed} failed, {not_found} not found")
         
@@ -2002,6 +2177,7 @@ def populate_rds_performance():
         from .services.rds_service import upload_model, get_connection_pool
         import zipfile
         import io
+        import requests
         
         # Check if RDS is available
         try:
@@ -2018,27 +2194,8 @@ def populate_rds_performance():
             )
         
         # Import the hardcoded list of 500 models
-        try:
-            # Add parent directory to path to import from scripts
-            import sys
-            from pathlib import Path
-            scripts_path = str(Path(__file__).parent.parent.parent / "scripts")
-            if scripts_path not in sys.path:
-                sys.path.insert(0, scripts_path)
-            from huggingface_models_list import HF_MODELS_500
-            models = HF_MODELS_500.copy()
-        except ImportError:
-            # Fallback if import fails
-            models = [
-                "arnir0/Tiny-LLM",
-                "bert-base-uncased",
-                "distilbert-base-uncased",
-                "roberta-base",
-                "gpt2",
-                "t5-small",
-                "t5-base",
-                "facebook/bart-base",
-            ]
+        from .huggingface_models_list import HF_MODELS_500
+        models = HF_MODELS_500.copy()
         
         # Ensure Tiny-LLM is first
         REQUIRED_MODEL = "arnir0/Tiny-LLM"
@@ -2149,7 +2306,7 @@ def populate_rds_performance():
                     
             except Exception as e:
                 failed += 1
-                logger.warning(f"Failed to populate {model_id} in RDS: {str(e)}")
+                logger.error(f"Failed to populate {model_id} in RDS: {str(e)}", exc_info=True)
         
         logger.info(f"RDS population complete: {successful} successful, {failed} failed, {not_found} not found")
         
@@ -6053,6 +6210,62 @@ def get_package_rate(id: str, request: Request):
 #        error_msg = f"Upload failed: {str(e)}"
 #        print(f"Upload error: {traceback.format_exc()}")
 #        raise HTTPException(status_code=500, detail=error_msg)
+@app.get("/artifact/model/{id}/download")
+def download_model_from_s3(
+    id: str,
+    request: Request,
+    version: str = Query("main", description="Model version"),
+    component: str = Query("full", description="Component to download: 'full', 'weights', or 'datasets'"),
+    path_prefix: str = Query("models", description="Path prefix: 'models' or 'performance'")
+):
+    """
+    Download model file from S3.
+    Supports both models/ and performance/ paths.
+    Authentication is optional but recommended for production API Gateway.
+    """
+    # Optional authentication check - verify token if provided
+    # This allows the endpoint to work with API Gateway that requires auth
+    auth_header = request.headers.get("x-authorization") or request.headers.get("authorization")
+    if auth_header:
+        if not verify_auth_token(request):
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication failed due to invalid or missing AuthenticationToken",
+            )
+    
+    try:
+        from .services.s3_service import download_model
+        from fastapi.responses import Response
+        
+        # Sanitize model_id (id parameter is already sanitized from URL)
+        sanitized_model_id = id
+        
+        # Determine if using performance path
+        use_performance_path = (path_prefix == "performance")
+        
+        # Download from S3
+        file_content = download_model(
+            sanitized_model_id,
+            version,
+            component,
+            use_performance_path=use_performance_path
+        )
+        
+        return Response(
+            content=file_content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={id}_{version}_{component}.zip",
+                "Content-Length": str(len(file_content))
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading model from S3: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"S3 download failed: {str(e)}")
+
+
 @app.get("/artifact/model/{id}/download-rds")
 def download_model_from_rds(
     id: str,
