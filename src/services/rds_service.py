@@ -26,7 +26,7 @@ RDS_PORT = os.getenv("RDS_PORT", "5432")  # Default PostgreSQL port
 # RDS endpoint - get from env var, default to localhost for local development
 # For AWS: get from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
 # For local: use localhost (requires local PostgreSQL running)
-RDS_ENDPOINT = os.getenv("RDS_ENDPOINT", "localhost")  # Default to localhost for local development
+RDS_ENDPOINT = os.getenv("RDS_ENDPOINT", "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod/acme-rds.cc7q0ouesr1m.us-east-1.rds.amazonaws.com")
 
 # Parse port from endpoint if it includes port
 if RDS_ENDPOINT and ":" in RDS_ENDPOINT:
