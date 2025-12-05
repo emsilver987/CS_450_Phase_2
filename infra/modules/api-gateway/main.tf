@@ -4885,110 +4885,126 @@ resource "aws_api_gateway_account" "api_gateway_account" {
 
 # ===== AWS WAF RULES FOR API GATEWAY =====
 # WAF rules protect against common attack patterns and large payloads
+# NOTE: WAF resources are commented out because they require additional IAM permissions
+# (wafv2:CreateWebACL, wafv2:AssociateWebACL) that are not available in the GitHub Actions role.
+# DDoS protection is still provided by:
+# 1. API Gateway throttling (throttling_rate_limit = 100, throttling_burst_limit = 200)
+# 2. CloudWatch alarms for high request rates
+# 3. File size limits in application code (100MB)
+#
+# To enable WAF, add the following permissions to the GitHub Actions IAM role:
+# - wafv2:CreateWebACL
+# - wafv2:GetWebACL
+# - wafv2:UpdateWebACL
+# - wafv2:DeleteWebACL
+# - wafv2:AssociateWebACL
+# - wafv2:DisassociateWebACL
+# - wafv2:ListWebACLs
+# - wafv2:ListResourcesForWebACL
 
-resource "aws_wafv2_web_acl" "api_gateway_waf" {
-  name        = "api-gateway-waf"
-  description = "WAF rules for API Gateway to prevent DDoS and common attacks"
-  scope       = "REGIONAL"
-
-  default_action {
-    allow {}
-  }
-
-  # Rule 1: Rate-based rule to limit requests per IP
-  rule {
-    name     = "RateLimitRule"
-    priority = 1
-
-    statement {
-      rate_based_statement {
-        limit              = 2000 # Requests per 5 minutes per IP
-        aggregate_key_type = "IP"
-      }
-    }
-
-    action {
-      block {}
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "RateLimitRule"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # Rule 2: Block common SQL injection patterns
-  rule {
-    name     = "SQLInjectionRule"
-    priority = 2
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesCommonRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    action {
-      block {}
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "SQLInjectionRule"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # Rule 3: Block large payloads (prevent large file DoS)
-  rule {
-    name     = "SizeConstraintRule"
-    priority = 3
-
-    statement {
-      size_constraint_statement {
-        field_to_match {
-          body {}
-        }
-        comparison_operator = "GT"
-        size                = 104857600 # 100MB in bytes
-        text_transformation {
-          priority = 0
-          type     = "NONE"
-        }
-      }
-    }
-
-    action {
-      block {}
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "SizeConstraintRule"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "APIGatewayWAF"
-    sampled_requests_enabled   = true
-  }
-
-  tags = {
-    Name        = "api-gateway-waf"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-}
-
-# Associate WAF with API Gateway
-resource "aws_wafv2_web_acl_association" "api_gateway_waf_association" {
-  resource_arn = aws_api_gateway_stage.main_stage.arn
-  web_acl_arn  = aws_wafv2_web_acl.api_gateway_waf.arn
-}
+# resource "aws_wafv2_web_acl" "api_gateway_waf" {
+#   name        = "api-gateway-waf"
+#   description = "WAF rules for API Gateway to prevent DDoS and common attacks"
+#   scope       = "REGIONAL"
+#
+#   default_action {
+#     allow {}
+#   }
+#
+#   # Rule 1: Rate-based rule to limit requests per IP
+#   rule {
+#     name     = "RateLimitRule"
+#     priority = 1
+#
+#     statement {
+#       rate_based_statement {
+#         limit              = 2000 # Requests per 5 minutes per IP
+#         aggregate_key_type = "IP"
+#       }
+#     }
+#
+#     action {
+#       block {}
+#     }
+#
+#     visibility_config {
+#       cloudwatch_metrics_enabled = true
+#       metric_name                = "RateLimitRule"
+#       sampled_requests_enabled   = true
+#     }
+#   }
+#
+#   # Rule 2: Block common SQL injection patterns
+#   rule {
+#     name     = "SQLInjectionRule"
+#     priority = 2
+#
+#     statement {
+#       managed_rule_group_statement {
+#         name        = "AWSManagedRulesCommonRuleSet"
+#         vendor_name = "AWS"
+#       }
+#     }
+#
+#     action {
+#       block {}
+#     }
+#
+#     visibility_config {
+#       cloudwatch_metrics_enabled = true
+#       metric_name                = "SQLInjectionRule"
+#       sampled_requests_enabled   = true
+#     }
+#   }
+#
+#   # Rule 3: Block large payloads (prevent large file DoS)
+#   rule {
+#     name     = "SizeConstraintRule"
+#     priority = 3
+#
+#     statement {
+#       size_constraint_statement {
+#         field_to_match {
+#           body {}
+#         }
+#         comparison_operator = "GT"
+#         size                = 104857600 # 100MB in bytes
+#         text_transformation {
+#           priority = 0
+#           type     = "NONE"
+#         }
+#       }
+#     }
+#
+#     action {
+#       block {}
+#     }
+#
+#     visibility_config {
+#       cloudwatch_metrics_enabled = true
+#       metric_name                = "SizeConstraintRule"
+#       sampled_requests_enabled   = true
+#     }
+#   }
+#
+#   visibility_config {
+#     cloudwatch_metrics_enabled = true
+#     metric_name                = "APIGatewayWAF"
+#     sampled_requests_enabled   = true
+#   }
+#
+#   tags = {
+#     Name        = "api-gateway-waf"
+#     Environment = "dev"
+#     Project     = "CS_450_Phase_2"
+#   }
+# }
+#
+# # Associate WAF with API Gateway
+# resource "aws_wafv2_web_acl_association" "api_gateway_waf_association" {
+#   resource_arn = aws_api_gateway_stage.main_stage.arn
+#   web_acl_arn  = aws_wafv2_web_acl.api_gateway_waf.arn
+# }
 
 # ===== CLOUDWATCH ALARMS FOR HIGH REQUEST RATES =====
 
