@@ -56,8 +56,11 @@ def get_llm_status() -> bool:
     """Get LLM availability status for templates"""
     try:
         from ..services.llm_service import is_llm_available
-        return is_llm_available()
-    except Exception:
+        status = is_llm_available()
+        logger.debug(f"LLM status check: {status}")
+        return status
+    except Exception as e:
+        logger.warning(f"Error checking LLM status: {e}", exc_info=True)
         return False
 
 # Helper function to enrich template context with LLM status
@@ -599,7 +602,29 @@ def register_routes(app: FastAPI):
     def admin(request: Request):
         if not templates:
             return {"message": "Frontend not found. Ensure frontend/templates exists."}
-        ctx = enrich_context({"request": request})
+        
+        # Get detailed LLM status for debugging
+        llm_status_detail = {
+            "available": get_llm_status(),
+            "api_key_set": False,
+            "api_url": None,
+            "api_model": None,
+        }
+        try:
+            from ..services.llm_service import PURDUE_GENAI_API_KEY, PURDUE_GENAI_API_URL, PURDUE_GENAI_MODEL
+            llm_status_detail["api_key_set"] = bool(PURDUE_GENAI_API_KEY and PURDUE_GENAI_API_KEY.strip())
+            llm_status_detail["api_url"] = PURDUE_GENAI_API_URL
+            llm_status_detail["api_model"] = PURDUE_GENAI_MODEL
+            # Check environment variables directly
+            env_key = os.getenv("GEN_AI_STUDIO_API_KEY") or os.getenv("PURDUE_GENAI_API_KEY")
+            llm_status_detail["env_key_present"] = bool(env_key and env_key.strip())
+        except Exception as e:
+            logger.warning(f"Error getting LLM status details: {e}")
+        
+        ctx = enrich_context({
+            "request": request,
+            "llm_status_detail": llm_status_detail,
+        })
         return templates.TemplateResponse("admin.html", ctx)
 
     @app.get("/lineage")

@@ -38,13 +38,37 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Load API key - check both environment variable names
+# In AWS ECS, the secret is injected as GEN_AI_STUDIO_API_KEY
+# Also support PURDUE_GENAI_API_KEY for backward compatibility
+def _load_api_key() -> Optional[str]:
+    """Load API key from environment variables, handling JSON secrets if needed."""
+    api_key = os.getenv("GEN_AI_STUDIO_API_KEY") or os.getenv("PURDUE_GENAI_API_KEY")
+    
+    if not api_key:
+        return None
+    
+    # If the secret is stored as JSON in AWS Secrets Manager, ECS might inject it as JSON string
+    # Try to parse it if it looks like JSON
+    if api_key.strip().startswith("{"):
+        try:
+            parsed = json.loads(api_key)
+            # Check if it's a JSON object with the key
+            if isinstance(parsed, dict):
+                api_key = parsed.get("GEN_AI_STUDIO_API_KEY") or parsed.get("PURDUE_GENAI_API_KEY") or api_key
+        except (json.JSONDecodeError, TypeError):
+            # Not JSON, use as-is
+            pass
+    
+    return api_key.strip() if api_key else None
+
 # Purdue GenAI Studio API configuration
 PURDUE_GENAI_API_URL = os.getenv(
     "PURDUE_GENAI_API_URL", 
     "https://genai.rcac.purdue.edu/api/v1/chat/completions"
 )
 PURDUE_GENAI_MODEL = os.getenv("PURDUE_GENAI_MODEL", "llama3.2:latest")
-PURDUE_GENAI_API_KEY = os.getenv("GEN_AI_STUDIO_API_KEY") or os.getenv("PURDUE_GENAI_API_KEY")
+PURDUE_GENAI_API_KEY = _load_api_key()
 
 # Rate limiting
 RATE_LIMIT_DELAY = 1.0  # seconds between requests
@@ -349,8 +373,8 @@ def analyze_lineage_config(config_json: Dict[str, Any]) -> Optional[Dict[str, An
         except (TypeError, ValueError) as json_error:
             logger.warning(f"Failed to serialize config_json: {json_error}")
             return None
-    
-    prompt = f"""Analyze this model configuration and extract lineage/parent information:
+        
+        prompt = f"""Analyze this model configuration and extract lineage/parent information:
 
 {config_str}
 
@@ -384,7 +408,7 @@ Return JSON format:
     "base_architecture": "architecture_name",
     "lineage_notes": "any relevant notes"
 }}"""
-    
+        
         response = _call_llm_api(prompt, system_msg)
         if not response:
             return None
@@ -458,8 +482,8 @@ def calculate_treescore(
             # Continue with empty strings if serialization fails
             parent_scores_str = "{}"
             uploaded_models_str = "[]"
-    
-    prompt = f"""Analyze this model configuration to extract lineage and calculate treescore.
+        
+        prompt = f"""Analyze this model configuration to extract lineage and calculate treescore.
 
 Config.json:
 {config_str}
@@ -513,7 +537,7 @@ Return JSON format:
     "parent_scores_used": {{"parent1": 0.85}},
     "treescore": 0.85
 }}"""
-    
+        
         response = _call_llm_api(prompt, system_msg)
         if not response:
             return None
@@ -556,6 +580,33 @@ Return JSON format:
 
 
 def is_llm_available() -> bool:
-    """Check if LLM service is available (API key is set)."""
-    return PURDUE_GENAI_API_KEY is not None and PURDUE_GENAI_API_KEY != ""
+    """
+    Check if LLM service is available (API key is set).
+    
+    This function checks both the module-level variable and environment variables
+    directly, and logs the status for debugging purposes.
+    """
+    # Check the module-level variable first
+    if PURDUE_GENAI_API_KEY and PURDUE_GENAI_API_KEY.strip() and PURDUE_GENAI_API_KEY != "None":
+        logger.debug("LLM API key found in module-level variable")
+        return True
+    
+    # Also check environment variables directly (in case they were set after module load)
+    # This is important for AWS ECS where secrets are injected at runtime
+    api_key = _load_api_key()
+    if api_key and api_key.strip() and api_key != "None":
+        # Update the module-level variable for future calls
+        global PURDUE_GENAI_API_KEY
+        PURDUE_GENAI_API_KEY = api_key
+        logger.info("LLM API key found in environment variables - LLM service is available")
+        return True
+    
+    # Log warning only once to avoid spam
+    if not hasattr(is_llm_available, '_warned'):
+        logger.warning(
+            "LLM API key not available - GEN_AI_STUDIO_API_KEY and PURDUE_GENAI_API_KEY are not set. "
+            "AI-enhanced features will be disabled."
+        )
+        is_llm_available._warned = True
+    return False
 
