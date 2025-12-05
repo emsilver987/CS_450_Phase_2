@@ -30,6 +30,8 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: ./run install
+      - name: Run performance endpoints test script
+        run: python scripts/test_new_endpoints.py
         
   test:
     runs-on: ubuntu-latest

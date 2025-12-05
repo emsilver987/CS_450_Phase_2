@@ -158,7 +158,29 @@ def calculate_statistics(
             "total_bytes": 0,
         }
 
-    # Extract data from metrics
+    # Log suspicious metrics for debugging
+    invalid_count = 0
+    for m in metrics:
+        status_code = m.get("status_code", 0)
+        bytes_transferred = m.get("bytes_transferred", 0)
+        
+        # Log suspicious metrics (status_code=0 with bytes_transferred=0)
+        if status_code == 0 and bytes_transferred == 0:
+            invalid_count += 1
+            if invalid_count <= 5:  # Only log first 5 to avoid spam
+                logger.debug(
+                    f"Found invalid metric: run_id={m.get('run_id', 'unknown')}, "
+                    f"client_id={m.get('client_id', 'unknown')}, "
+                    f"status_code={status_code}, bytes={bytes_transferred}"
+                )
+    
+    if invalid_count > 0:
+        logger.warning(
+            f"Found {invalid_count} invalid metrics (status_code=0, bytes=0) out of {len(metrics)} total metrics. "
+            f"This may indicate failed requests or issues with direct function calls."
+        )
+
+    # Extract data from metrics (include all metrics for statistics, even failed ones)
     total_requests = len(metrics)
     successful_metrics = [m for m in metrics if m.get("status_code") == 200]
     failed_requests = total_requests - len(successful_metrics)
