@@ -112,7 +112,7 @@ resource "aws_dynamodb_table" "this" {
 
   # Enable DynamoDB Streams for audit tables to replicate entries to backup table
   # Streams provide real-time backup and prevent deletion of audit entries
-  stream_enabled  = contains(["downloads"], each.key)
+  stream_enabled   = contains(["downloads"], each.key)
   stream_view_type = contains(["downloads"], each.key) ? "NEW_AND_OLD_IMAGES" : null
 
   # Enable server-side encryption at rest for all tables

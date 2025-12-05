@@ -74,36 +74,36 @@ resource "aws_api_gateway_integration_response" "root_get_200" {
       message = "ACME Registry API"
       version = "1.0.0"
       endpoints = {
-        health                  = "/health"
-        health_components       = "/health/components"
-        authenticate            = "/authenticate"
-        artifacts               = "/artifacts"
-        reset                   = "/reset"
-        artifact_by_type_and_id = "/artifact/{artifact_type}/{id}"
-        artifact_by_type        = "/artifact/{artifact_type}"
-        artifact_by_name        = "/artifact/byName/{name}"
-        artifact_by_regex       = "/artifact/byRegEx"
-        artifact_cost           = "/artifact/{artifact_type}/{id}/cost"
-        artifact_audit          = "/artifact/{artifact_type}/{id}/audit"
-        model_rate              = "/artifact/model/{id}/rate"
-        model_lineage           = "/artifact/model/{id}/lineage"
-        model_license_check     = "/artifact/model/{id}/license-check"
-        model_download          = "/artifact/model/{id}/download"
-        model_download_rds      = "/artifact/model/{id}/download-rds"
+        health                   = "/health"
+        health_components        = "/health/components"
+        authenticate             = "/authenticate"
+        artifacts                = "/artifacts"
+        reset                    = "/reset"
+        artifact_by_type_and_id  = "/artifact/{artifact_type}/{id}"
+        artifact_by_type         = "/artifact/{artifact_type}"
+        artifact_by_name         = "/artifact/byName/{name}"
+        artifact_by_regex        = "/artifact/byRegEx"
+        artifact_cost            = "/artifact/{artifact_type}/{id}/cost"
+        artifact_audit           = "/artifact/{artifact_type}/{id}/audit"
+        model_rate               = "/artifact/model/{id}/rate"
+        model_lineage            = "/artifact/model/{id}/lineage"
+        model_license_check      = "/artifact/model/{id}/license-check"
+        model_download           = "/artifact/model/{id}/download"
+        model_download_rds       = "/artifact/model/{id}/download-rds"
         model_upload_rds         = "/artifact/model/{id}/upload-rds"
         model_upload_rds_url     = "/artifact/model/{id}/upload-rds-url"
         model_upload_rds_from_s3 = "/artifact/model/{id}/upload-rds-from-s3"
         model_check_rds          = "/artifact/model/{id}/check-rds"
         model_ingest_rds         = "/artifact/model/{id}/ingest-rds"
-        reset_rds               = "/reset-rds"
-        populate_s3_performance = "/populate/s3/performance"
+        reset_rds                = "/reset-rds"
+        populate_s3_performance  = "/populate/s3/performance"
         populate_rds_performance = "/populate/rds/performance"
-        artifact_ingest         = "/artifact/ingest"
-        artifact_directory      = "/artifact/directory"
-        upload                  = "/upload"
-        admin                   = "/admin"
-        directory               = "/directory"
-        performance_download    = "/performance/{model_id}/{version}/model.zip"
+        artifact_ingest          = "/artifact/ingest"
+        artifact_directory       = "/artifact/directory"
+        upload                   = "/upload"
+        admin                    = "/admin"
+        directory                = "/directory"
+        performance_download     = "/performance/{model_id}/{version}/model.zip"
       }
     })
   }
@@ -754,9 +754,9 @@ resource "aws_api_gateway_method" "performance_model_id_version_model_zip_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.model_id"     = true
-    "method.request.path.version"      = true
-    "method.request.querystring.component" = false
+    "method.request.path.model_id"          = true
+    "method.request.path.version"           = true
+    "method.request.querystring.component"  = false
     "method.request.header.X-Authorization" = false
   }
 }
@@ -772,9 +772,9 @@ resource "aws_api_gateway_integration" "performance_model_id_version_model_zip_g
   passthrough_behavior    = "WHEN_NO_MATCH"
 
   request_parameters = {
-    "integration.request.path.model_id"     = "method.request.path.model_id"
-    "integration.request.path.version"      = "method.request.path.version"
-    "integration.request.querystring.component" = "method.request.querystring.component"
+    "integration.request.path.model_id"          = "method.request.path.model_id"
+    "integration.request.path.version"           = "method.request.path.version"
+    "integration.request.querystring.component"  = "method.request.querystring.component"
     "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
   }
 }
@@ -783,8 +783,8 @@ resource "aws_api_gateway_integration" "performance_model_id_version_model_zip_g
 resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_200" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
-  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
-  status_code  = "200"
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code = "200"
 
   response_parameters = {
     "method.response.header.Content-Type"        = true
@@ -800,8 +800,8 @@ resource "aws_api_gateway_method_response" "performance_model_id_version_model_z
 resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_400" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
-  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
-  status_code  = "400"
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code = "400"
 
   response_models = {
     "application/json" = "Empty"
@@ -811,8 +811,8 @@ resource "aws_api_gateway_method_response" "performance_model_id_version_model_z
 resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_403" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
-  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
-  status_code  = "403"
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code = "403"
 
   response_models = {
     "application/json" = "Empty"
@@ -822,8 +822,8 @@ resource "aws_api_gateway_method_response" "performance_model_id_version_model_z
 resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_404" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
-  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
-  status_code  = "404"
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code = "404"
 
   response_models = {
     "application/json" = "Empty"
@@ -833,8 +833,8 @@ resource "aws_api_gateway_method_response" "performance_model_id_version_model_z
 resource "aws_api_gateway_method_response" "performance_model_id_version_model_zip_get_500" {
   rest_api_id = aws_api_gateway_rest_api.main_api.id
   resource_id = aws_api_gateway_resource.performance_model_id_version_model_zip.id
-  http_method  = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
-  status_code  = "500"
+  http_method = aws_api_gateway_method.performance_model_id_version_model_zip_get.http_method
+  status_code = "500"
 
   response_models = {
     "application/json" = "Empty"
@@ -3579,10 +3579,10 @@ resource "aws_api_gateway_method" "artifact_model_id_check_rds_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.querystring.version"    = false
+    "method.request.path.id"                 = true
+    "method.request.querystring.version"     = false
     "method.request.querystring.path_prefix" = false
-    "method.request.header.X-Authorization" = true
+    "method.request.header.X-Authorization"  = true
   }
 }
 
@@ -3596,10 +3596,10 @@ resource "aws_api_gateway_integration" "artifact_model_id_check_rds_get" {
   uri                     = "${var.validator_service_url}/artifact/model/{id}/check-rds"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.path.id"                 = "method.request.path.id"
+    "integration.request.querystring.version"     = "method.request.querystring.version"
     "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.header.X-Authorization"  = "method.request.header.X-Authorization"
   }
 }
 
@@ -3674,11 +3674,11 @@ resource "aws_api_gateway_method" "artifact_model_id_upload_rds_url_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.querystring.version"    = false
+    "method.request.path.id"                 = true
+    "method.request.querystring.version"     = false
     "method.request.querystring.path_prefix" = false
-    "method.request.querystring.expires_in" = false
-    "method.request.header.X-Authorization" = true
+    "method.request.querystring.expires_in"  = false
+    "method.request.header.X-Authorization"  = true
   }
 }
 
@@ -3692,11 +3692,11 @@ resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_url_get" {
   uri                     = "${var.validator_service_url}/artifact/model/{id}/upload-rds-url"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.path.id"                 = "method.request.path.id"
+    "integration.request.querystring.version"     = "method.request.querystring.version"
     "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
-    "integration.request.querystring.expires_in" = "method.request.querystring.expires_in"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.querystring.expires_in"  = "method.request.querystring.expires_in"
+    "integration.request.header.X-Authorization"  = "method.request.header.X-Authorization"
   }
 }
 
@@ -3715,11 +3715,11 @@ resource "aws_api_gateway_method" "artifact_model_id_upload_rds_from_s3_post" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.querystring.s3_key"     = true
-    "method.request.querystring.version"    = false
+    "method.request.path.id"                 = true
+    "method.request.querystring.s3_key"      = true
+    "method.request.querystring.version"     = false
     "method.request.querystring.path_prefix" = false
-    "method.request.header.X-Authorization" = true
+    "method.request.header.X-Authorization"  = true
   }
 }
 
@@ -3733,11 +3733,11 @@ resource "aws_api_gateway_integration" "artifact_model_id_upload_rds_from_s3_pos
   uri                     = "${var.validator_service_url}/artifact/model/{id}/upload-rds-from-s3"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.querystring.s3_key"     = "method.request.querystring.s3_key"
-    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.path.id"                 = "method.request.path.id"
+    "integration.request.querystring.s3_key"      = "method.request.querystring.s3_key"
+    "integration.request.querystring.version"     = "method.request.querystring.version"
     "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.header.X-Authorization"  = "method.request.header.X-Authorization"
   }
 }
 
@@ -3749,11 +3749,11 @@ resource "aws_api_gateway_method" "artifact_model_id_download_rds_get" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.querystring.version"    = false
-    "method.request.querystring.component"  = false
+    "method.request.path.id"                 = true
+    "method.request.querystring.version"     = false
+    "method.request.querystring.component"   = false
     "method.request.querystring.path_prefix" = false
-    "method.request.header.X-Authorization" = false
+    "method.request.header.X-Authorization"  = false
   }
 }
 
@@ -3767,11 +3767,11 @@ resource "aws_api_gateway_integration" "artifact_model_id_download_rds_get" {
   uri                     = "${var.validator_service_url}/artifact/model/{id}/download-rds"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.querystring.version"    = "method.request.querystring.version"
-    "integration.request.querystring.component"  = "method.request.querystring.component"
+    "integration.request.path.id"                 = "method.request.path.id"
+    "integration.request.querystring.version"     = "method.request.querystring.version"
+    "integration.request.querystring.component"   = "method.request.querystring.component"
     "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.header.X-Authorization"  = "method.request.header.X-Authorization"
   }
 }
 
@@ -3783,10 +3783,10 @@ resource "aws_api_gateway_method" "artifact_model_id_ingest_rds_post" {
   authorization = "NONE"
 
   request_parameters = {
-    "method.request.path.id"                = true
-    "method.request.querystring.version"    = false
+    "method.request.path.id"                 = true
+    "method.request.querystring.version"     = false
     "method.request.querystring.path_prefix" = false
-    "method.request.header.X-Authorization" = false
+    "method.request.header.X-Authorization"  = false
   }
 }
 
@@ -3800,10 +3800,10 @@ resource "aws_api_gateway_integration" "artifact_model_id_ingest_rds_post" {
   uri                     = "${var.validator_service_url}/artifact/model/{id}/ingest-rds"
 
   request_parameters = {
-    "integration.request.path.id"                = "method.request.path.id"
-    "integration.request.querystring.version"    = "method.request.querystring.version"
+    "integration.request.path.id"                 = "method.request.path.id"
+    "integration.request.querystring.version"     = "method.request.querystring.version"
     "integration.request.querystring.path_prefix" = "method.request.querystring.path_prefix"
-    "integration.request.header.X-Authorization" = "method.request.header.X-Authorization"
+    "integration.request.header.X-Authorization"  = "method.request.header.X-Authorization"
   }
 }
 
@@ -4648,12 +4648,12 @@ resource "aws_api_gateway_method_settings" "main_stage_all_methods" {
     metrics_enabled    = true
     logging_level      = "INFO"
     data_trace_enabled = true
-    
+
     # Throttling settings to prevent DDoS attacks
     # Limit each user to 100 requests per second with burst of 200
     # This prevents high-volume request flooding while allowing legitimate traffic
-    throttling_rate_limit  = 100  # Requests per second per user
-    throttling_burst_limit = 200  # Burst capacity
+    throttling_rate_limit  = 100 # Requests per second per user
+    throttling_burst_limit = 200 # Burst capacity
   }
 
   depends_on = [aws_api_gateway_stage.main_stage]
@@ -4902,7 +4902,7 @@ resource "aws_wafv2_web_acl" "api_gateway_waf" {
 
     statement {
       rate_based_statement {
-        limit              = 2000  # Requests per 5 minutes per IP
+        limit              = 2000 # Requests per 5 minutes per IP
         aggregate_key_type = "IP"
       }
     }
@@ -4952,7 +4952,7 @@ resource "aws_wafv2_web_acl" "api_gateway_waf" {
           body {}
         }
         comparison_operator = "GT"
-        size                = 104857600  # 100MB in bytes
+        size                = 104857600 # 100MB in bytes
         text_transformation {
           priority = 0
           type     = "NONE"
@@ -4998,11 +4998,11 @@ resource "aws_cloudwatch_metric_alarm" "high_request_rate" {
   evaluation_periods  = 2
   metric_name         = "Count"
   namespace           = "AWS/ApiGateway"
-  period              = 60  # 1 minute
+  period              = 60 # 1 minute
   statistic           = "Sum"
-  threshold           = 10000  # Alert if more than 10,000 requests per minute
+  threshold           = 10000 # Alert if more than 10,000 requests per minute
   alarm_description   = "This metric monitors API Gateway request rate for potential DDoS attacks"
-  alarm_actions       = []  # Add SNS topic ARN here for notifications
+  alarm_actions       = [] # Add SNS topic ARN here for notifications
 
   dimensions = {
     ApiName = aws_api_gateway_rest_api.main_api.name
@@ -5022,11 +5022,11 @@ resource "aws_cloudwatch_metric_alarm" "throttle_errors" {
   evaluation_periods  = 1
   metric_name         = "4XXError"
   namespace           = "AWS/ApiGateway"
-  period              = 60  # 1 minute
+  period              = 60 # 1 minute
   statistic           = "Sum"
-  threshold           = 100  # Alert if more than 100 4XX errors per minute
+  threshold           = 100 # Alert if more than 100 4XX errors per minute
   alarm_description   = "This metric monitors API Gateway throttle errors (429 status codes)"
-  alarm_actions       = []  # Add SNS topic ARN here for notifications
+  alarm_actions       = [] # Add SNS topic ARN here for notifications
 
   dimensions = {
     ApiName = aws_api_gateway_rest_api.main_api.name
@@ -5059,31 +5059,31 @@ output "api_gateway_invoke_url" {
 
 output "api_endpoints" {
   value = {
-    health             = "${aws_api_gateway_stage.main_stage.invoke_url}/health"
-    health_components  = "${aws_api_gateway_stage.main_stage.invoke_url}/health/components"
-    artifacts          = "${aws_api_gateway_stage.main_stage.invoke_url}/artifacts"
-    reset              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset"
-    authenticate       = "${aws_api_gateway_stage.main_stage.invoke_url}/authenticate"
-    tracks             = "${aws_api_gateway_stage.main_stage.invoke_url}/tracks"
-    artifact_ingest    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/ingest"
-    artifact_directory = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/directory"
-    artifact_create    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}"
-    artifact_rate      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/rate"
-    artifact_cost      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
-    artifact_lineage   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
-    artifact_license   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
-    artifact_upload       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
-    artifact_upload_rds    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
-    artifact_download      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
-    artifact_download_rds  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download-rds"
-    artifact_ingest_rds   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/ingest-rds"
-    reset_rds              = "${aws_api_gateway_stage.main_stage.invoke_url}/reset-rds"
-    populate_s3_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/s3/performance"
+    health                   = "${aws_api_gateway_stage.main_stage.invoke_url}/health"
+    health_components        = "${aws_api_gateway_stage.main_stage.invoke_url}/health/components"
+    artifacts                = "${aws_api_gateway_stage.main_stage.invoke_url}/artifacts"
+    reset                    = "${aws_api_gateway_stage.main_stage.invoke_url}/reset"
+    authenticate             = "${aws_api_gateway_stage.main_stage.invoke_url}/authenticate"
+    tracks                   = "${aws_api_gateway_stage.main_stage.invoke_url}/tracks"
+    artifact_ingest          = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/ingest"
+    artifact_directory       = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/directory"
+    artifact_create          = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}"
+    artifact_rate            = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/rate"
+    artifact_cost            = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/cost"
+    artifact_lineage         = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/lineage"
+    artifact_license         = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/license-check"
+    artifact_upload          = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload"
+    artifact_upload_rds      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/upload-rds"
+    artifact_download        = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download"
+    artifact_download_rds    = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/download-rds"
+    artifact_ingest_rds      = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/model/{id}/ingest-rds"
+    reset_rds                = "${aws_api_gateway_stage.main_stage.invoke_url}/reset-rds"
+    populate_s3_performance  = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/s3/performance"
     populate_rds_performance = "${aws_api_gateway_stage.main_stage.invoke_url}/populate/rds/performance"
-    artifact_audit     = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
-    artifact_by_name   = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
-    artifact_by_regex  = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
-    performance_download = "${aws_api_gateway_stage.main_stage.invoke_url}/performance/{model_id}/{version}/model.zip"
+    artifact_audit           = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/{artifact_type}/{id}/audit"
+    artifact_by_name         = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byName/{name}"
+    artifact_by_regex        = "${aws_api_gateway_stage.main_stage.invoke_url}/artifact/byRegEx"
+    performance_download     = "${aws_api_gateway_stage.main_stage.invoke_url}/performance/{model_id}/{version}/model.zip"
   }
   description = "Map of all API endpoints"
 }
