@@ -80,36 +80,8 @@ resource "aws_secretsmanager_secret_version" "github_token" {
   }
 }
 
-# Secrets Manager for GenAI API key
-resource "aws_secretsmanager_secret" "genai_api_key" {
-  name = "acme-genai-api-key"
-
-  kms_key_id = aws_kms_key.main_key.arn
-
-  tags = {
-    Name        = "acme-genai-api-key"
-    Environment = "dev"
-    Project     = "CS_450_Phase_2"
-  }
-
-  lifecycle {
-    ignore_changes = [kms_key_id]
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "genai_api_key" {
-  secret_id = aws_secretsmanager_secret.genai_api_key.id
-  # Secret value should be set manually via AWS Console or CLI
-  # This creates an empty secret that can be populated later
-  secret_string = jsonencode({
-    GEN_AI_STUDIO_API_KEY = "placeholder-set-via-aws-console-or-cli"
-  })
-
-  lifecycle {
-    # Always ignore changes to secret_string so manual updates aren't overwritten
-    ignore_changes = [secret_string]
-  }
-}
+# Note: GenAI API key secret (acme-genai-api-key) is managed manually
+# The ECS module uses a data source to reference it, so no Terraform resource needed here
 
 # CloudWatch Alarms
 resource "aws_cloudwatch_metric_alarm" "validator_high_cpu" {
@@ -271,10 +243,6 @@ output "jwt_secret_arn" {
 
 output "github_token_secret_arn" {
   value = aws_secretsmanager_secret.github_token.arn
-}
-
-output "genai_api_key_secret_arn" {
-  value = aws_secretsmanager_secret.genai_api_key.arn
 }
 
 output "dashboard_url" {
