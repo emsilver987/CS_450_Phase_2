@@ -17,17 +17,22 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 # RDS connection configuration
-RDS_ENDPOINT = os.getenv("RDS_ENDPOINT", "")
-RDS_DATABASE = os.getenv("RDS_DATABASE", "acme")
-RDS_USERNAME = os.getenv("RDS_USERNAME", "acme")
-RDS_PASSWORD = os.getenv("RDS_PASSWORD", "")
-# Parse port from endpoint if it includes port, otherwise use default
+# Hardcoded values (can be overridden by environment variables)
+# Values from infra/envs/dev/main.tf and infra/modules/rds/
+RDS_DATABASE = os.getenv("RDS_DATABASE", "acme")  # From infra/modules/rds/variables.tf
+RDS_USERNAME = os.getenv("RDS_USERNAME", "acme")  # From infra/modules/rds/variables.tf
+RDS_PASSWORD = os.getenv("RDS_PASSWORD", "acme_rds_password_123")  # From infra/envs/dev/main.tf line 108
+RDS_PORT = os.getenv("RDS_PORT", "5432")  # Default PostgreSQL port
+# RDS endpoint - get from env var, default to localhost for local development
+# For AWS: get from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
+# For local: use localhost (requires local PostgreSQL running)
+RDS_ENDPOINT = os.getenv("RDS_ENDPOINT", "localhost")  # Default to localhost for local development
+
+# Parse port from endpoint if it includes port
 if RDS_ENDPOINT and ":" in RDS_ENDPOINT:
     host, port = RDS_ENDPOINT.rsplit(":", 1)
     RDS_ENDPOINT = host
     RDS_PORT = port
-else:
-    RDS_PORT = os.getenv("RDS_PORT", "5432")
 
 # Connection pool configuration
 CONNECTION_POOL_MIN = 5

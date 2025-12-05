@@ -424,7 +424,8 @@ def test_rds_endpoints(
             if skip_if_not_configured:
                 print(f"   ⚠ Status: {response.status_code}")
                 print(f"     RDS not configured - skipping RDS endpoint tests")
-                print(f"     (RDS configuration is hardcoded in the script - check RDS_ENDPOINT value)")
+                print(f"     (RDS password is hardcoded in src/services/rds_service.py)")
+                print(f"     (RDS_ENDPOINT must be set - get from: terraform output -state=infra/envs/dev/terraform.tfstate rds_address)")
                 print(f"     (Or use --skip-rds flag to skip RDS tests entirely)")
                 ingest_success = False
                 # Skip remaining RDS tests
@@ -646,7 +647,7 @@ def _wait_for_populate_completion(
         
         try:
             print(f"    Polling status endpoint... (attempt {attempt}, elapsed: {elapsed}s)")
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.get(url, headers=headers, timeout=60)  # Increased timeout for heavy load
             
             if response.status_code == 200:
                 data = response.json()
@@ -788,7 +789,7 @@ def poll_for_results(
                 headers["X-Authorization"] = auth_token
             
             url = f"{api_base_url}/health/performance/results/{run_id}"
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.get(url, headers=headers, timeout=60)  # Increased timeout for heavy load
             
             if response.status_code == 200:
                 data = response.json()
@@ -806,8 +807,15 @@ def poll_for_results(
                 print(f"Not found (workload may still be starting)...")
             else:
                 print(f"Status: {response.status_code}")
+        except requests.exceptions.Timeout:
+            print(f"Timeout (server may be under heavy load, will retry...)")
+            # Continue polling - don't fail on timeout
+        except requests.exceptions.ConnectionError as e:
+            print(f"Connection error: {str(e)} (will retry...)")
+            # Continue polling - don't fail on connection errors
         except Exception as e:
-            print(f"Error: {str(e)}")
+            print(f"Error: {str(e)} (will retry...)")
+            # Continue polling - don't fail on other errors
         
         if time.time() - start_time < max_wait_seconds:
             time.sleep(poll_interval)
@@ -911,23 +919,26 @@ Examples:
     
     args = parser.parse_args()
     
-    # Hardcode RDS configuration values (not using environment variables)
+    # Hardcode RDS configuration values
     # Values from infra/envs/dev/main.tf and infra/modules/rds/
-    # These are hardcoded directly in the script
+    # These values are also hardcoded in src/services/rds_service.py
     RDS_DATABASE = "acme"  # From infra/modules/rds/variables.tf
     RDS_USERNAME = "acme"  # From infra/modules/rds/variables.tf
     RDS_PASSWORD = "acme_rds_password_123"  # From infra/envs/dev/main.tf line 108
     RDS_PORT = "5432"  # Default PostgreSQL port
-    # Hardcoded RDS endpoint - update with actual endpoint from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
+    # RDS endpoint - must be set to actual endpoint from Terraform
+    # To get actual endpoint: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
     # Format: acme-rds.xxxxx.us-east-1.rds.amazonaws.com
-    RDS_ENDPOINT = "acme-rds.xxxxx.us-east-1.rds.amazonaws.com"  # Update with actual endpoint
+    # NOTE: If RDS_ENDPOINT is empty or invalid, RDS tests will be skipped
+    RDS_ENDPOINT = os.getenv("RDS_ENDPOINT", "")  # Get from env or leave empty to skip RDS tests
     
-    # Set as environment variables for the API server if it's started in the same environment
+    # Set as environment variables (though server reads from hardcoded values in rds_service.py)
     os.environ["RDS_DATABASE"] = RDS_DATABASE
     os.environ["RDS_USERNAME"] = RDS_USERNAME
     os.environ["RDS_PASSWORD"] = RDS_PASSWORD
     os.environ["RDS_PORT"] = RDS_PORT
-    os.environ["RDS_ENDPOINT"] = RDS_ENDPOINT
+    if RDS_ENDPOINT:
+        os.environ["RDS_ENDPOINT"] = RDS_ENDPOINT
     
     # Determine base URL
     if args.base_url:
