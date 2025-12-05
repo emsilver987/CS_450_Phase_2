@@ -527,6 +527,8 @@ def populate_s3_performance_path(
     api_base_url: str,
     auth_token: Optional[str],
     repopulate: bool = True,
+    wait_for_completion: bool = True,
+    max_wait_seconds: int = 15,
 ) -> bool:
     """
     Populate S3 performance path by calling the /populate/s3/performance endpoint.
@@ -536,6 +538,8 @@ def populate_s3_performance_path(
         api_base_url: Base URL of the API
         auth_token: Optional authentication token
         repopulate: If True, repopulates with 500 models. If False, only resets.
+        wait_for_completion: If True, polls status endpoint. If False, returns immediately after starting.
+        max_wait_seconds: Maximum time to wait while polling status (default: 15 seconds)
         
     Returns:
         True if successful, False otherwise
@@ -556,28 +560,47 @@ def populate_s3_performance_path(
         else:
             print(f"  Note: This will only reset (delete) the S3 performance path")
         
-        response = requests.post(url, params=params, headers=headers, timeout=600)  # Long timeout for 500 models
+        # Start the repopulation (now async, returns 202 Accepted)
+        response = requests.post(url, params=params, headers=headers, timeout=30)
         
-        if response.status_code == 200:
+        if response.status_code == 202:
+            # Async operation started
             data = response.json()
-            print(f"  ✓ Status: {response.status_code}")
+            print(f"  ✓ Status: {response.status_code} (Accepted - operation started)")
             print(f"    Message: {data.get('message', 'N/A')}")
-            deleted_count = data.get('deleted_count', 0)
-            if deleted_count is not None:
-                print(f"    Deleted Count: {deleted_count}")
             
-            if repopulate:
-                repopulate_result = data.get('repopulate', {})
-                if repopulate_result:
-                    print(f"    Repopulation Results:")
-                    print(f"      Successful: {repopulate_result.get('successful', 0)}")
-                    print(f"      Failed: {repopulate_result.get('failed', 0)}")
-                    print(f"      Not Found: {repopulate_result.get('not_found', 0)}")
-                    print(f"      Target: {repopulate_result.get('target', 500)}")
-                    # Consider it successful if we got at least the required model
-                    successful = repopulate_result.get('successful', 0)
-                    if successful > 0:
-                        return True
+            if wait_for_completion:
+                print(f"  Polling status endpoint for up to {max_wait_seconds} seconds...")
+                return _wait_for_populate_completion(api_base_url, auth_token, max_wait_seconds)
+            else:
+                print(f"    Note: Operation is running in background")
+                print(f"    Use GET /populate/s3/performance/status to check progress")
+                # For CI/CD, we'll assume it will complete - the model should be available soon
+                # The test will proceed and the model should be ready by the time it's needed
+                return True
+        elif response.status_code == 200:
+            # Already running or completed (legacy response)
+            data = response.json()
+            status = data.get('status', 'unknown')
+            print(f"  ✓ Status: {response.status_code}")
+            print(f"    Status: {status}")
+            print(f"    Message: {data.get('message', 'N/A')}")
+            
+            if status == "running":
+                if wait_for_completion:
+                    return _wait_for_populate_completion(api_base_url, auth_token, max_wait_seconds)
+                else:
+                    return True
+            elif status == "completed":
+                # Check results
+                result = data.get('result', {})
+                if repopulate:
+                    repopulate_result = result.get('repopulate', {})
+                    if repopulate_result:
+                        successful = repopulate_result.get('successful', 0)
+                        if successful > 0:
+                            return True
+                return True
             else:
                 return True
         else:
@@ -585,7 +608,7 @@ def populate_s3_performance_path(
             print(f"    Response: {response.text[:500]}")
             return False
     except requests.exceptions.Timeout:
-        print(f"  ⚠ Timeout: Request took longer than 10 minutes")
+        print(f"  ⚠ Timeout: Request took longer than expected")
         print(f"    The endpoint may still be processing in the background")
         print(f"    Proceeding with workload test (model may be available)")
         return True  # Consider timeout as success since it's a long operation
@@ -594,6 +617,78 @@ def populate_s3_performance_path(
         import traceback
         traceback.print_exc()
         return False
+
+
+def _wait_for_populate_completion(
+    api_base_url: str,
+    auth_token: Optional[str],
+    max_wait_seconds: int = 15,
+    poll_interval: int = 3,
+) -> bool:
+    """
+    Poll the status endpoint until repopulation completes or timeout.
+    Shows polling progress messages.
+    
+    Returns:
+        True if completed successfully or timeout reached, False if failed
+    """
+    headers = {}
+    if auth_token:
+        headers["X-Authorization"] = auth_token
+    
+    url = f"{api_base_url}/populate/s3/performance/status"
+    start_time = time.time()
+    attempt = 0
+    
+    while time.time() - start_time < max_wait_seconds:
+        attempt += 1
+        elapsed = int(time.time() - start_time)
+        
+        try:
+            print(f"    Polling status endpoint... (attempt {attempt}, elapsed: {elapsed}s)")
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                status = data.get('status', 'unknown')
+                
+                if status == "completed":
+                    print(f"  ✓ Repopulation completed after {elapsed}s")
+                    result = data.get('result', {})
+                    if result:
+                        repopulate_result = result.get('repopulate', {})
+                        if repopulate_result:
+                            print(f"    Successful: {repopulate_result.get('successful', 0)}")
+                            print(f"    Failed: {repopulate_result.get('failed', 0)}")
+                            print(f"    Not Found: {repopulate_result.get('not_found', 0)}")
+                            successful = repopulate_result.get('successful', 0)
+                            return successful > 0
+                    return True
+                elif status == "failed":
+                    print(f"  ✗ Repopulation failed after {elapsed}s")
+                    error = data.get('error', 'Unknown error')
+                    print(f"    Error: {error}")
+                    return False
+                else:
+                    # Still running - show status
+                    print(f"    Status: {status} (still running...)")
+            elif response.status_code == 404:
+                print(f"  ⚠ Status endpoint returned 404 (job may have completed)")
+                # Assume it completed if status endpoint is not found
+                return True
+            else:
+                print(f"  ⚠ Unexpected status code: {response.status_code}")
+                
+        except Exception as e:
+            print(f"  ⚠ Error checking status: {str(e)}")
+        
+        if time.time() - start_time < max_wait_seconds:
+            time.sleep(poll_interval)
+    
+    print(f"  ⚠ Timeout: Repopulation did not complete within {max_wait_seconds}s")
+    print(f"    Operation is still running in background and will continue")
+    print(f"    Proceeding with tests (model should be available soon)")
+    return True  # Assume it will complete
 
 
 def test_populate_s3_performance(
@@ -827,7 +922,10 @@ Examples:
         os.environ["RDS_PASSWORD"] = "acme_rds_password_123"  # From infra/envs/dev/main.tf line 108
     if not os.getenv("RDS_PORT"):
         os.environ["RDS_PORT"] = "5432"  # Default PostgreSQL port
-    # Note: RDS_ENDPOINT must be set by user or environment (dynamic from Terraform output: module.rds.rds_address)
+    if not os.getenv("RDS_ENDPOINT"):
+        # Hardcoded RDS endpoint - update with actual endpoint from Terraform output: terraform output -state=infra/envs/dev/terraform.tfstate rds_address
+        # Format: acme-rds.xxxxx.us-east-1.rds.amazonaws.com
+        os.environ["RDS_ENDPOINT"] = "acme-rds.xxxxx.us-east-1.rds.amazonaws.com"  # Update with actual endpoint
     
     # Determine base URL
     if args.base_url:

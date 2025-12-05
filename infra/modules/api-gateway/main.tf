@@ -1266,6 +1266,94 @@ resource "aws_api_gateway_integration_response" "populate_s3_performance_post_20
   depends_on = [aws_api_gateway_integration.populate_s3_performance_post]
 }
 
+resource "aws_api_gateway_method_response" "populate_s3_performance_post_202" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = "202"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_post_202" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance.id
+  http_method = aws_api_gateway_method.populate_s3_performance_post.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_post_202.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_post]
+}
+
+# GET /populate/s3/performance/status
+resource "aws_api_gateway_resource" "populate_s3_performance_status" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  parent_id   = aws_api_gateway_resource.populate_s3_performance.id
+  path_part   = "status"
+}
+
+resource "aws_api_gateway_method" "populate_s3_performance_status_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main_api.id
+  resource_id   = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "populate_s3_performance_status_get" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+
+  integration_http_method = "GET"
+  type                    = "HTTP_PROXY"
+  uri                     = "${var.validator_service_url}/populate/s3/performance/status"
+}
+
+resource "aws_api_gateway_method_response" "populate_s3_performance_status_get_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_status_get_200" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_status_get_200.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_status_get]
+}
+
+resource "aws_api_gateway_method_response" "populate_s3_performance_status_get_404" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = "404"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_status_get_404" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_status_get_404.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_status_get]
+}
+
+resource "aws_api_gateway_method_response" "populate_s3_performance_status_get_500" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = "500"
+}
+
+resource "aws_api_gateway_integration_response" "populate_s3_performance_status_get_500" {
+  rest_api_id = aws_api_gateway_rest_api.main_api.id
+  resource_id = aws_api_gateway_resource.populate_s3_performance_status.id
+  http_method = aws_api_gateway_method.populate_s3_performance_status_get.http_method
+  status_code = aws_api_gateway_method_response.populate_s3_performance_status_get_500.status_code
+
+  depends_on = [aws_api_gateway_integration.populate_s3_performance_status_get]
+}
+
 # POST /populate/rds/performance
 resource "aws_api_gateway_method" "populate_rds_performance_post" {
   rest_api_id   = aws_api_gateway_rest_api.main_api.id

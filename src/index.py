@@ -1787,17 +1787,29 @@ def reset_rds_system(request: Request):
     except Exception as e:
         logger.error(f"Error resetting RDS registry: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"RDS reset failed: {str(e)}")
+# Status tracking for async repopulation (in-memory, similar to workload runs)
+_populate_status: Dict[str, Dict[str, Any]] = {}
+_populate_lock = threading.Lock()
 
 
-@app.post("/populate/s3/performance")
-def populate_s3_performance(repopulate: bool = Query(True, description="Repopulate with 500 models")):
+def _run_repopulate_background(repopulate: bool):
     """
-    Populate the S3 performance/ path with 500 models from HuggingFace.
-    First resets (deletes all objects), then repopulates.
-    Only affects the performance/ path, not models/ or other paths.
-    No authentication required.
+    Run repopulation in background thread to avoid API Gateway timeout.
+    Updates _populate_status when complete.
     """
+    global _populate_status
+    
+    job_id = "current"  # Single job at a time
+    start_time = time.time()
+    
     try:
+        with _populate_lock:
+            _populate_status[job_id] = {
+                "status": "running",
+                "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "repopulate": repopulate,
+            }
+        
         response_data = {
             "message": "S3 performance path population started",
             "path": "performance/"
@@ -1829,17 +1841,134 @@ def populate_s3_performance(repopulate: bool = Query(True, description="Repopula
             repopulate_result = _repopulate_performance_path()
             response_data["repopulate"] = repopulate_result
             
-            # Update message to indicate background processing
+            # Update message with actual results
             successful_count = repopulate_result.get("successful", 0)
+            failed_count = repopulate_result.get("failed", 0)
+            not_found_count = repopulate_result.get("not_found", 0)
             target_count = repopulate_result.get("target", 500)
-            response_data["message"] = f"{successful_count} models have been uploading, continuing in the background until {target_count}"
+            response_data["message"] = f"Repopulation complete: {successful_count} successful, {failed_count} failed, {not_found_count} not found (target: {target_count})"
         
-        return JSONResponse(status_code=200, content=response_data)
-    except HTTPException:
-        raise
+        elapsed_time = time.time() - start_time
+        
+        # Update status to completed
+        with _populate_lock:
+            _populate_status[job_id] = {
+                "status": "completed",
+                "started_at": _populate_status[job_id]["started_at"],
+                "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "elapsed_seconds": elapsed_time,
+                "repopulate": repopulate,
+                "result": response_data,
+            }
+        
+        logger.info(f"Repopulation completed in {elapsed_time:.2f} seconds")
+        
     except Exception as e:
-        logger.error(f"Error populating S3 performance path: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"S3 performance path population failed: {str(e)}")
+        elapsed_time = time.time() - start_time
+        error_msg = str(e)
+        logger.error(f"Error in background repopulation: {error_msg}", exc_info=True)
+        
+        # Update status to failed
+        with _populate_lock:
+            if job_id in _populate_status:
+                _populate_status[job_id]["status"] = "failed"
+                _populate_status[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                _populate_status[job_id]["elapsed_seconds"] = elapsed_time
+                _populate_status[job_id]["error"] = error_msg
+            else:
+                _populate_status[job_id] = {
+                    "status": "failed",
+                    "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "elapsed_seconds": elapsed_time,
+                    "error": error_msg,
+                }
+
+
+@app.post("/populate/s3/performance")
+def populate_s3_performance(repopulate: bool = Query(True, description="Repopulate with 500 models")):
+    """
+    Populate the S3 performance/ path with 500 models from HuggingFace.
+    First resets (deletes all objects), then repopulates.
+    Only affects the performance/ path, not models/ or other paths.
+    No authentication required.
+    
+    This endpoint runs asynchronously to avoid API Gateway timeout (30s limit).
+    The repopulation process runs in a background thread and may take several minutes.
+    Use GET /populate/s3/performance/status to check progress.
+    """
+    try:
+        job_id = "current"
+        
+        # Check if a repopulation is already running
+        with _populate_lock:
+            if job_id in _populate_status:
+                current_status = _populate_status[job_id].get("status")
+                if current_status == "running":
+                    # Return current status instead of starting a new job
+                    return JSONResponse(
+                        status_code=200,
+                        content={
+                            "message": "Repopulation already in progress",
+                            "status": "running",
+                            "started_at": _populate_status[job_id].get("started_at"),
+                            "path": "performance/",
+                        }
+                    )
+        
+        # Start repopulation in background thread
+        logger.info("Starting async repopulation of S3 performance path...")
+        thread = threading.Thread(
+            target=_run_repopulate_background,
+            args=(repopulate,),
+            daemon=True,
+        )
+        thread.start()
+        
+        # Return immediately with status
+        return JSONResponse(
+            status_code=202,  # Accepted - operation started
+            content={
+                "message": "S3 performance path population started (running asynchronously)",
+                "status": "started",
+                "path": "performance/",
+                "repopulate": repopulate,
+                "note": "This operation may take several minutes. Use GET /populate/s3/performance/status to check progress.",
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error starting S3 performance path population: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start S3 performance path population: {str(e)}")
+
+
+@app.get("/populate/s3/performance/status")
+def get_populate_s3_performance_status():
+    """
+    Get the status of the current S3 performance path repopulation job.
+    Returns the current status, progress, and results if completed.
+    No authentication required.
+    """
+    job_id = "current"
+    
+    with _populate_lock:
+        if job_id not in _populate_status:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "No repopulation job found",
+                    "status": "not_found",
+                }
+            )
+        
+        status_data = _populate_status[job_id].copy()
+        
+        if status_data.get("status") == "completed":
+            return JSONResponse(status_code=200, content=status_data)
+        elif status_data.get("status") == "failed":
+            return JSONResponse(status_code=500, content=status_data)
+        else:
+            # Running
+            return JSONResponse(status_code=200, content=status_data)
 
 
 def _repopulate_performance_path() -> Dict[str, Any]:
@@ -1859,41 +1988,16 @@ def _repopulate_performance_path() -> Dict[str, Any]:
                 detail="AWS services not available. Please check your AWS configuration.",
             )
     
-        models =[
-    "arnir0/Tiny-LLM",
-    "bert-base-uncased",
-    "bert-base-cased",
-    "bert-large-uncased",
-    "bert-large-cased",
-    "distilbert-base-uncased",
-    "distilbert-base-cased",
-    "distilbert-base-multilingual-cased",
-    "bert-base-multilingual-cased",
-    "bert-base-multilingual-uncased",
-    "bert-base-chinese",
-    "bert-base-german-cased",
-    "google/bert_uncased_L-2_H-128_A-2",
-    "google/bert_uncased_L-4_H-128_A-2",
-    "google/bert_uncased_L-4_H-256_A-4",
-    "google/bert_uncased_L-6_H-256_A-4",
-    "google/bert_uncased_L-8_H-512_A-8",
-    "google/bert_uncased_L-12_H-768_A-12",
-    "roberta-base",
-    "roberta-large",
-    "distilroberta-base",
-    "roberta-base-openai-detector",
-    "roberta-large-mnli",
-    "xlm-roberta-base",
-    "xlm-roberta-large",
-    "cardiffnlp/twitter-roberta-base-sentiment-latest",
-    "gpt2"]
+        # Import the hardcoded list of 500 models
+        from .huggingface_models_list import HF_MODELS_500
+        
+        models = HF_MODELS_500.copy()
         
         # Ensure Tiny-LLM is first
         REQUIRED_MODEL = "arnir0/Tiny-LLM"
         if REQUIRED_MODEL in models:
             models.remove(REQUIRED_MODEL)
         models.insert(0, REQUIRED_MODEL)
-        models = models[:500]  # Limit to 500
         
         successful = 0
         failed = 0
