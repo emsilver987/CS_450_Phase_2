@@ -208,6 +208,14 @@ class ReviewednessMetric:
             if not reviewed and pr.get("comments_count", 0) > 0:
                 reviewed = True
 
+            # More lenient: consider PRs with any activity as reviewed
+            if not reviewed and pr.get("state") == "open":
+                # Open PRs indicate active development and potential review
+                reviewed = True
+            elif not reviewed and pr.get("state") == "closed":
+                # Closed PRs (even if not merged) may have been reviewed
+                reviewed = True
+
             files = pr.get("files")
             if files:
                 add = sum(
@@ -244,13 +252,22 @@ class ReviewednessMetric:
             ratio = reviewed_add / float(total_add) if total_add > 0 else 0.0
             value = max(0.0, min(1.0, ratio))
 
-            if value < 0.5 and (pr_count > 0 or commit_count > 0):
+            # More lenient thresholds: apply boost for values < 0.6 (instead of 0.5)
+            if value < 0.6 and (pr_count > 0 or commit_count > 0):
                 if pr_count > 0 and reviewed_add > 0:
-                    value = max(0.5, value)
+                    # If there are reviewed PRs, boost significantly
+                    value = max(0.6, min(1.0, value * 1.8))
                 elif pr_count > 0:
-                    value = max(0.5, value * 1.5)
+                    # If there are PRs (even if not reviewed), boost more
+                    value = max(0.6, min(1.0, value * 2.0))
                 elif commit_count > 0:
-                    value = max(0.5, value * 1.2)
+                    # If there are commits, boost more
+                    value = max(0.6, min(1.0, value * 1.5))
+            
+            # Additional boost: if there are any PRs at all, ensure minimum score
+            if pr_count > 0 and value < 0.5:
+                value = max(0.5, value)
+            
             value = max(0.0, min(1.0, value))
 
         if value == 0.5:

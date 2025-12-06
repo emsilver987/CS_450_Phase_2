@@ -13,7 +13,7 @@ validator_service = importlib.import_module("src.services.validator_service")
 execute_validator = validator_service.execute_validator
 
 if os.getenv("SKIP_PROCESSPOOL_TESTS") == "1":
-    pytest.skip("Skipped under coverage run", allow_module_level=True)
+    pass  # UNSKIPPED: pytest.skip("Skipped under coverage run", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)

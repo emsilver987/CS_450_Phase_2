@@ -75,6 +75,58 @@ _rating_start_times: Dict[str, float] = {}
 _artifact_storage: Dict[str, Dict[str, Any]] = {}
 
 
+def _run_async_rating_frontend(cache_key: str, model_name: str):
+    """
+    Run rating asynchronously in background thread for frontend.
+    Updates _rating_status and _rating_results when complete.
+    """
+    global _rating_status, _rating_locks, _rating_results, _rating_start_times, _rating_lock
+
+    try:
+        with _rating_lock:
+            logger.info(f"[RATE] [ASYNC] Starting rating for cache_key='{cache_key}', model_name='{model_name}'")
+            if cache_key not in _rating_start_times:
+                _rating_start_times[cache_key] = time.time()
+            _rating_status[cache_key] = "pending"
+            if cache_key not in _rating_locks:
+                _rating_locks[cache_key] = threading.Event()
+
+        # Perform rating
+        logger.info(f"[RATE] [ASYNC] Calling analyze_model_content for '{model_name}'...")
+        start_time = time.time()
+        rating = analyze_model_content(model_name, suppress_errors=False)
+        elapsed_time = time.time() - start_time
+        logger.info(f"[RATE] [ASYNC] analyze_model_content completed in {elapsed_time:.2f}s for '{model_name}'")
+
+        with _rating_lock:
+            if not rating:
+                logger.warning(f"[RATE] [ASYNC] Rating returned None/empty for '{model_name}'")
+                _rating_status[cache_key] = "failed"
+                _rating_results[cache_key] = None
+            else:
+                logger.info(f"[RATE] [ASYNC] Rating completed successfully for '{model_name}'")
+                _rating_status[cache_key] = "completed"
+                _rating_results[cache_key] = rating
+
+            # Clean up tracking data
+            if cache_key in _rating_start_times:
+                del _rating_start_times[cache_key]
+
+        # Signal that rating is complete
+        if cache_key in _rating_locks:
+            _rating_locks[cache_key].set()
+            logger.info(f"[RATE] [ASYNC] Signaled completion for cache_key='{cache_key}'")
+    except Exception as e:
+        logger.error(f"[RATE] [ASYNC] Error during rating for '{cache_key}': {str(e)}", exc_info=True)
+        with _rating_lock:
+            _rating_status[cache_key] = "failed"
+            _rating_results[cache_key] = None
+            if cache_key in _rating_start_times:
+                del _rating_start_times[cache_key]
+        if cache_key in _rating_locks:
+            _rating_locks[cache_key].set()
+
+
 # Helper functions (same logic as index.py)
 def sanitize_model_id_for_s3(model_id: str) -> str:
     """Sanitize model ID for S3 key (same logic as index.py)"""
@@ -174,17 +226,17 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
     return {
         "name": model_name,
         "category": alias(rating, "category") or "unknown",
-        "net_score": round(float(alias(rating, "net_score", "NetScore", "netScore") or 0.0), 2),
-        "ramp_up_time": round(float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0), 2),
-        "bus_factor": round(float(alias(rating, "bus_factor", "BusFactor", "score_bus_factor", "busFactor") or 0.0), 2),
-        "performance_claims": round(float(alias(rating, "performance_claims", "PerformanceClaims", "score_performance_claims") or 0.0), 2),
-        "license": round(float(alias(rating, "license", "License", "score_license") or 0.0), 2),
-        "dataset_and_code_score": round(float(alias(rating, "dataset_code", "DatasetCode", "score_available_dataset_and_code") or 0.0), 2),
-        "dataset_quality": round(float(alias(rating, "dataset_quality", "DatasetQuality", "score_dataset_quality") or 0.0), 2),
-        "code_quality": round(float(alias(rating, "code_quality", "CodeQuality", "score_code_quality") or 0.0), 2),
-        "reproducibility": round(float(alias(rating, "reproducibility", "Reproducibility", "score_reproducibility") or 0.0), 2),
-        "reviewedness": round(float(alias(rating, "reviewedness", "Reviewedness", "score_reviewedness") or 0.0), 2),
-        "treescore": round(float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0), 2),
+        "net_score": round(min(1.0, max(0.0, float(alias(rating, "net_score", "NetScore", "netScore") or 0.0))), 2),
+        "ramp_up_time": round(min(1.0, max(0.0, float(alias(rating, "ramp_up", "RampUp", "score_ramp_up", "rampUp") or 0.0))), 2),
+        "bus_factor": round(min(1.0, max(0.0, float(alias(rating, "bus_factor", "BusFactor", "score_bus_factor", "busFactor") or 0.0))), 2),
+        "performance_claims": round(min(1.0, max(0.0, float(alias(rating, "performance_claims", "PerformanceClaims", "score_performance_claims") or 0.0))), 2),
+        "license": round(min(1.0, max(0.0, float(alias(rating, "license", "License", "score_license") or 0.0))), 2),
+        "dataset_and_code_score": round(min(1.0, max(0.0, float(alias(rating, "dataset_code", "DatasetCode", "score_available_dataset_and_code") or 0.0))), 2),
+        "dataset_quality": round(min(1.0, max(0.0, float(alias(rating, "dataset_quality", "DatasetQuality", "score_dataset_quality") or 0.0))), 2),
+        "code_quality": round(min(1.0, max(0.0, float(alias(rating, "code_quality", "CodeQuality", "score_code_quality") or 0.0))), 2),
+        "reproducibility": round(min(1.0, max(0.0, float(alias(rating, "reproducibility", "Reproducibility", "score_reproducibility") or 0.0))), 2),
+        "reviewedness": round(min(1.0, max(0.0, float(alias(rating, "reviewedness", "Reviewedness", "score_reviewedness") or 0.0))), 2),
+        "treescore": round(min(1.0, max(0.0, float(alias(rating, "treescore", "Treescore", "score_treescore") or 0.0))), 2),
     }
 
 
@@ -356,45 +408,83 @@ def register_routes(app: FastAPI):
             try:
                 # Check cache first (same as index.py)
                 rating_raw = None
+                status = None
                 if cache_key and cache_key in _rating_status:
                     status = _rating_status[cache_key]
                     if status == "completed":
                         rating_raw = _rating_results.get(cache_key)
                         if rating_raw:
                             logger.info(f"[RATE] Using cached rating for {cache_key}")
+                            rating = _build_rating_response(model_name, rating_raw)
+                            if model_id:
+                                rating["id"] = model_id
+                            ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                            return templates.TemplateResponse("rate.html", ctx)
                 
-                # If not cached, compute rating
-                if not rating_raw:
-                    logger.info(f"[RATE] Computing rating for {model_name} (cache_key={cache_key})")
-                    try:
-                        rating_raw = analyze_model_content(model_name, suppress_errors=False)
-                    except RuntimeError as e:
-                        logger.error(f"[RATE] RuntimeError analyzing {model_name}: {str(e)}", exc_info=True)
-                        raise HTTPException(
-                            status_code=500,
-                            detail=f"Failed to analyze model: {str(e)}",
-                        )
-                    except Exception as e:
-                        logger.error(f"[RATE] Exception analyzing {model_name}: {str(e)}", exc_info=True)
-                        raise HTTPException(
-                            status_code=500,
-                            detail=f"The artifact rating system encountered an error: {str(e)}",
-                        )
-                    if not rating_raw:
-                        raise HTTPException(
-                            status_code=500,
-                            detail="The artifact rating system encountered an error while computing at least one metric.",
-                        )
-                    # Cache the result if we have a cache key
+                # If pending, wait a short time (30 seconds max to avoid timeout)
+                if status == "pending" and cache_key and cache_key in _rating_locks:
+                    logger.info(f"[RATE] Rating pending for {cache_key}, waiting up to 30s...")
+                    event = _rating_locks[cache_key]
+                    if event.wait(timeout=30):
+                        # Rating completed during wait
+                        with _rating_lock:
+                            if cache_key in _rating_status and _rating_status[cache_key] == "completed":
+                                rating_raw = _rating_results.get(cache_key)
+                                if rating_raw:
+                                    logger.info(f"[RATE] Rating completed during wait for {cache_key}")
+                                    rating = _build_rating_response(model_name, rating_raw)
+                                    if model_id:
+                                        rating["id"] = model_id
+                                    ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                                    return templates.TemplateResponse("rate.html", ctx)
+                
+                # If not cached and not pending, start async rating
+                if not rating_raw and status != "pending":
+                    logger.info(f"[RATE] Starting async rating for {model_name} (cache_key={cache_key})")
                     if cache_key:
                         with _rating_lock:
-                            _rating_results[cache_key] = rating_raw
-                            _rating_status[cache_key] = "completed"
+                            if cache_key not in _rating_locks:
+                                _rating_locks[cache_key] = threading.Event()
+                            _rating_status[cache_key] = "pending"
+                            _rating_start_times[cache_key] = time.time()
+                        
+                        # Start async rating in background thread
+                        rating_thread = threading.Thread(
+                            target=_run_async_rating_frontend,
+                            args=(cache_key, model_name),
+                            daemon=True,
+                        )
+                        rating_thread.start()
+                        
+                        # Wait a short time (20 seconds) to see if it completes quickly
+                        logger.info(f"[RATE] Waiting up to 20s for async rating to complete...")
+                        event = _rating_locks[cache_key]
+                        if event.wait(timeout=20):
+                            # Rating completed quickly
+                            with _rating_lock:
+                                if cache_key in _rating_status and _rating_status[cache_key] == "completed":
+                                    rating_raw = _rating_results.get(cache_key)
+                                    if rating_raw:
+                                        logger.info(f"[RATE] Async rating completed quickly for {cache_key}")
+                                        rating = _build_rating_response(model_name, rating_raw)
+                                        if model_id:
+                                            rating["id"] = model_id
+                                        ctx = {"request": request, "name": model_name or "", "id": model_id or "", "rating": rating}
+                                        return templates.TemplateResponse("rate.html", ctx)
                 
-                rating = _build_rating_response(model_name, rating_raw)
-                # Add model ID to rating if available
-                if model_id:
-                    rating["id"] = model_id
+                # If we get here, rating is still in progress or failed
+                # Return a "pending" message to avoid timeout
+                logger.info(f"[RATE] Rating still in progress for {cache_key}, returning pending message")
+                ctx = {
+                    "request": request,
+                    "name": model_name or "",
+                    "id": model_id or "",
+                    "rating": None,
+                    "pending": True,
+                    "message": "Rating is being computed. Please refresh the page in a few moments."
+                }
+                return templates.TemplateResponse("rate.html", ctx)
+                
             except HTTPException:
                 raise
             except Exception as e:
@@ -498,89 +588,96 @@ def register_routes(app: FastAPI):
                 # Read ZIP file content
                 file_content = await file.read()
                 
-                # Extract model name from filename if not provided
-                if not name or not name.strip():
-                    name = file.filename.replace(".zip", "").strip()
-                
-                name = name.strip()
-                
-                # For models, upload ZIP and use ingest logic
-                if artifact_type == "model":
-                    try:
-                        # Check if artifact already exists
-                        existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
-                        if existing.get("models"):
-                            result = {"error": "Artifact exists already."}
-                        else:
-                            # Upload the ZIP file to S3
-                            upload_model(file_content, name, version)
-                            
-                            # Generate artifact ID (same as index.py)
-                            artifact_id = str(random.randint(1000000000, 9999999999))
-                            url = f"https://huggingface.co/{name}"
-                            
-                            # Initialize rating status
-                            with _rating_lock:
-                                _rating_status[artifact_id] = "pending"
-                                _rating_locks[artifact_id] = threading.Event()
-                                _rating_start_times[artifact_id] = time.time()
-                            
-                            # Store artifact metadata
-                            artifact_data = {
-                                "name": name,
-                                "type": artifact_type,
-                                "version": version,
-                                "id": artifact_id,
-                                "url": url,
-                            }
-                            save_artifact(artifact_id, artifact_data)
-                            
-                            # Store in S3 metadata
-                            try:
-                                store_artifact_metadata(artifact_id, name, artifact_type, version, url)
-                            except Exception as s3_error:
-                                logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
-                            
-                            result = {
-                                "message": "Upload successful",
-                                "details": {
+                # Enforce file size limit to prevent large file DoS attacks
+                MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+                if len(file_content) > MAX_FILE_SIZE:
+                    result = {
+                        "error": f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+                    }
+                else:
+                    # Extract model name from filename if not provided
+                    if not name or not name.strip():
+                        name = file.filename.replace(".zip", "").strip()
+                    
+                    name = name.strip()
+                    
+                    # For models, upload ZIP and use ingest logic
+                    if artifact_type == "model":
+                        try:
+                            # Check if artifact already exists
+                            existing = list_models(name_regex=f"^{re.escape(name)}$", limit=1)
+                            if existing.get("models"):
+                                result = {"error": "Artifact exists already."}
+                            else:
+                                # Upload the ZIP file to S3
+                                upload_model(file_content, name, version)
+                                
+                                # Generate artifact ID (same as index.py)
+                                artifact_id = str(random.randint(1000000000, 9999999999))
+                                url = f"https://huggingface.co/{name}"
+                                
+                                # Initialize rating status
+                                with _rating_lock:
+                                    _rating_status[artifact_id] = "pending"
+                                    _rating_locks[artifact_id] = threading.Event()
+                                    _rating_start_times[artifact_id] = time.time()
+                                
+                                # Store artifact metadata
+                                artifact_data = {
                                     "name": name,
                                     "type": artifact_type,
                                     "version": version,
                                     "id": artifact_id,
                                     "url": url,
+                                }
+                                save_artifact(artifact_id, artifact_data)
+                                
+                                # Store in S3 metadata
+                                try:
+                                    store_artifact_metadata(artifact_id, name, artifact_type, version, url)
+                                except Exception as s3_error:
+                                    logger.warning(f"Failed to store artifact metadata in S3: {str(s3_error)}")
+                                
+                                result = {
+                                    "message": "Upload successful",
+                                    "details": {
+                                        "name": name,
+                                        "type": artifact_type,
+                                        "version": version,
+                                        "id": artifact_id,
+                                        "url": url,
                                 },
                             }
-                    except HTTPException as e:
-                        error_detail = e.detail
-                        if isinstance(error_detail, dict) and "error" in error_detail:
-                            result = {
-                                "error": error_detail.get("message", "Upload failed"),
-                                "details": {
-                                    "metric_scores": error_detail.get("metric_scores"),
-                                    "model_id": name,
-                                    "version": version,
-                                    "ingestible": False,
-                                },
-                            }
-                        else:
-                            result = {
-                                "error": (
-                                    str(error_detail)
-                                    if isinstance(error_detail, str)
-                                    else "Upload failed"
-                                ),
-                                "details": {
-                                    "model_id": name,
-                                    "version": version,
-                                    "ingestible": False,
-                                },
-                            }
-                    except Exception as e:
-                        logger.error(f"Error uploading model {name}: {str(e)}", exc_info=True)
-                        result = {"error": f"Model upload failed: {str(e)}"}
-                else:
-                    result = {"error": "Only model artifacts are supported via ZIP upload."}
+                        except HTTPException as e:
+                            error_detail = e.detail
+                            if isinstance(error_detail, dict) and "error" in error_detail:
+                                result = {
+                                    "error": error_detail.get("message", "Upload failed"),
+                                    "details": {
+                                        "metric_scores": error_detail.get("metric_scores"),
+                                        "model_id": name,
+                                        "version": version,
+                                        "ingestible": False,
+                                    },
+                                }
+                            else:
+                                result = {
+                                    "error": (
+                                        str(error_detail)
+                                        if isinstance(error_detail, str)
+                                        else "Upload failed"
+                                    ),
+                                    "details": {
+                                        "model_id": name,
+                                        "version": version,
+                                        "ingestible": False,
+                                    },
+                                }
+                        except Exception as e:
+                            logger.error(f"Error uploading model {name}: {str(e)}", exc_info=True)
+                            result = {"error": f"Model upload failed: {str(e)}"}
+                    else:
+                        result = {"error": "Only model artifacts are supported via ZIP upload."}
         except Exception as e:
             logger.error(f"Error in POST /upload endpoint: {str(e)}", exc_info=True)
             result = {"error": f"Upload failed: {str(e)}"}
@@ -662,17 +759,21 @@ def register_routes(app: FastAPI):
                         "config": result.get("config", {}),
                     }
                 else:
-                    # Return empty lineage instead of error
+                    # Return empty lineage with no_results flag
                     lineage_data = {
                         "model_id": model_id or model_name,
                         "model_name": model_name,
                         "lineage_metadata": {},
                         "lineage_map": {},
                         "config": {},
+                        "no_results": True,
                     }
             except Exception as e:
                 logger.error(f"Lineage error: {e}", exc_info=True)
                 lineage_data = {"model_id": model_id or model_name, "model_name": model_name, "error": str(e)}
+        else:
+            # No search performed yet - set lineage_data to None so template shows form only
+            lineage_data = None
         ctx = enrich_context({
             "request": request,
             "name": model_name or "",

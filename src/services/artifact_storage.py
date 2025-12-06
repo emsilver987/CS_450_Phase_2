@@ -92,7 +92,7 @@ def get_artifact(artifact_id: str) -> Optional[Dict[str, Any]]:
     """
     try:
         table = get_artifacts_table()
-        response = table.get_item(Key={"artifact_id": artifact_id})
+        response = table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
 
         if "Item" in response:
             item = response["Item"]
@@ -199,8 +199,47 @@ def delete_artifact(artifact_id: str) -> bool:
     """
     try:
         table = get_artifacts_table()
+        
+        # Get artifact info before deletion for audit logging
+        artifact_info = None
+        try:
+            response = table.get_item(Key={"artifact_id": artifact_id})
+            artifact_info = response.get("Item")
+        except Exception:
+            pass  # Continue with deletion even if we can't get info
+
         table.delete_item(Key={"artifact_id": artifact_id})
         logger.debug(f"Deleted artifact {artifact_id} from DynamoDB")
+        
+        # Log delete event for audit trail (non-repudiation)
+        try:
+            from datetime import datetime, timezone
+            import boto3
+            import os
+            
+            downloads_table_name = os.getenv("DDB_TABLE_DOWNLOADS", "downloads")
+            dynamodb_resource = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
+            audit_table = dynamodb_resource.Table(downloads_table_name)
+            
+            now_iso = datetime.now(timezone.utc).isoformat()
+            # Use a placeholder user_id if not available - in production this should come from auth context
+            user_id = "system"  # Should be passed as parameter or from request context
+            event_id = f"{user_id}_delete_{artifact_id}_{now_iso}"
+            
+            audit_item = {
+                "event_id": event_id,
+                "pkg_name": artifact_info.get("name", artifact_id) if artifact_info else artifact_id,
+                "version": artifact_info.get("version", "unknown") if artifact_info else "unknown",
+                "user_id": user_id,
+                "timestamp": now_iso,
+                "status": "deleted",
+                "reason": f"Artifact {artifact_id} deleted",
+                "validation_result": {},
+            }
+            audit_table.put_item(Item=audit_item)
+        except Exception as e:
+            logger.warning(f"Failed to log delete event: {e}")
+        
         return True
     except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -430,7 +469,7 @@ def get_generic_artifact_metadata(
     """
     try:
         table = get_artifacts_table()
-        response = table.get_item(Key={"artifact_id": artifact_id})
+        response = table.get_item(Key={"artifact_id": artifact_id}, ConsistentRead=True)
 
         if "Item" in response:
             item = response["Item"]

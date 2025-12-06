@@ -50,8 +50,17 @@
         <h2>Error</h2>
         <p>{{ lineage.error }}</p>
       </div>
+    {% elif lineage.no_results %}
+      <div class="card no-results" role="region" aria-labelledby="no-results-heading">
+        <h2 id="no-results-heading">No Lineage Found</h2>
+        <p>No lineage information found for model "{{ lineage.model_name or lineage.model_id }}".</p>
+        <ul>
+          <li>The model may not exist in the registry.</li>
+          <li>The model may not have lineage metadata (config.json).</li>
+        </ul>
+      </div>
     {% else %}
-      <div class="card" role="region" aria-labelledby="lineage-heading">
+      <div class="card lineage-results" role="region" aria-labelledby="lineage-heading">
         <h2 id="lineage-heading">Lineage Information</h2>
         <dl>
           <dt>Model ID:</dt>
