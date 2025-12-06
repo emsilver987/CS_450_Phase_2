@@ -470,9 +470,12 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make sure head_object raises NoSuchKey so S3 lookup fails
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -501,9 +504,12 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make sure head_object raises NoSuchKey so S3 lookup fails
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -626,9 +632,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -668,9 +678,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -711,9 +725,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -744,9 +762,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -779,9 +801,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -816,9 +842,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -852,9 +882,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -887,9 +921,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )
@@ -922,9 +960,13 @@ class TestAnalyzeModelContent:
         zip_content = zip_buffer.getvalue()
 
         mock_list.return_value = {"models": []}
-        mock_download.return_value = None
+        # Ensure download_model returns None (not MagicMock) so code falls back to HF
+        # Use side_effect to ensure it returns None for any call
+        mock_download.side_effect = lambda *args, **kwargs: None
+        # Ensure S3 lookup fails by making head_object always raise
         with patch("src.services.s3_service.ap_arn", "test-bucket"):
             from botocore.exceptions import ClientError
+            # Make head_object always raise NoSuchKey for any call
             mock_s3.head_object.side_effect = ClientError(
                 {"Error": {"Code": "NoSuchKey"}}, "head_object"
             )

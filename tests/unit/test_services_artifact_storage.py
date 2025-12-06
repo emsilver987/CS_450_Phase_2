@@ -246,7 +246,9 @@ class TestArtifactStorage:
         
         mock_table_instance = MagicMock()
         mock_table.return_value = mock_table_instance
-        mock_table_instance.get_item.return_value = {}  # No Item key
+        # Ensure get_item returns an actual dict without 'Item' key
+        # Use side_effect to return a real dict, not a MagicMock
+        mock_table_instance.get_item = MagicMock(return_value={})
         
         result = update_artifact("test-id", {"name": "updated"})
         assert result is False
