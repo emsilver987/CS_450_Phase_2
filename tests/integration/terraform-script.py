@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
-BASE_URL = os.getenv("API_GATEWAY_URL", "https://1q1x0d7k93.execute-api.us-east-1.amazonaws.com/prod/")
+BASE_URL = os.getenv("API_GATEWAY_URL", "https://pwuvrbcdu3.execute-api.us-east-1.amazonaws.com/prod/")
 DEFAULT_UPLOAD_FILE = os.getenv("UPLOAD_FILE_PATH", r"C:\Users\mdali\Downloads\manual-upload-model_1.0.0_full.zip")
 DEFAULT_TEST_MODEL = os.getenv("TEST_MODEL_ID", "maya-research/maya1")
 AUTH_JSON_PATH = os.getenv("AUTH_JSON_PATH", "auth.json")
@@ -134,10 +134,13 @@ def ingest_test_model(token=None):
                     artifact_id = clean_model_id
                 
                 return artifact_id, version
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 print(f"Ingest response (non-JSON): {r.text[:200]}...")
                 # Fallback to cleaned model name
-                clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "").replace("/", "-")
+                clean_model_id = model_id.replace(
+                    "https://huggingface.co/",
+                    ""
+                ).replace("http://huggingface.co/", "").replace("/", "-")
                 return clean_model_id, version
         else:
             print(f"Ingest failed with status {r.status_code}: {r.text[:200]}...")
