@@ -31,7 +31,13 @@
     <button class="btn" type="submit" aria-label="Get package rating">Get Rating</button>
   </form>
 
-  {% if rating %}
+  {% if pending %}
+    <div class="card" role="alert" aria-live="polite">
+      <h2>Rating in Progress</h2>
+      <p>{{ message }}</p>
+      <p><small>You can refresh this page to check if the rating is complete.</small></p>
+    </div>
+  {% elif rating %}
     <div class="card" role="region" aria-labelledby="metrics-heading">
       <h2 id="metrics-heading">Metrics for {{ name }}</h2>
       <dl class="metrics-list">

@@ -78,7 +78,15 @@ class TokenInfo(BaseModel):
 
 # --------- Helpers ----------
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    """
+    Hash password using bcrypt with cost factor 12.
+    High cost factor makes brute-force attacks computationally expensive,
+    protecting password hashes even if DynamoDB is compromised.
+    """
+    # Cost factor 12 provides strong protection against brute-force attacks
+    # This is the default for bcrypt.gensalt() but made explicit for security
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(password: str, hashed: str) -> bool:
@@ -339,6 +347,45 @@ async def get_current_user(
         groups=item.get("groups", []),
         expires_at=item["expires_at"],
         remaining_uses=item.get("remaining_uses", 0),
+    )
+
+
+@auth_private.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """
+    Refresh JWT token by issuing a new token before expiration.
+    This enables periodic re-authentication with consistent token rotation.
+    The old token is invalidated and a new one is issued.
+    """
+    payload = verify_jwt_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    # Verify the token exists in the tokens table
+    item = consume_token_use(payload["jti"])
+    if not item:
+        raise HTTPException(status_code=401, detail="Token expired or exhausted")
+    
+    # Get current user data
+    user = get_user_by_username(item["username"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create new token with fresh expiration
+    token_obj = create_jwt_token(user)
+    
+    # Delete old token
+    dynamodb.Table(TOKENS_TABLE).delete_item(Key={"token_id": payload["jti"]})
+    
+    # Store new token
+    store_token(token_obj["jti"], user, token_obj["token"], token_obj["expires_at"])
+    
+    return TokenResponse(
+        token=token_obj["token"],
+        expires_at=token_obj["expires_at"].isoformat(),
+        remaining_uses=JWT_MAX_USES,
     )
 
 

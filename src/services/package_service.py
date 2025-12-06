@@ -167,12 +167,18 @@ async def upload_part(
         s3_key = f"packages/{upload_info['pkg_name']}/{upload_info['version']}/upload_{upload_id}/part_{part_number}"
 
         file_content = await file.read()
-        response = s3.put_object(
-            Bucket=ARTIFACTS_BUCKET,
-            Key=s3_key,
-            Body=file_content,
-            ContentType=file.content_type or "application/octet-stream",
-        )
+        # Enforce SSE-KMS encryption for tampering protection
+        kms_key_arn = os.getenv("KMS_KEY_ARN", "")
+        put_params = {
+            "Bucket": ARTIFACTS_BUCKET,
+            "Key": s3_key,
+            "Body": file_content,
+            "ContentType": file.content_type or "application/octet-stream",
+        }
+        if kms_key_arn:
+            put_params["ServerSideEncryption"] = "aws:kms"
+            put_params["SSEKMSKeyId"] = kms_key_arn
+        response = s3.put_object(**put_params)
 
         return {
             "upload_id": upload_id,
@@ -214,10 +220,17 @@ async def commit_upload(
             f"packages/{upload_info['pkg_name']}/{upload_info['version']}/package.zip"
         )
 
-        # Create multipart upload
-        multipart_response = s3.create_multipart_upload(
-            Bucket=ARTIFACTS_BUCKET, Key=s3_key, ContentType="application/zip"
-        )
+        # Create multipart upload with SSE-KMS encryption
+        kms_key_arn = os.getenv("KMS_KEY_ARN", "")
+        multipart_params = {
+            "Bucket": ARTIFACTS_BUCKET,
+            "Key": s3_key,
+            "ContentType": "application/zip"
+        }
+        if kms_key_arn:
+            multipart_params["ServerSideEncryption"] = "aws:kms"
+            multipart_params["SSEKMSKeyId"] = kms_key_arn
+        multipart_response = s3.create_multipart_upload(**multipart_params)
 
         upload_id_s3 = multipart_response["UploadId"]
 
@@ -253,10 +266,16 @@ async def commit_upload(
             MultipartUpload={"Parts": parts},
         )
 
-        # Store package metadata
+        # Store package metadata with conditional write to prevent tampering
         packages_table = dynamodb.Table(PACKAGES_TABLE)
         pkg_key = f"{upload_info['pkg_name']}/{upload_info['version']}"
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
 
+        # Check if package already exists to get current updated_at
+        existing_response = packages_table.get_item(Key={"pkg_key": pkg_key})
+        existing_item = existing_response.get("Item")
+        
         package_item = {
             "pkg_key": pkg_key,
             "pkg_name": upload_info["pkg_name"],
@@ -264,25 +283,83 @@ async def commit_upload(
             "description": upload_info.get("description"),
             "is_sensitive": upload_info["is_sensitive"],
             "allowed_groups": upload_info["allowed_groups"],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
             "size_bytes": sum(
                 int(part["ETag"].split("-")[1]) for part in parts if "-" in part["ETag"]
             ),
         }
+        
+        if existing_item:
+            # Update existing package - use conditional write to prevent overwriting newer data
+            existing_updated_at = existing_item.get("updated_at")
+            package_item["created_at"] = existing_item.get("created_at", now_iso)
+            package_item["updated_at"] = now_iso
+            
+            # Conditional write: only update if updated_at hasn't changed (prevents race conditions)
+            try:
+                packages_table.put_item(
+                    Item=package_item,
+                    ConditionExpression="updated_at = :existing_updated_at",
+                    ExpressionAttributeValues={":existing_updated_at": existing_updated_at}
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Package was modified by another request. Please retry."
+                    )
+                raise
+        else:
+            # Create new package - use conditional write to prevent duplicate creation
+            package_item["created_at"] = now_iso
+            package_item["updated_at"] = now_iso
+            
+            # Conditional write: only create if package doesn't exist
+            try:
+                packages_table.put_item(
+                    Item=package_item,
+                    ConditionExpression="attribute_not_exists(pkg_key)"
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Package already exists. Use update operation instead."
+                    )
+                raise
 
-        packages_table.put_item(Item=package_item)
-
-        # Update upload status
+        # Update upload status with conditional write to prevent tampering
+        now_iso = datetime.now(timezone.utc).isoformat()
+        existing_status = upload_info.get("status")
         table.update_item(
             Key={"upload_id": upload_id},
             UpdateExpression="SET #status = :status, updated_at = :updated_at",
+            ConditionExpression="#status = :existing_status",
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={
                 ":status": "completed",
-                ":updated_at": datetime.now(timezone.utc).isoformat(),
+                ":updated_at": now_iso,
+                ":existing_status": existing_status,
             },
         )
+
+        # Log upload event for audit trail (non-repudiation)
+        DOWNLOADS_TABLE = os.getenv("DDB_TABLE_DOWNLOADS", "downloads")
+        try:
+            audit_table = dynamodb.Table(DOWNLOADS_TABLE)
+            event_id = f"{user['user_id']}_{upload_info['pkg_name']}_{upload_info['version']}_{now_iso}"
+            audit_item = {
+                "event_id": event_id,
+                "pkg_name": upload_info["pkg_name"],
+                "version": upload_info["version"],
+                "user_id": user["user_id"],
+                "timestamp": now_iso,
+                "status": "uploaded",
+                "reason": "Package upload completed",
+                "validation_result": {},
+            }
+            audit_table.put_item(Item=audit_item)
+        except Exception as e:
+            logging.warning(f"Failed to log upload event: {e}")
 
         # Clean up temporary parts
         for part_info in request.parts:
@@ -343,10 +420,14 @@ async def abort_upload(upload_id: str, user: Dict[str, Any] = Depends(verify_tok
 async def get_download_url(
     pkg_name: str,
     version: str,
-    ttl_seconds: int = Query(300, ge=60, le=3600),
+    ttl_seconds: int = Query(300, ge=60, le=300),
     user: Dict[str, Any] = Depends(verify_token),
 ):
-    """Get presigned download URL"""
+    """Get presigned download URL
+    
+    TTL is limited to 300 seconds (5 minutes) maximum to prevent information disclosure
+    through intercepted or guessed presigned URLs.
+    """
     try:
         # Get package metadata
         packages_table = dynamodb.Table(PACKAGES_TABLE)
@@ -366,16 +447,19 @@ async def get_download_url(
             if not any(group in user_groups for group in allowed_groups):
                 raise HTTPException(status_code=403, detail="Access denied")
 
-        # Generate presigned URL
+        # Generate presigned URL with TTL limited to 300 seconds for security
+        # Short TTL limits exposure time if URL is intercepted or guessed
         s3_key = f"packages/{pkg_name}/{version}/package.zip"
+        # Enforce maximum TTL of 300 seconds
+        effective_ttl = min(ttl_seconds, 300)
 
         url = s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": ARTIFACTS_BUCKET, "Key": s3_key},
-            ExpiresIn=ttl_seconds,
+            ExpiresIn=effective_ttl,
         )
 
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=effective_ttl)
 
         return DownloadUrlResponse(url=url, expires_at=expires_at.isoformat())
 
