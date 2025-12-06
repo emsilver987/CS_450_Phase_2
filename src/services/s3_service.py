@@ -213,14 +213,30 @@ def extract_model_component(zip_content: bytes, component: str) -> bytes:
 
 
 def get_presigned_upload_url(
-    model_id: str, version: str, expires_in: int = 3600
+    model_id: str, version: str, expires_in: int = 300
 ) -> Dict[str, str]:
-    """Generate presigned URL for direct S3 upload (bypasses API Gateway 10MB limit)"""
+    """Generate presigned URL for direct S3 upload (bypasses API Gateway 10MB limit)
+    
+    TTL is limited to 300 seconds (5 minutes) maximum to prevent information disclosure
+    through intercepted or guessed presigned URLs.
+    """
     if not aws_available:
         raise HTTPException(
             status_code=503,
             detail="AWS services not available. Please check your AWS configuration.",
         )
+    
+    # Enforce maximum TTL of 300 seconds (5 minutes) to prevent information disclosure
+    # This limits exposure time if presigned URLs are intercepted or guessed
+    if expires_in > 300:
+        logger.warning(f"Presigned URL TTL {expires_in}s exceeds maximum of 300s, limiting to 300s")
+        expires_in = 300
+    
+    # Ensure minimum TTL of 60 seconds for practical use
+    if expires_in < 60:
+        logger.warning(f"Presigned URL TTL {expires_in}s is too short, setting to 60s")
+        expires_in = 60
+    
     try:
         s3_key = f"models/{model_id}/{version}/model.zip"
         url = s3.generate_presigned_url(
