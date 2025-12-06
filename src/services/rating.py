@@ -99,6 +99,13 @@ def analyze_model_content(
             result = None
             for pattern in search_patterns:
                 try:
+                    # Skip patterns that are too long (would fail ReDoS validation)
+                    if len(pattern) > 100:
+                        print(
+                            f"[RATE] Pattern too long ({len(pattern)} chars), skipping: '{pattern[:50]}...'"
+                        )
+                        continue
+                    
                     result = list_models(
                         name_regex=pattern, limit=1000
                     )  # Increase limit to find more models
@@ -106,7 +113,7 @@ def analyze_model_content(
                         break
                 except Exception as pattern_error:
                     print(
-                        f"[RATE] Pattern search failed for '{pattern}': {pattern_error}"
+                        f"[RATE] Pattern search failed for '{pattern[:50] if len(pattern) > 50 else pattern}...': {pattern_error}"
                     )
                     continue
 

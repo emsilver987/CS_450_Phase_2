@@ -679,6 +679,88 @@ def _get_model_name_for_s3(artifact_id: str) -> Optional[str]:
         return None
 
 
+def _check_model_exists_safely(model_name: str, version: str = "main") -> bool:
+    """
+    Safely check if a model exists, handling cases where the regex pattern would be too long.
+    This prevents "Regex pattern is too long" errors when model names exceed 100 characters.
+    
+    Args:
+        model_name: The model name to check
+        version: The model version (default: "main")
+        
+    Returns:
+        True if model exists, False otherwise
+    """
+    try:
+        # Create regex pattern for exact match
+        escaped_name = re.escape(model_name)
+        pattern = f"^{escaped_name}$"
+        
+        # Check if pattern would exceed 100 character limit
+        if len(pattern) > 100:
+            # Pattern too long - use direct S3 lookup instead
+            logger.debug(f"Model name '{model_name}' too long for regex ({len(pattern)} chars), using direct S3 lookup")
+            
+            # Sanitize model name for S3 lookup
+            sanitized_name = (
+                model_name.replace("https://huggingface.co/", "")
+                .replace("http://huggingface.co/", "")
+                .replace("/", "_")
+                .replace(":", "_")
+                .replace("\\", "_")
+                .replace("?", "_")
+                .replace("*", "_")
+                .replace('"', "_")
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace("|", "_")
+            )
+            
+            # Try direct S3 key lookup
+            try:
+                s3_key = f"models/{sanitized_name}/{version}/model.zip"
+                s3.head_object(Bucket=ap_arn, Key=s3_key)
+                return True
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code == "404" or error_code == "NoSuchKey":
+                    return False
+                # For other errors, assume it doesn't exist
+                return False
+            except Exception:
+                return False
+        else:
+            # Pattern fits - use regex search
+            existing = list_models(name_regex=pattern, limit=1)
+            return bool(existing.get("models"))
+    except HTTPException:
+        # If list_models raises HTTPException (e.g., regex too long despite our check),
+        # fall back to direct S3 lookup
+        logger.debug(f"Regex search failed for '{model_name}', falling back to direct S3 lookup")
+        try:
+            sanitized_name = (
+                model_name.replace("https://huggingface.co/", "")
+                .replace("http://huggingface.co/", "")
+                .replace("/", "_")
+                .replace(":", "_")
+                .replace("\\", "_")
+                .replace("?", "_")
+                .replace("*", "_")
+                .replace('"', "_")
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace("|", "_")
+            )
+            s3_key = f"models/{sanitized_name}/{version}/model.zip"
+            s3.head_object(Bucket=ap_arn, Key=s3_key)
+            return True
+        except (ClientError, Exception):
+            return False
+    except Exception as e:
+        logger.debug(f"Error checking if model exists: {str(e)}")
+        return False
+
+
 def verify_auth_token(request: Request) -> bool:
     """
     Verify auth token from either Authorization or X-Authorization header.
@@ -4044,17 +4126,11 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
             # If no hf_model_id from URL, use artifact_name (assumes it's a valid HuggingFace ID)
             model_id = hf_model_id if hf_model_id else artifact_name
 
-            # Check if artifact already exists
-            try:
-                existing = list_models(name_regex=f"^{re.escape(model_id)}$", limit=1)
-                if existing.get("models"):
-                    raise HTTPException(
-                        status_code=409, detail="Artifact exists already."
-                    )
-            except HTTPException:
-                raise
-            except:
-                pass
+            # Check if artifact already exists (using safe check that handles long names)
+            if _check_model_exists_safely(model_id, version):
+                raise HTTPException(
+                    status_code=409, detail="Artifact exists already."
+                )
 
             # Ingest the model (synchronous - must complete)
             # Note: model_ingestion fetches GitHub metadata
