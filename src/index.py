@@ -4032,8 +4032,6 @@ async def post_artifact_ingest(request: Request):
 
                     # Verify the metadata was stored by trying to read it back
                     # This ensures the write completed and is immediately readable
-                    import time
-
                     logger.info(f"DEBUG: Verifying S3 metadata is readable...")
                     verify_metadata = None
                     for verify_attempt in range(3):

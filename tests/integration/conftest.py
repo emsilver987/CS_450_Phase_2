@@ -126,19 +126,36 @@ def driver(request):
 
 
 @pytest.fixture(autouse=True)
-def reset_driver_state(driver):
+def reset_driver_state(driver, request):
     """
     Reset driver state before each test to prevent state leakage.
     This ensures each test starts from a clean state even when using module-scoped driver.
     """
+    # Skip if driver fixture was skipped (not available)
+    if driver is None:
+        yield
+        return
+    
     # Check if driver session is still valid before attempting reset
     try:
         # Test if session is valid by getting current URL
         _ = driver.current_url
+        session_valid = True
     except Exception:
-        # Session is invalid, skip reset - test will handle this
-        yield
-        return
+        # Session is invalid - try to create a new one
+        session_valid = False
+    
+    # If session is invalid, try to recreate driver
+    if not session_valid:
+        try:
+            # Try to get a valid session by attempting a simple operation
+            driver.get("data:text/html,<html><body></body></html>")
+            session_valid = True
+        except Exception as e:
+            # Session is completely dead, skip reset
+            # Test should handle this by skipping or failing appropriately
+            yield
+            return
     
     # Navigate to a blank page to reset state
     # Using data URI ensures we start fresh without loading any app state

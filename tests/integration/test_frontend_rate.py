@@ -66,62 +66,82 @@ class TestRateFrontendUI:
     
     def test_search_form_ui(self, driver, base_url):
         """Test that search form UI elements are present and interactable."""
-        driver.get(f"{base_url}/rate")
+        try:
+            driver.get(f"{base_url}/rate")
+        except Exception as e:
+            if "invalid session id" in str(e).lower() or "session deleted" in str(e).lower():
+                pytest.skip(f"Browser session invalid: {str(e)}")
+            raise
         # Use a model that's likely already cached (from directory page)
         # This ensures we test with a model that should have fast response
-        search_inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='search'], input[id='package-name-input']")
-        if search_inputs:
-            search_input = search_inputs[0]
-            search_input.clear()
-            # Use a simple model name that might already be in cache
-            search_input.send_keys("albert-base-v1")
-            search_button = driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
-            if search_button:
-                # Measure rating calculation time
-                with measure_time("rating_calculation") as timer:
-                    search_button[0].click()
-                    # Wait for rating results - with caching, this should be faster
-                    # Wait up to 60 seconds for first-time rating, or much faster if cached
-                    try:
-                        WebDriverWait(driver, 60).until(
-                            lambda d: (
-                                len(d.find_elements(By.CSS_SELECTOR, "div.card, .card, ul, dl.metrics-list, dl")) > 0 or
-                                len(d.find_elements(By.CSS_SELECTOR, ".error, .flash, [role='alert']")) > 0
+        try:
+            search_inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='search'], input[id='package-name-input']")
+            if search_inputs:
+                search_input = search_inputs[0]
+                search_input.clear()
+                # Use a simple model name that might already be in cache
+                search_input.send_keys("albert-base-v1")
+                search_button = driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+                if search_button:
+                    # Measure rating calculation time
+                    with measure_time("rating_calculation") as timer:
+                        search_button[0].click()
+                        # Wait for rating results - with caching, this should be faster
+                        # Wait up to 60 seconds for first-time rating, or much faster if cached
+                        try:
+                            WebDriverWait(driver, 60).until(
+                                lambda d: (
+                                    len(d.find_elements(By.CSS_SELECTOR, "div.card, .card, ul, dl.metrics-list, dl")) > 0 or
+                                    len(d.find_elements(By.CSS_SELECTOR, ".error, .flash, [role='alert']")) > 0
+                                )
                             )
+                        except Exception:
+                            # If wait times out, timer will still record the elapsed time
+                            pass
+                    
+                    # Performance assertion: rating calculation should complete within threshold
+                    # Note: This is a soft assertion - we log the time but don't fail if it exceeds
+                    # the threshold since rating can be slow on first calculation
+                    if timer.elapsed > RATING_CALCULATION_MAX_TIME:
+                        pytest.skip(
+                            f"Rating calculation took {timer.elapsed:.2f}s, "
+                            f"exceeds threshold of {RATING_CALCULATION_MAX_TIME}s. "
+                            f"This may be acceptable for first-time calculations."
                         )
-                    except Exception:
-                        # If wait times out, timer will still record the elapsed time
-                        pass
-                
-                # Performance assertion: rating calculation should complete within threshold
-                # Note: This is a soft assertion - we log the time but don't fail if it exceeds
-                # the threshold since rating can be slow on first calculation
-                if timer.elapsed > RATING_CALCULATION_MAX_TIME:
-                    pytest.skip(
-                        f"Rating calculation took {timer.elapsed:.2f}s, "
-                        f"exceeds threshold of {RATING_CALCULATION_MAX_TIME}s. "
-                        f"This may be acceptable for first-time calculations."
-                    )
-                
-                # Verify we got results (not just an error)
-                # Template uses div.card with ul inside, not dl elements
-                results = driver.find_elements(By.CSS_SELECTOR, "div.card, .card, ul, dl.metrics-list, dl")
-                errors = driver.find_elements(By.CSS_SELECTOR, ".error, .flash, [role='alert']")
-                # Either results should be displayed, or an error message should be shown
-                assert len(results) > 0 or len(errors) > 0, "Rating form should display either results or an error message"
+                    
+                    # Verify we got results (not just an error)
+                    # Template uses div.card with ul inside, not dl elements
+                    results = driver.find_elements(By.CSS_SELECTOR, "div.card, .card, ul, dl.metrics-list, dl")
+                    errors = driver.find_elements(By.CSS_SELECTOR, ".error, .flash, [role='alert']")
+                    # Either results should be displayed, or an error message should be shown
+                    assert len(results) > 0 or len(errors) > 0, "Rating form should display either results or an error message"
+        except Exception as e:
+            if "invalid session id" in str(e).lower() or "session deleted" in str(e).lower():
+                pytest.skip(f"Browser session invalid during test: {str(e)}")
+            raise
     
     def test_rating_metrics_ui_display(self, driver, base_url):
         """Test that rating metrics UI elements can be displayed."""
-        driver.get(f"{base_url}/rate")
-        # Wait for page to load
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "body"))
-        )
-        # Check if rating structure exists (could be in various formats)
-        content = driver.find_elements(By.CSS_SELECTOR, "dl, .metric, .rating, table")
-        # Page should have loaded successfully - body element exists
-        body = driver.find_element(By.TAG_NAME, "body")
-        assert body is not None, "Rate page should load"
+        try:
+            driver.get(f"{base_url}/rate")
+        except Exception as e:
+            if "invalid session id" in str(e).lower() or "session deleted" in str(e).lower():
+                pytest.skip(f"Browser session invalid: {str(e)}")
+            raise
+        try:
+            # Wait for page to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "body"))
+            )
+            # Check if rating structure exists (could be in various formats)
+            content = driver.find_elements(By.CSS_SELECTOR, "dl, .metric, .rating, table")
+            # Page should have loaded successfully - body element exists
+            body = driver.find_element(By.TAG_NAME, "body")
+            assert body is not None, "Rate page should load"
+        except Exception as e:
+            if "invalid session id" in str(e).lower() or "session deleted" in str(e).lower():
+                pytest.skip(f"Browser session invalid during test: {str(e)}")
+            raise
 
 
 if __name__ == "__main__":

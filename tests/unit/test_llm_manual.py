@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 def test_license_compatibility():
     """Test LLM license compatibility analysis."""
@@ -16,7 +16,7 @@ def test_license_compatibility():
     print("Test: License Compatibility Analysis")
     print("="*60)
     
-    from services.llm_service import analyze_license_compatibility, is_llm_available
+    from src.services.llm_service import analyze_license_compatibility, is_llm_available
     
     if not is_llm_available():
         print("[SKIP] LLM not available (API key not set)")
@@ -68,7 +68,7 @@ def test_model_card_keywords():
     print("Test: Model Card Keyword Extraction")
     print("="*60)
     
-    from services.llm_service import extract_model_card_keywords, is_llm_available
+    from src.services.llm_service import extract_model_card_keywords, is_llm_available
     
     if not is_llm_available():
         print("[SKIP] LLM not available (API key not set)")
@@ -111,7 +111,7 @@ def test_error_message():
     print("Test: Error Message Generation")
     print("="*60)
     
-    from services.llm_service import generate_helpful_error_message, is_llm_available
+    from src.services.llm_service import generate_helpful_error_message, is_llm_available
     
     if not is_llm_available():
         print("[SKIP] LLM not available (API key not set)")
@@ -144,9 +144,9 @@ def test_integration_license_check():
     print("\n" + "="*60)
     print("Test: Integration with License Compatibility Service")
     print("="*60)
-    
-    from services.license_compatibility import check_license_compatibility
-    from services.llm_service import is_llm_available
+
+    from src.services.license_compatibility import check_license_compatibility
+    from src.services.llm_service import is_llm_available
     
     if not is_llm_available():
         print("[SKIP] LLM not available (API key not set)")
@@ -172,7 +172,7 @@ def interactive_test():
     print("LLM Integration Manual Test")
     print("="*60)
     
-    from services.llm_service import is_llm_available
+    from src.services.llm_service import is_llm_available
     
     print(f"\nLLM Status: {'Available' if is_llm_available() else 'Not Available (API key not set)'}")
     

@@ -565,6 +565,45 @@ def reset_registry() -> Dict[str, str]:
         )
 
 
+def reset_performance_path() -> Dict[str, Any]:
+    """
+    Reset the performance path by deleting all objects under the 'performance/' prefix.
+    
+    Returns:
+        Dict containing 'deleted_count' key with the number of objects deleted.
+    """
+    if not aws_available:
+        raise HTTPException(
+            status_code=503,
+            detail="AWS services not available. Please check your AWS configuration.",
+        )
+    try:
+        deleted_count = 0
+
+        # Use paginator to handle all objects, not just first 1000
+        paginator = s3.get_paginator("list_objects_v2")
+
+        # Delete all objects under performance/ prefix
+        pages = paginator.paginate(Bucket=ap_arn, Prefix="performance/")
+        for page in pages:
+            if "Contents" in page:
+                for item in page["Contents"]:
+                    s3.delete_object(Bucket=ap_arn, Key=item["Key"])
+                    deleted_count += 1
+
+        if deleted_count > 0:
+            logger.info(f"Performance path reset successful: Deleted {deleted_count} objects")
+        else:
+            logger.info("Performance path reset successful: No objects found to delete")
+        
+        return {"deleted_count": deleted_count, "message": "Performance path reset successfully"}
+    except Exception as e:
+        logger.error(f"Performance path reset failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset performance path: {str(e)}"
+        )
+
+
 def store_artifact_metadata(
     artifact_id: str, artifact_name: str, artifact_type: str, version: str, url: str
 ) -> Dict[str, str]:
