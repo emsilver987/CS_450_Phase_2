@@ -3,11 +3,9 @@ from pathlib import Path
 import re
 import os
 import json
-from typing import Dict, Any, Optional
-import requests
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from starlette.datastructures import UploadFile
 import uvicorn
 import random
@@ -681,6 +679,88 @@ def _get_model_name_for_s3(artifact_id: str) -> Optional[str]:
         return None
 
 
+def _check_model_exists_safely(model_name: str, version: str = "main") -> bool:
+    """
+    Safely check if a model exists, handling cases where the regex pattern would be too long.
+    This prevents "Regex pattern is too long" errors when model names exceed 100 characters.
+    
+    Args:
+        model_name: The model name to check
+        version: The model version (default: "main")
+        
+    Returns:
+        True if model exists, False otherwise
+    """
+    try:
+        # Create regex pattern for exact match
+        escaped_name = re.escape(model_name)
+        pattern = f"^{escaped_name}$"
+        
+        # Check if pattern would exceed 100 character limit
+        if len(pattern) > 100:
+            # Pattern too long - use direct S3 lookup instead
+            logger.debug(f"Model name '{model_name}' too long for regex ({len(pattern)} chars), using direct S3 lookup")
+            
+            # Sanitize model name for S3 lookup
+            sanitized_name = (
+                model_name.replace("https://huggingface.co/", "")
+                .replace("http://huggingface.co/", "")
+                .replace("/", "_")
+                .replace(":", "_")
+                .replace("\\", "_")
+                .replace("?", "_")
+                .replace("*", "_")
+                .replace('"', "_")
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace("|", "_")
+            )
+            
+            # Try direct S3 key lookup
+            try:
+                s3_key = f"models/{sanitized_name}/{version}/model.zip"
+                s3.head_object(Bucket=ap_arn, Key=s3_key)
+                return True
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code == "404" or error_code == "NoSuchKey":
+                    return False
+                # For other errors, assume it doesn't exist
+                return False
+            except Exception:
+                return False
+        else:
+            # Pattern fits - use regex search
+            existing = list_models(name_regex=pattern, limit=1)
+            return bool(existing.get("models"))
+    except HTTPException:
+        # If list_models raises HTTPException (e.g., regex too long despite our check),
+        # fall back to direct S3 lookup
+        logger.debug(f"Regex search failed for '{model_name}', falling back to direct S3 lookup")
+        try:
+            sanitized_name = (
+                model_name.replace("https://huggingface.co/", "")
+                .replace("http://huggingface.co/", "")
+                .replace("/", "_")
+                .replace(":", "_")
+                .replace("\\", "_")
+                .replace("?", "_")
+                .replace("*", "_")
+                .replace('"', "_")
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace("|", "_")
+            )
+            s3_key = f"models/{sanitized_name}/{version}/model.zip"
+            s3.head_object(Bucket=ap_arn, Key=s3_key)
+            return True
+        except (ClientError, Exception):
+            return False
+    except Exception as e:
+        logger.debug(f"Error checking if model exists: {str(e)}")
+        return False
+
+
 def verify_auth_token(request: Request) -> bool:
     """
     Verify auth token from either Authorization or X-Authorization header.
@@ -746,177 +826,31 @@ def health():
     return {"ok": True}
 
 
-def _ensure_model_in_performance_path(model_id: str, version: str = "main") -> bool:
-    """
-    Ensure model exists in S3 performance path. Uploads automatically if missing.
-    This is called automatically by the workload trigger endpoint.
-    Downloads full model (including weights) for performance testing.
-    
-    Args:
-        model_id: Model ID to ensure exists (e.g., "arnir0/Tiny-LLM")
-        version: Model version (default: "main")
-        
-    Returns:
-        True if model exists or was successfully uploaded, False otherwise
-    """
+@app.get("/llm-status")
+def llm_status():
+    """Check if LLM service is available and working on the host"""
     try:
-        from .services.s3_service import s3, ap_arn, aws_available
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import zipfile
-        import io
+        from src.services.llm_service import is_llm_available, PURDUE_GENAI_API_KEY
         
-        if not aws_available or not s3 or not ap_arn:
-            logger.warning("AWS S3 not available - cannot ensure model in performance path")
-            return False
+        available = is_llm_available()
+        has_key = bool(PURDUE_GENAI_API_KEY)
+        key_length = len(PURDUE_GENAI_API_KEY) if PURDUE_GENAI_API_KEY else 0
         
-        # Sanitize model_id for S3 key (same logic as populate_registry.py)
-        sanitized_model_id = (
-            model_id.replace("https://huggingface.co/", "")
-            .replace("http://huggingface.co/", "")
-            .replace("/", "_")
-            .replace(":", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace('"', "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace("|", "_")
-        )
-        
-        # Check if model exists in performance path
-        s3_key = f"performance/{sanitized_model_id}/{version}/model.zip"
-        try:
-            s3.head_object(Bucket=ap_arn, Key=s3_key)
-            logger.info(f"Model {model_id} already exists in performance path: {s3_key}")
-            return True
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "")
-            if error_code not in ["404", "NoSuchKey"]:
-                logger.error(f"Error checking model existence: {error_code}")
-                return False
-        
-        # Model doesn't exist - download from HuggingFace and upload
-        logger.info(f"Model {model_id} not found in performance path - downloading full model from HuggingFace...")
-        
-        # Download full model from HuggingFace (including weights for performance testing)
-        try:
-            clean_model_id = model_id.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "")
-            api_url = f"https://huggingface.co/api/models/{clean_model_id}"
-            response = requests.get(api_url, timeout=30)
-            
-            if response.status_code != 200:
-                logger.error(f"Model {clean_model_id} not found on HuggingFace (HTTP {response.status_code})")
-                return False
-            
-            model_info = response.json()
-            all_files = []
-            for sibling in model_info.get("siblings", []):
-                if sibling.get("rfilename"):
-                    all_files.append(sibling["rfilename"])
-            
-            # For performance testing, download essential files + ONE main weight file + tokenizer files
-            # (same logic as populate_registry.py with download_all=True)
-            essential_files = []
-            for filename in all_files:
-                if filename.endswith((".json", ".md", ".txt", ".yml", ".yaml")):
-                    essential_files.append(filename)
-                elif filename.startswith("README") or filename.startswith("readme"):
-                    essential_files.append(filename)
-                elif filename in ["config.json", "LICENSE", "license", "LICENCE", "licence"]:
-                    essential_files.append(filename)
-            
-            # Find ONE main weight file (prefer .safetensors, then pytorch_model.bin)
-            weight_files = [f for f in all_files if any(f.endswith(ext) for ext in [".safetensors", ".bin", ".pt", ".pth"]) 
-                          and not any(exclude in f.lower() for exclude in ["coreml", "onnx", "tf", "tflite", "mlpackage"])]
-            main_weight_file = None
-            if weight_files:
-                for preferred in ["model.safetensors", "pytorch_model.bin"]:
-                    if preferred in weight_files:
-                        main_weight_file = preferred
-                        break
-                if not main_weight_file:
-                    main_weight_file = weight_files[0]  # Use first weight file if no preferred found
-            
-            # Tokenizer files
-            tokenizer_files = [f for f in all_files if "tokenizer" in f.lower() and 
-                             any(f.endswith(ext) for ext in [".json", ".txt", ".model"])]
-            
-            # Combine files to download
-            files_to_download = essential_files.copy()
-            if main_weight_file:
-                files_to_download.append(main_weight_file)
-            files_to_download.extend(tokenizer_files)
-            
-            if not files_to_download:
-                logger.error(f"No files found to download for model {clean_model_id}")
-                return False
-            
-            # Download files
-            def download_file(url: str, timeout: int = 120) -> Optional[bytes]:
-                try:
-                    req = urllib.request.Request(url)
-                    req.add_header("User-Agent", "Mozilla/5.0")
-                    with urllib.request.urlopen(req, timeout=timeout) as response:
-                        return response.read()
-                except Exception as e:
-                    logger.warning(f"Failed to download {url}: {str(e)}")
-                    return None
-            
-            urls_to_download = [
-                (
-                    f"https://huggingface.co/{clean_model_id}/resolve/{version}/{filename}",
-                    filename,
-                )
-                for filename in files_to_download
-            ]
-            
-            output = io.BytesIO()
-            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = {
-                        executor.submit(download_file, url[0], 120): url[1]
-                        for url in urls_to_download
-                    }
-                    downloaded_count = 0
-                    for future in as_completed(futures):
-                        filename = futures[future]
-                        try:
-                            result = future.result()
-                            if result:
-                                zip_file.writestr(filename, result)
-                                downloaded_count += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to download {filename}: {e}")
-            
-            zip_content = output.getvalue()
-            if not zip_content or len(zip_content) == 0:
-                logger.error(f"Downloaded zip file is empty for model {clean_model_id}")
-                return False
-            
-            logger.info(f"Downloaded {len(zip_content):,} bytes ({len(zip_content) / (1024*1024):.2f} MB) from HuggingFace")
-            
-        except Exception as e:
-            logger.error(f"Failed to download model from HuggingFace: {str(e)}", exc_info=True)
-            return False
-        
-        # Upload to S3 performance path
-        try:
-            s3.put_object(
-                Bucket=ap_arn,
-                Key=s3_key,
-                Body=zip_content,
-                ContentType="application/zip"
-            )
-            logger.info(f"Uploaded model to performance path: {s3_key} ({len(zip_content):,} bytes)")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to upload model to S3: {str(e)}", exc_info=True)
-            return False
-            
+        return {
+            "llm_available": available,
+            "api_key_configured": has_key,
+            "api_key_length": key_length,
+            "status": "ready" if available else "not_configured",
+            "message": "LLM service is ready and available" if available else "LLM API key not configured. Set GEN_AI_STUDIO_API_KEY environment variable."
+        }
     except Exception as e:
-        logger.error(f"Error ensuring model in performance path: {str(e)}", exc_info=True)
-        return False
+        return {
+            "llm_available": False,
+            "api_key_configured": False,
+            "status": "error",
+            "error": str(e),
+            "message": f"Error checking LLM status: {str(e)}"
+        }
 
 
 @app.post("/health/performance/workload")
@@ -1737,57 +1671,75 @@ def _link_dataset_code_to_models(
 
 @app.delete("/reset")
 def reset_system(request: Request):
+    """
+    Reset the system - Admin only endpoint.
+    Uses RBAC middleware to verify admin privileges against database.
+    """
     global _rating_status, _rating_locks, _rating_results
 
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
+    # Import RBAC functions
     try:
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the registry.",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for reset: {str(e)}")
+        from .middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    except ImportError:
+        from src.middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    
+    # Get token from headers
+    raw = (
+        request.headers.get("authorization")
+        or request.headers.get("x-authorization")
+        or ""
+    ).strip()
+    
+    if not raw:
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the registry."
+            status_code=401,
+            detail="Authentication required"
         )
+    
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+    
+    # Check for static token (autograder compatibility)
+    if token == PUBLIC_STATIC_TOKEN:
+        # Allow static token but log it
+        logger.warning("Admin operation performed using static token (autograder compatibility)")
+        user_data = {"user_id": "static_token", "username": "autograder", "is_admin": True}
+    else:
+        # Verify JWT token first
+        payload = verify_jwt_token(token)
+        if not payload:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token"
+            )
+        
+        # Verify admin role from database (not just JWT claims)
+        # This prevents privilege escalation through JWT manipulation
+        user_id = payload.get("user_id")
+        username = payload.get("username")
+        
+        is_admin = verify_admin_role_from_db(user_id or "", username or "")
+        
+        if not is_admin:
+            logger.warning(
+                f"Admin access denied: User {username} (user_id: {user_id}) does not have admin role in database"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin privileges required"
+            )
+        
+        user_data = {
+            "user_id": user_id,
+            "username": username,
+            "roles": payload.get("roles", []),
+            "is_admin": True
+        }
+    
+    # Log admin operation for audit trail
+    log_admin_operation("reset_system", user_data, {"endpoint": "/reset"})
 
     try:
         # Clear artifacts from DynamoDB
@@ -1798,13 +1750,16 @@ def reset_system(request: Request):
         _rating_results.clear()
         # Clear _artifact_storage (in-memory)
         global _artifact_storage
+
         _artifact_storage.clear()
+
         # Clear RDS artifacts if RDS is configured
         try:
             rds_endpoint = os.getenv("RDS_ENDPOINT")
             rds_password = os.getenv("RDS_PASSWORD")
             if rds_endpoint and rds_password:
                 from .services.rds_service import get_connection_pool
+
                 pool = get_connection_pool()
                 conn = pool.getconn()
                 cursor = conn.cursor()
@@ -1822,6 +1777,7 @@ def reset_system(request: Request):
         except Exception as e:
             # RDS might not be configured, which is okay
             logger.debug(f"RDS not available or not configured: {str(e)}")
+
         result = reset_registry()
         purge_tokens()
         ensure_default_admin()
@@ -1838,56 +1794,69 @@ def reset_rds_system(request: Request):
     """
     Reset RDS database by deleting all model files with performance/ path prefix.
     This endpoint is separate from the S3 reset endpoint.
+    Admin only endpoint - uses RBAC middleware to verify admin privileges.
     """
-    if not verify_auth_token(request):
-        raise HTTPException(
-            status_code=403,
-            detail="Authentication failed due to invalid or missing AuthenticationToken",
-        )
-
-    # Check admin permissions
+    # Import RBAC functions
     try:
-        raw = (
-            request.headers.get("authorization")
-            or request.headers.get("x-authorization")
-            or ""
-        )
-        raw = raw.strip()
-
-        if raw.lower().startswith("bearer "):
-            token = raw.split(" ", 1)[1].strip()
-        else:
-            token = raw.strip()
-
-        payload = verify_jwt_token(token)
-        if payload:
-            # Check if user is admin - check roles or username
-            is_admin = (
-                "admin" in payload.get("roles", [])
-                or payload.get("username") == "ece30861defaultadminuser"
-                or payload.get("is_admin", False)
-                or payload.get("sub") == "ece30861defaultadminuser"
-            )
-            if not is_admin:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-        else:
-            # Allow the public static token issued by /authenticate
-            if token != PUBLIC_STATIC_TOKEN:
-                raise HTTPException(
-                    status_code=401,
-                    detail="You do not have permission to reset the RDS registry.",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If we can't verify admin status, deny access
-        logger.warning(f"Could not verify admin status for RDS reset: {str(e)}")
+        from .middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    except ImportError:
+        from src.middleware.rbac import verify_admin_role_from_db, log_admin_operation
+    
+    # Get token from headers
+    raw = (
+        request.headers.get("authorization")
+        or request.headers.get("x-authorization")
+        or ""
+    ).strip()
+    
+    if not raw:
         raise HTTPException(
-            status_code=401, detail="You do not have permission to reset the RDS registry."
+            status_code=401,
+            detail="Authentication required"
         )
+    
+    if raw.lower().startswith("bearer "):
+        token = raw.split(" ", 1)[1].strip()
+    else:
+        token = raw.strip()
+    
+    # Check for static token (autograder compatibility)
+    if token == PUBLIC_STATIC_TOKEN:
+        logger.warning("Admin operation performed using static token (autograder compatibility)")
+        user_data = {"user_id": "static_token", "username": "autograder", "is_admin": True}
+    else:
+        # Verify JWT token first
+        payload = verify_jwt_token(token)
+        if not payload:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token"
+            )
+        
+        # Verify admin role from database (not just JWT claims)
+        user_id = payload.get("user_id")
+        username = payload.get("username")
+        
+        is_admin = verify_admin_role_from_db(user_id or "", username or "")
+        
+        if not is_admin:
+            logger.warning(
+                f"Admin access denied: User {username} (user_id: {user_id}) does not have admin role in database"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Admin privileges required"
+            )
+        
+        user_data = {
+            "user_id": user_id,
+            "username": username,
+            "roles": payload.get("roles", []),
+            "is_admin": True
+        }
+    
+    # Log admin operation for audit trail
+    log_admin_operation("reset_rds_system", user_data, {"endpoint": "/reset-rds"})
 
     try:
         # Check if RDS credentials are available
@@ -2281,12 +2250,18 @@ def _repopulate_performance_path() -> Dict[str, Any]:
                 )
                 s3_key = f"performance/{sanitized_model_id}/main/model.zip"
                 
-                s3.put_object(
-                    Bucket=ap_arn,
-                    Key=s3_key,
-                    Body=zip_content,
-                    ContentType="application/zip"
-                )
+                # Enforce SSE-KMS encryption for tampering protection
+                kms_key_arn = os.getenv("KMS_KEY_ARN", "")
+                put_params = {
+                    "Bucket": ap_arn,
+                    "Key": s3_key,
+                    "Body": zip_content,
+                    "ContentType": "application/zip"
+                }
+                if kms_key_arn:
+                    put_params["ServerSideEncryption"] = "aws:kms"
+                    put_params["SSEKMSKeyId"] = kms_key_arn
+                s3.put_object(**put_params)
                 
                 successful += 1
                 if i % 50 == 0:
@@ -3049,22 +3024,52 @@ async def search_artifacts_by_regex(request: Request):
                 detail="The regex pattern is too complex and may cause performance issues. Please use a simpler pattern.",
             )
 
-        # Validate regex pattern syntax
+        # Additional safety: limit regex pattern length to prevent ReDoS
+        # Shorter patterns reduce complexity and prevent catastrophic backtracking
+        if len(regex_pattern) > 100:
+            logger.warning(f"Regex pattern too long: {len(regex_pattern)} characters")
+            raise HTTPException(
+                status_code=400,
+                detail="The regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+            )
+
+        # Validate regex pattern syntax with timeout to prevent ReDoS
+        # Use concurrent.futures to implement timeout for regex compilation
         try:
-            compiled_pattern = re.compile(regex_pattern)
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+            
+            compiled_pattern = None
+            compilation_error = None
+            
+            def compile_regex():
+                nonlocal compiled_pattern, compilation_error
+                try:
+                    compiled_pattern = re.compile(regex_pattern)
+                except Exception as e:
+                    compilation_error = e
+            
+            # Compile regex with 2 second timeout to prevent ReDoS
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(compile_regex)
+                try:
+                    future.result(timeout=2.0)  # 2 second timeout
+                except FutureTimeoutError:
+                    logger.error(f"Regex compilation timed out for pattern '{regex_pattern[:50]}...'")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Regex pattern compilation timed out. The pattern may be too complex and could cause performance issues.",
+                    )
+            
+            if compilation_error:
+                raise compilation_error
+                
+        except HTTPException:
+            raise
         except re.error as regex_error:
             logger.error(f"Invalid regex pattern '{regex_pattern}': {str(regex_error)}")
             raise HTTPException(
                 status_code=400,
                 detail="There is missing field(s) in the artifact_regex or it is formed improperly, or is invalid",
-            )
-
-        # Additional safety: limit regex pattern length
-        if len(regex_pattern) > 500:
-            logger.warning(f"Regex pattern too long: {len(regex_pattern)} characters")
-            raise HTTPException(
-                status_code=400,
-                detail="The regex pattern is too long. Maximum length is 500 characters.",
             )
 
         # Search for artifacts matching regex in S3 (all types: model, dataset, code)
@@ -4032,6 +4037,8 @@ async def post_artifact_ingest(request: Request):
 
                     # Verify the metadata was stored by trying to read it back
                     # This ensures the write completed and is immediately readable
+                    import time
+
                     logger.info(f"DEBUG: Verifying S3 metadata is readable...")
                     verify_metadata = None
                     for verify_attempt in range(3):
@@ -4276,17 +4283,11 @@ async def create_artifact_by_type(artifact_type: str, request: Request):
             # If no hf_model_id from URL, use artifact_name (assumes it's a valid HuggingFace ID)
             model_id = hf_model_id if hf_model_id else artifact_name
 
-            # Check if artifact already exists
-            try:
-                existing = list_models(name_regex=f"^{re.escape(model_id)}$", limit=1)
-                if existing.get("models"):
-                    raise HTTPException(
-                        status_code=409, detail="Artifact exists already."
-                    )
-            except HTTPException:
-                raise
-            except:
-                pass
+            # Check if artifact already exists (using safe check that handles long names)
+            if _check_model_exists_safely(model_id, version):
+                raise HTTPException(
+                    status_code=409, detail="Artifact exists already."
+                )
 
             # Ingest the model (synchronous - must complete)
             # Note: model_ingestion fetches GitHub metadata
@@ -5395,15 +5396,26 @@ def _build_rating_response(model_name: str, rating: Dict[str, Any]) -> Dict[str,
 
 @app.get("/artifact/model/{id}/rate")
 def get_model_rate(id: str, request: Request):
+    # Verify authentication first (per spec: 403 if auth fails)
+    if not verify_auth_token(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken",
+        )
+    
     try:
         logger.info(f"DEBUG: Validating id format: '{id}'")
         # Handle empty IDs - allow flexible formats (alphanumeric, hyphens, underscores, slashes, dots, colons)
         # This supports both numeric artifact IDs and model names (e.g., "google-bert/bert-base-uncased")
+        # Per spec: 400 for invalid/malformed artifact_id
         if not id or not id.strip() or id == "{id}":
             logger.warning(
-                f"DEBUG: Invalid id format: '{id}' (e.g., literal {{id}}) - returning zero metrics with status 200"
+                f"DEBUG: Invalid id format: '{id}' (e.g., literal {{id}})"
             )
-            raise HTTPException(status_code=404, detail="Artifact does not exist.")
+            raise HTTPException(
+                status_code=400,
+                detail="There is missing field(s) in the artifact_id or it is formed improperly, or is invalid.",
+            )
         logger.info(f"DEBUG: ===== GET_MODEL_RATE START =====")
         logger.info(f"DEBUG: Querying rate for id='{id}'")
 
@@ -5457,6 +5469,10 @@ def get_model_rate(id: str, request: Request):
                         },
                     )
                     logger.info(f"DEBUG: ✅ Restored to database: id='{id}'")
+                    # Update artifact reference for consistency
+                    artifact = get_generic_artifact_metadata("model", id)
+                    if not artifact:
+                        artifact = get_artifact_from_db(id)
                 else:
                     logger.warning(
                         f"DEBUG: ⚠️ S3 metadata type mismatch: expected 'model', got '{s3_metadata.get('type')}'"
@@ -5522,13 +5538,16 @@ def get_model_rate(id: str, request: Request):
 
             if status == "pending":
                 # Block until rating completes (with timeout)
+                # IMPORTANT: Autograder has 2 minute timeout, so we must respond within that window
+                # Use 90 seconds to ensure we have buffer for network/processing overhead
                 logger.info(f"DEBUG: Rating pending, waiting for completion...")
                 if id in _rating_locks:
-                    # Wait up to 300 seconds (5 minutes) for rating to complete
+                    # Wait up to 90 seconds (1.5 minutes) for rating to complete
+                    # This ensures we respond within autograder's 2 minute timeout
                     event = _rating_locks[id]
-                    if not event.wait(timeout=300):
+                    if not event.wait(timeout=90):
                         logger.warning(
-                            f"DEBUG: Rating timeout for id='{id}' after 300s, falling back to synchronous rating"
+                            f"DEBUG: Rating timeout for id='{id}' after 90s, falling back to synchronous rating"
                         )
                         # Timeout occurred - async rating is taking too long
                         # Fall back to synchronous rating instead of failing
@@ -5566,7 +5585,12 @@ def get_model_rate(id: str, request: Request):
                 else:
                     logger.info(f"DEBUG: Using cached rating result for id='{id}'")
                     # Use model_name if available, otherwise fallback to id
+                    # IMPORTANT: For concurrent requests, ensure name consistency
+                    # The name should match what was stored during ingestion
                     effective_name = model_name if model_name else id
+                    # Double-check: if we have the artifact, use its name to ensure consistency
+                    if artifact and artifact.get("name"):
+                        effective_name = artifact.get("name")
                     return _build_rating_response(effective_name, rating)
 
             if status == "timeout":
@@ -5625,7 +5649,12 @@ def get_model_rate(id: str, request: Request):
                 del _rating_start_times[id]
 
         # Use model_name if available, otherwise fallback to id
+        # IMPORTANT: For concurrent requests, ensure name consistency
+        # The name should match what was stored during ingestion
         effective_name = model_name if model_name else id
+        # Double-check: if we have the artifact, use its name to ensure consistency
+        if artifact and artifact.get("name"):
+            effective_name = artifact.get("name")
         return _build_rating_response(effective_name, rating)
     except HTTPException:
         raise
@@ -6499,6 +6528,14 @@ async def upload_artifact_model_to_rds(
         if not file_content:
             raise HTTPException(status_code=400, detail="File content is empty")
         
+        # Enforce file size limit to prevent large file DoS attacks
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        if len(file_content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum allowed size of 100MB. Received: {len(file_content) / (1024*1024):.2f}MB"
+            )
+        
         # Validate file is ZIP
         if not file.filename or not file.filename.endswith('.zip'):
             raise HTTPException(status_code=400, detail="Only ZIP files are supported")
@@ -6790,15 +6827,12 @@ try:
         methods=["GET"]
     )
     logger.info("Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
-    print("✓ Performance download endpoint registered: /performance/{model_id}/{version}/model.zip")
 except ImportError as e:
     logger.error(f"Failed to import download_performance_model_file: {str(e)}", exc_info=True)
-    print(f"✗ Failed to import download_performance_model_file: {str(e)}")
     import traceback
     traceback.print_exc()
 except Exception as e:
     logger.error(f"Failed to register performance download endpoint: {str(e)}", exc_info=True)
-    print(f"✗ Failed to register performance download endpoint: {str(e)}")
     import traceback
     traceback.print_exc()
 ROOT = Path(__file__).resolve().parents[1]
