@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
+from botocore.exceptions import ClientError
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import get_credentials
@@ -24,6 +25,7 @@ from ..acmecli.metrics import METRIC_FUNCTIONS
 
 region = os.getenv("AWS_REGION", "us-east-1")
 access_point_name = os.getenv("S3_ACCESS_POINT_NAME", "cs450-s3")
+kms_key_arn = os.getenv("KMS_KEY_ARN", "")
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -211,14 +213,30 @@ def extract_model_component(zip_content: bytes, component: str) -> bytes:
 
 
 def get_presigned_upload_url(
-    model_id: str, version: str, expires_in: int = 3600
+    model_id: str, version: str, expires_in: int = 600
 ) -> Dict[str, str]:
-    """Generate presigned URL for direct S3 upload (bypasses API Gateway 10MB limit)"""
+    """Generate presigned URL for direct S3 upload (bypasses API Gateway 10MB limit)
+    
+    TTL is limited to 300 seconds (5 minutes) maximum to prevent information disclosure
+    through intercepted or guessed presigned URLs.
+    """
     if not aws_available:
         raise HTTPException(
             status_code=503,
             detail="AWS services not available. Please check your AWS configuration.",
         )
+    
+    # Enforce maximum TTL of 300 seconds (5 minutes) to prevent information disclosure
+    # This limits exposure time if presigned URLs are intercepted or guessed
+    if expires_in > 300:
+        logger.warning(f"Presigned URL TTL {expires_in}s exceeds maximum of 300s, limiting to 300s")
+        expires_in = 300
+    
+    # Ensure minimum TTL of 60 seconds for practical use
+    if expires_in < 60:
+        logger.warning(f"Presigned URL TTL {expires_in}s is too short, setting to 60s")
+        expires_in = 60
+    
     try:
         s3_key = f"models/{model_id}/{version}/model.zip"
         url = s3.generate_presigned_url(
@@ -268,9 +286,17 @@ def upload_model(
         safe_version = version.replace("/", "_").replace(":", "_").replace("\\", "_")
         s3_key = f"models/{safe_model_id}/{safe_version}/model.zip"
 
-        s3.put_object(
-            Bucket=ap_arn, Key=s3_key, Body=file_content, ContentType="application/zip"
-        )
+        # Enforce SSE-KMS encryption for tampering protection
+        put_params = {
+            "Bucket": ap_arn,
+            "Key": s3_key,
+            "Body": file_content,
+            "ContentType": "application/zip"
+        }
+        if kms_key_arn:
+            put_params["ServerSideEncryption"] = "aws:kms"
+            put_params["SSEKMSKeyId"] = kms_key_arn
+        s3.put_object(**put_params)
         print(
             f"AWS S3 upload successful: {model_id} v{version} ({len(file_content)} bytes) -> {s3_key}"
         )
@@ -340,9 +366,17 @@ def download_model(model_id: str, version: str, component: str = "full", use_per
                 raise HTTPException(status_code=400, detail=str(e))
         print(f"AWS S3 download successful: {model_id} v{version} (full) from {path_prefix}/")
         return zip_content
-    except HTTPException:
-        # Re-raise HTTPException without wrapping
-        raise
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code == "NoSuchKey":
+            print(f"AWS S3 download failed: Model {model_id} v{version} not found at {path_prefix}/{model_id}/{version}/model.zip")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model {model_id} version {version} not found in {path_prefix}/ path"
+            )
+        else:
+            print(f"AWS S3 download failed: {e}")
+            raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
     except Exception as e:
         print(f"AWS S3 download failed: {e}")
         raise HTTPException(status_code=500, detail=f"AWS download failed: {str(e)}")
@@ -477,37 +511,75 @@ def list_models(
         )
     limit = min(limit, 1000)
     try:
-        # Validate regex patterns early
-        name_pattern = None
-        if name_regex:
-            try:
-                name_pattern = re.compile(name_regex, re.IGNORECASE)
-            except re.error as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid name regex: {str(e)}"
-                )
-        
-        model_pattern = None
-        if model_regex:
-            try:
-                model_pattern = re.compile(model_regex, re.IGNORECASE)
-            except re.error as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid model regex: {str(e)}"
-                )
-        
         params = {"Bucket": ap_arn, "Prefix": "models/", "MaxKeys": limit}
         if continuation_token:
             params["ContinuationToken"] = continuation_token
         response = s3.list_objects_v2(**params)
         results = []
         if "Contents" in response:
+            name_pattern = None
+            if name_regex:
+                # Validate regex length to prevent ReDoS (max 100 characters)
+                if len(name_regex) > 100:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+                    )
+                try:
+                    # Compile regex with timeout to prevent ReDoS
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                    
+                    compilation_error = None
+                    
+                    def compile_regex():
+                        nonlocal name_pattern, compilation_error
+                        try:
+                            name_pattern = re.compile(name_regex, re.IGNORECASE)
+                        except Exception as e:
+                            compilation_error = e
+                    
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(compile_regex)
+                        try:
+                            future.result(timeout=2.0)  # 2 second timeout
+                        except FutureTimeoutError:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Regex pattern compilation timed out. The pattern may be too complex.",
+                            )
+                    
+                    if compilation_error:
+                        raise compilation_error
+                except HTTPException:
+                    raise
+                except re.error as e:
+                    raise HTTPException(
+                        status_code=400, detail=f"Invalid name regex: {str(e)}"
+                    )
             for item in response["Contents"]:
                 key = item["Key"]
                 if key.endswith("/model.zip"):
                     if len(key.split("/")) >= 3:
-                        model_name = key.split("/")[1]
+                        sanitized_model_name = key.split("/")[1]
                         model_version = key.split("/")[2]
+                        
+                        # Try to get original name from metadata.json
+                        # Metadata is stored at: models/{sanitized_name}/{version}/metadata.json
+                        metadata_key = f"models/{sanitized_model_name}/{model_version}/metadata.json"
+                        model_name = sanitized_model_name  # Fallback to sanitized name
+                        
+                        try:
+                            metadata_response = s3.get_object(Bucket=ap_arn, Key=metadata_key)
+                            metadata_json = metadata_response["Body"].read().decode("utf-8")
+                            metadata = json.loads(metadata_json)
+                            # Use original name from metadata if available
+                            if metadata.get("name"):
+                                model_name = metadata.get("name")
+                        except Exception:
+                            # If metadata doesn't exist or can't be read, use sanitized name
+                            # This handles legacy models that don't have metadata.json
+                            pass
+                        
                         if name_pattern and not name_pattern.search(model_name):
                             continue
                         if version_range:
@@ -516,11 +588,24 @@ def list_models(
                                 normalized_version, version_range
                             ):
                                 continue
-                        if model_pattern:
-                            if not search_model_card_content(
-                                model_name, model_version, model_regex
-                            ):
-                                continue
+                        if model_regex:
+                            # Validate regex length to prevent ReDoS (max 100 characters)
+                            if len(model_regex) > 100:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail="Model regex pattern is too long. Maximum length is 100 characters to prevent ReDoS attacks.",
+                                )
+                            try:
+                                # Use sanitized name for searching model card content (S3 path)
+                                if not search_model_card_content(
+                                    sanitized_model_name, model_version, model_regex
+                                ):
+                                    continue
+                            except re.error as e:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Invalid model regex: {str(e)}",
+                                )
                         results.append({"name": model_name, "version": model_version})
         return {"models": results, "next_token": response.get("NextContinuationToken")}
     except HTTPException:
@@ -567,10 +652,11 @@ def reset_registry() -> Dict[str, str]:
 
 def reset_performance_path() -> Dict[str, Any]:
     """
-    Reset the performance path by deleting all objects under the 'performance/' prefix.
+    Reset the performance/ S3 path by deleting all objects.
+    Only affects the performance/ path, not models/ or other paths.
     
     Returns:
-        Dict containing 'deleted_count' key with the number of objects deleted.
+        Dictionary with deletion count and status
     """
     if not aws_available:
         raise HTTPException(
@@ -583,7 +669,7 @@ def reset_performance_path() -> Dict[str, Any]:
         # Use paginator to handle all objects, not just first 1000
         paginator = s3.get_paginator("list_objects_v2")
 
-        # Delete all objects under performance/ prefix
+        # Delete only performance/ path
         pages = paginator.paginate(Bucket=ap_arn, Prefix="performance/")
         for page in pages:
             if "Contents" in page:
@@ -591,12 +677,12 @@ def reset_performance_path() -> Dict[str, Any]:
                     s3.delete_object(Bucket=ap_arn, Key=item["Key"])
                     deleted_count += 1
 
-        if deleted_count > 0:
-            logger.info(f"Performance path reset successful: Deleted {deleted_count} objects")
-        else:
-            logger.info("Performance path reset successful: No objects found to delete")
-        
-        return {"deleted_count": deleted_count, "message": "Performance path reset successfully"}
+        logger.info(f"Performance path reset: Deleted {deleted_count} objects from performance/")
+        return {
+            "message": "Performance path reset successful",
+            "deleted_count": deleted_count,
+            "path": "performance/"
+        }
     except Exception as e:
         logger.error(f"Performance path reset failed: {e}")
         raise HTTPException(
@@ -649,12 +735,17 @@ def store_artifact_metadata(
         logger.info(f"DEBUG: Storing metadata to S3 key: {s3_key}")
         logger.info(f"DEBUG: Metadata content: {json.dumps(metadata, indent=2)}")
 
-        s3.put_object(
-            Bucket=ap_arn,
-            Key=s3_key,
-            Body=json.dumps(metadata, indent=2).encode("utf-8"),
-            ContentType="application/json",
-        )
+        # Enforce SSE-KMS encryption for tampering protection
+        put_params = {
+            "Bucket": ap_arn,
+            "Key": s3_key,
+            "Body": json.dumps(metadata, indent=2).encode("utf-8"),
+            "ContentType": "application/json",
+        }
+        if kms_key_arn:
+            put_params["ServerSideEncryption"] = "aws:kms"
+            put_params["SSEKMSKeyId"] = kms_key_arn
+        s3.put_object(**put_params)
 
         logger.info(
             f"DEBUG: ✅✅✅ Successfully stored artifact metadata to S3: {s3_key} ✅✅✅"
@@ -939,15 +1030,6 @@ def list_artifacts_from_s3(
 
 
 def extract_config_from_model(model_zip_content: bytes) -> Optional[Dict[str, Any]]:
-    """
-    Extract config.json from a model ZIP file.
-    
-    Args:
-        model_zip_content: The ZIP file content as bytes
-        
-    Returns:
-        Dictionary containing the parsed config.json, or None if not found
-    """
     try:
         with zipfile.ZipFile(io.BytesIO(model_zip_content), "r") as zip_file:
             config_files = [
@@ -1225,11 +1307,43 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
         config = extract_config_from_model(model_content)
         if not config:
             return {"model_id": model_id, "error": "No config.json found in model"}
+        
+        # First, try simple parsing
         lineage_metadata = parse_lineage_from_config(config, model_id)
+        
+        # If simple parsing didn't find a base_model, try LLM analysis
+        if not lineage_metadata.get("base_model"):
+            try:
+                from .llm_service import analyze_lineage_config, is_llm_available
+                
+                if is_llm_available():
+                    logger.debug(f"Using LLM to analyze lineage for model {model_id}")
+                    llm_result = analyze_lineage_config(config)
+                    
+                    if llm_result:
+                        # Merge LLM results with simple parsing results
+                        if llm_result.get("parent_models"):
+                            # Use the first parent model as base_model
+                            lineage_metadata["base_model"] = llm_result["parent_models"][0]
+                            logger.info(f"LLM found base_model: {lineage_metadata['base_model']} for model {model_id}")
+                        
+                        # Add additional LLM-extracted information
+                        if llm_result.get("base_architecture"):
+                            lineage_metadata["architecture"] = llm_result["base_architecture"]
+                        
+                        if llm_result.get("lineage_notes"):
+                            lineage_metadata["llm_lineage_notes"] = llm_result["lineage_notes"]
+                else:
+                    logger.debug(f"LLM not available for lineage analysis of model {model_id}")
+            except Exception as llm_error:
+                # Don't fail if LLM analysis fails - just log and continue with simple parsing
+                logger.debug(f"LLM lineage analysis failed for {model_id}: {str(llm_error)}")
+        
         lineage_map = {}
         if lineage_metadata.get("base_model"):
             parent_model = lineage_metadata["base_model"]
             lineage_map[parent_model] = [model_id]
+        
         return {
             "model_id": model_id,
             "lineage_metadata": lineage_metadata,
@@ -1241,7 +1355,7 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
         error_detail = e.detail if hasattr(e, "detail") else str(e)
         return {"model_id": model_id, "error": error_detail}
     except Exception as e:
-        print(f"Error getting lineage from config: {e}")
+        logger.error(f"Error getting lineage from config for {model_id}: {e}")
         return {"model_id": model_id, "error": str(e)}
 
 
@@ -1913,30 +2027,6 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
             if not meta.get("readme_text"):
                 print(f"[INGEST] Warning: No README text found for {model_id}")
 
-            readme_text = meta.get("readme_text", "")
-            if readme_text:
-                from ..index import _parse_dependencies
-                dependency_info = _parse_dependencies(readme_text, model_id)
-                
-                base_models = dependency_info.get("parent_models", [])
-                if base_models:
-                    if not meta.get("parents"):
-                        meta["parents"] = []
-                    for base_model in base_models:
-                        clean_base = base_model.replace("https://huggingface.co/", "").replace("http://huggingface.co/", "").strip()
-                        if clean_base and clean_base != clean_model_id:
-                            base_exists = any(
-                                p.get("id") == clean_base for p in meta["parents"]
-                            )
-                            if not base_exists:
-                                meta["parents"].append({"id": clean_base, "score": None})
-                
-                if dependency_info.get("parent_models"):
-                    meta["lineage_parents"] = dependency_info["parent_models"]
-                
-                if dependency_info:
-                    meta["lineage"] = dependency_info
-
             print(f"[INGEST] Computing metrics...")
             metrics_start = time.time()
 
@@ -2033,7 +2123,9 @@ def model_ingestion(model_id: str, version: str) -> Dict[str, Any]:
                 },
             )
 
-        upload_model(zip_content, model_id, version)
+        # Use storage service abstraction to support both S3 and RDS backends
+        from ..services.storage_service import upload_model as storage_upload_model
+        storage_upload_model(zip_content, model_id, version, use_performance_path=False)
         total_time = time.time() - start_time
         print(f"[INGEST] Success in {total_time:.2f}s")
         return {
