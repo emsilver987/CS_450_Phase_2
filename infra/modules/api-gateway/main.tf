@@ -4501,6 +4501,8 @@ resource "aws_api_gateway_deployment" "main_deployment" {
     aws_api_gateway_integration.health_performance_workload_post,
     aws_api_gateway_integration.health_performance_results_run_id_get,
     aws_api_gateway_integration.performance_model_id_version_model_zip_get,
+    aws_api_gateway_integration.populate_s3_performance_post,
+    aws_api_gateway_integration.populate_s3_performance_status_get,
     aws_api_gateway_integration_response.health_performance_workload_post_202,
     aws_api_gateway_integration_response.health_performance_workload_post_400,
     aws_api_gateway_integration_response.health_performance_workload_post_500,
@@ -4563,6 +4565,9 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_resource.artifact_byname.id,
       aws_api_gateway_resource.artifact_byname_name.id,
       aws_api_gateway_resource.artifact_byregex.id,
+      aws_api_gateway_resource.populate_s3.id,
+      aws_api_gateway_resource.populate_s3_performance.id,
+      aws_api_gateway_resource.populate_s3_performance_status.id,
       # Methods
       aws_api_gateway_method.health_get.id,
       aws_api_gateway_method.health_components_get.id,
@@ -4611,6 +4616,8 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_method_response.artifact_byname_name_get_404.id,
       aws_api_gateway_method.artifact_byregex_post.id,
       aws_api_gateway_method.package_id_get.id,
+      aws_api_gateway_method.populate_s3_performance_post.id,
+      aws_api_gateway_method.populate_s3_performance_status_get.id,
       aws_api_gateway_method_response.package_id_get_200.id,
       aws_api_gateway_method_response.package_id_get_400.id,
       aws_api_gateway_method_response.package_id_get_403.id,
@@ -4652,6 +4659,8 @@ resource "aws_api_gateway_deployment" "main_deployment" {
       aws_api_gateway_integration.artifact_byregex_post.id,
       aws_api_gateway_integration.health_performance_workload_post.id,
       aws_api_gateway_integration.health_performance_results_run_id_get.id,
+      aws_api_gateway_integration.populate_s3_performance_post.id,
+      aws_api_gateway_integration.populate_s3_performance_status_get.id,
     ]))
   }
 
