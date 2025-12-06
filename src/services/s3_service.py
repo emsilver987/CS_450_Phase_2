@@ -1291,11 +1291,43 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
         config = extract_config_from_model(model_content)
         if not config:
             return {"model_id": model_id, "error": "No config.json found in model"}
+        
+        # First, try simple parsing
         lineage_metadata = parse_lineage_from_config(config, model_id)
+        
+        # If simple parsing didn't find a base_model, try LLM analysis
+        if not lineage_metadata.get("base_model"):
+            try:
+                from .llm_service import analyze_lineage_config, is_llm_available
+                
+                if is_llm_available():
+                    logger.debug(f"Using LLM to analyze lineage for model {model_id}")
+                    llm_result = analyze_lineage_config(config)
+                    
+                    if llm_result:
+                        # Merge LLM results with simple parsing results
+                        if llm_result.get("parent_models"):
+                            # Use the first parent model as base_model
+                            lineage_metadata["base_model"] = llm_result["parent_models"][0]
+                            logger.info(f"LLM found base_model: {lineage_metadata['base_model']} for model {model_id}")
+                        
+                        # Add additional LLM-extracted information
+                        if llm_result.get("base_architecture"):
+                            lineage_metadata["architecture"] = llm_result["base_architecture"]
+                        
+                        if llm_result.get("lineage_notes"):
+                            lineage_metadata["llm_lineage_notes"] = llm_result["lineage_notes"]
+                else:
+                    logger.debug(f"LLM not available for lineage analysis of model {model_id}")
+            except Exception as llm_error:
+                # Don't fail if LLM analysis fails - just log and continue with simple parsing
+                logger.debug(f"LLM lineage analysis failed for {model_id}: {str(llm_error)}")
+        
         lineage_map = {}
         if lineage_metadata.get("base_model"):
             parent_model = lineage_metadata["base_model"]
             lineage_map[parent_model] = [model_id]
+        
         return {
             "model_id": model_id,
             "lineage_metadata": lineage_metadata,
@@ -1307,7 +1339,7 @@ def get_model_lineage_from_config(model_id: str, version: str) -> Dict[str, Any]
         error_detail = e.detail if hasattr(e, "detail") else str(e)
         return {"model_id": model_id, "error": error_detail}
     except Exception as e:
-        print(f"Error getting lineage from config: {e}")
+        logger.error(f"Error getting lineage from config for {model_id}: {e}")
         return {"model_id": model_id, "error": str(e)}
 
 
