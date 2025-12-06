@@ -51,7 +51,7 @@ py-version = "3.10"
 good-names = ["i","j","k","v","e","id","db"]
 
 [tool.coverage.run]
-source = ["src/ai_model_catalog"]
+source = ["src/acmecli"]
 
 [tool.coverage.report]
 skip_empty = true
