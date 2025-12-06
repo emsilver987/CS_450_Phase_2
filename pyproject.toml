@@ -32,6 +32,11 @@ dev = [
 addopts = "-ra -q --strict-markers --disable-warnings"
 testpaths = ["tests/unit"]
 norecursedirs = ["actions_runner"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "asyncio: Async tests (pytest-asyncio)",
+]
 
 [tool.pylint.'MESSAGES CONTROL']
 disable = [
