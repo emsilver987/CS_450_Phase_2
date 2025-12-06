@@ -4,7 +4,6 @@ Unit tests for error handler middleware
 import pytest
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
-from src.middleware.errorHandler import error_handler
 
 
 class TestErrorHandler:
@@ -12,6 +11,8 @@ class TestErrorHandler:
     
     def test_error_handler_with_http_exception(self):
         """Test error handler with HTTPException"""
+        from src.middleware.errorHandler import error_handler
+        
         request = Request({"type": "http", "method": "GET", "path": "/test"})
         exc = HTTPException(status_code=404, detail="Not found")
         
@@ -25,6 +26,8 @@ class TestErrorHandler:
     
     def test_error_handler_with_generic_exception(self):
         """Test error handler with generic exception"""
+        from src.middleware.errorHandler import error_handler
+        
         request = Request({"type": "http", "method": "GET", "path": "/test"})
         exc = ValueError("Something went wrong")
         
@@ -38,6 +41,8 @@ class TestErrorHandler:
     
     def test_error_handler_with_exception_with_status_code(self):
         """Test error handler with exception that has status_code attribute"""
+        from src.middleware.errorHandler import error_handler
+        
         class CustomException(Exception):
             def __init__(self, status_code):
                 self.status_code = status_code
@@ -53,6 +58,8 @@ class TestErrorHandler:
     
     def test_error_handler_with_exception_with_status_attribute(self):
         """Test error handler with exception that has status attribute"""
+        from src.middleware.errorHandler import error_handler
+        
         class CustomException(Exception):
             def __init__(self, status):
                 self.status = status
@@ -68,6 +75,8 @@ class TestErrorHandler:
     
     def test_error_handler_with_empty_message(self):
         """Test error handler with exception that has empty message"""
+        from src.middleware.errorHandler import error_handler
+        
         request = Request({"type": "http", "method": "GET", "path": "/test"})
         exc = Exception()
         

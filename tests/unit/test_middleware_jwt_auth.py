@@ -10,26 +10,27 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from src.middleware.jwt_auth import JWTAuthMiddleware, _is_exempt, DEFAULT_EXEMPT
-
 
 class TestIsExempt:
     """Test _is_exempt helper function"""
     
     def test_is_exempt_exact_match(self):
         """Test exact path match"""
+        from src.middleware.jwt_auth import _is_exempt
         assert _is_exempt("/health", ["/health", "/docs"]) is True
         assert _is_exempt("/docs", ["/health", "/docs"]) is True
         assert _is_exempt("/other", ["/health", "/docs"]) is False
     
     def test_is_exempt_prefix_match(self):
         """Test prefix match for paths ending with /"""
+        from src.middleware.jwt_auth import _is_exempt
         assert _is_exempt("/static/style.css", ["/static/"]) is True
         assert _is_exempt("/static/", ["/static/"]) is True
         assert _is_exempt("/static", ["/static/"]) is False
     
     def test_is_exempt_artifact_prefix(self):
         """Test artifact prefix exemption"""
+        from src.middleware.jwt_auth import _is_exempt
         assert _is_exempt("/artifact/model/123", ["/artifact/"]) is True
         assert _is_exempt("/artifact/dataset/456", ["/artifact/"]) is True
 
@@ -46,17 +47,20 @@ class TestJWTAuthMiddleware:
     @pytest.fixture
     def middleware(self, mock_app):
         """Create middleware instance"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {"JWT_SECRET": "test-secret"}):
             return JWTAuthMiddleware(mock_app)
     
     @pytest.fixture
     def middleware_no_auth(self, mock_app):
         """Create middleware without auth enabled"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {}, clear=True):
             return JWTAuthMiddleware(mock_app)
     
     def test_middleware_init_with_secret(self, mock_app):
         """Test middleware initialization with JWT_SECRET"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {"JWT_SECRET": "test-secret"}):
             middleware = JWTAuthMiddleware(mock_app)
             assert middleware.auth_enabled is True
@@ -65,12 +69,14 @@ class TestJWTAuthMiddleware:
     
     def test_middleware_init_without_secret(self, mock_app):
         """Test middleware initialization without JWT_SECRET"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {}, clear=True):
             middleware = JWTAuthMiddleware(mock_app)
             assert middleware.auth_enabled is False
     
     def test_middleware_init_custom_exempt_paths(self, mock_app):
         """Test middleware with custom exempt paths"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {"JWT_SECRET": "test-secret"}):
             custom_exempt = ["/custom", "/test/"]
             middleware = JWTAuthMiddleware(mock_app, exempt_paths=custom_exempt)
@@ -78,6 +84,7 @@ class TestJWTAuthMiddleware:
     
     def test_middleware_init_invalid_algorithm(self, mock_app):
         """Test middleware initialization with invalid algorithm"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {"JWT_SECRET": "test-secret", "JWT_ALGORITHM": "RS256"}):
             with pytest.raises(ValueError, match="HS256 only"):
                 JWTAuthMiddleware(mock_app)
@@ -216,6 +223,7 @@ class TestJWTAuthMiddleware:
     @pytest.mark.asyncio
     async def test_dispatch_with_issuer_audience(self, mock_app):
         """Test dispatch with issuer and audience validation"""
+        from src.middleware.jwt_auth import JWTAuthMiddleware
         with patch.dict(os.environ, {
             "JWT_SECRET": "test-secret",
             "JWT_ISSUER": "test-issuer",
