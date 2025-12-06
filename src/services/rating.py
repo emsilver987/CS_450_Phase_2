@@ -531,8 +531,11 @@ def analyze_model_content(
                 "Reviewedness": ReviewednessMetric().score,
                 "Treescore": TreescoreMetric().score,
             }
+            # Ensure repo_files exists before accessing
+            if "repo_files" not in meta:
+                meta["repo_files"] = set()
             print(
-                f"Running ACME metrics for {target} with {len(meta['repo_files'])} files"
+                f"Running ACME metrics for {target} with {len(meta.get('repo_files', set()))} files"
             )
             return run_acme_metrics(meta, quick_metrics)
     except Exception as e:
@@ -620,8 +623,18 @@ def run_acme_metrics(
                     results[metric_name] = MetricValue(metric_name, 0.0, 0)
         except Exception as e:
             print(f"Error running metric {metric_name}: {e}")
+            import traceback
+            traceback.print_exc()
             results[metric_name] = MetricValue(metric_name, 0.0, 0)
-    net_score, net_score_latency = compute_net_score(results)
+    try:
+        net_score, net_score_latency = compute_net_score(results)
+    except Exception as e:
+        print(f"Error computing net score: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return default scores if net score computation fails
+        net_score = 0.0
+        net_score_latency = 0
     scores = {
         "net_score": round(float(net_score), 2),
         "aggregation_latency": round(net_score_latency / 1000.0, 2),

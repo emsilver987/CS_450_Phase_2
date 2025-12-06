@@ -5615,7 +5615,7 @@ def get_model_rate(id: str, request: Request):
                 logger.info(
                     f"DEBUG: Calling analyze_model_content with: '{analysis_id}'"
                 )
-                rating = analyze_model_content(analysis_id)
+                rating = analyze_model_content(analysis_id, suppress_errors=False)
                 logger.info(f"DEBUG: analyze_model_content returned: {rating}")
                 if not rating:
                     logger.error(
@@ -5627,6 +5627,42 @@ def get_model_rate(id: str, request: Request):
                     )
             except HTTPException:
                 raise
+            except RuntimeError as e:
+                # Check if the error indicates model not found
+                error_msg = str(e).lower()
+                if "no model content found" in error_msg or "invalid model id format" in error_msg or "cannot compute metrics without model data" in error_msg:
+                    logger.warning(
+                        f"Model not found for analysis: {analysis_id} - {str(e)}"
+                    )
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Artifact does not exist.",
+                    )
+                # Otherwise, it's a rating system error
+                logger.error(
+                    f"DEBUG: Error analyzing model content for {analysis_id}: {str(e)}",
+                    exc_info=True,
+                )
+                logger.error(
+                    f"Error analyzing model content for {id}: {str(e)}", exc_info=True
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"The artifact rating system encountered an error while computing at least one metric: {str(e)}",
+                )
+            except ValueError as e:
+                # ValueError from analyze_model_content indicates model not found
+                error_msg = str(e).lower()
+                if "no model content found" in error_msg or "invalid model id format" in error_msg or "cannot compute metrics without model data" in error_msg:
+                    logger.warning(
+                        f"Model not found for analysis: {analysis_id} - {str(e)}"
+                    )
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Artifact does not exist.",
+                    )
+                # Re-raise as RuntimeError to be handled above
+                raise RuntimeError(str(e))
             except Exception as e:
                 logger.error(
                     f"DEBUG: Error analyzing model content for {analysis_id}: {str(e)}",
