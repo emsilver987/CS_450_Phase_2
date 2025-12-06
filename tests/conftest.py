@@ -60,10 +60,20 @@ def _create_mock_rbac_module():
 
 # Inject mock rbac module into sys.modules for both import paths
 # This must happen before any test files import src.index
+# First, ensure the real middleware package is imported so jwt_auth and errorHandler are available
+try:
+    import src.middleware
+except ImportError:
+    # If import fails, create a minimal package structure
+    middleware_pkg = ModuleType("middleware")
+    sys.modules["src.middleware"] = middleware_pkg
+
+# Now add the mock rbac module to the middleware package
 mock_rbac = _create_mock_rbac_module()
 sys.modules["src.middleware.rbac"] = mock_rbac
-sys.modules["src.middleware"] = ModuleType("middleware")
-sys.modules["src.middleware"].rbac = mock_rbac
+# Ensure the middleware package has rbac attribute
+if not hasattr(sys.modules["src.middleware"], "rbac"):
+    sys.modules["src.middleware"].rbac = mock_rbac
 
 
 @pytest.fixture(scope="session", autouse=True)

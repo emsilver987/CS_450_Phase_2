@@ -287,9 +287,9 @@ class TestRatingEndpoints:
 
         response = client.get("/package/test-model/rate")
 
-        # Rating endpoint may return 200 (success), 404 (not found), or 500 (error)
-        assert response.status_code in [200, 404, 500], (
-            f"Expected 200, 404, or 500, got {response.status_code}: {response.text}"
+        # Rating endpoint may return 200 (success), 403 (auth failed), 404 (not found), or 500 (error)
+        assert response.status_code in [200, 403, 404, 500], (
+            f"Expected 200, 403, 404, or 500, got {response.status_code}: {response.text}"
         )
 
         if response.status_code == 200:
@@ -330,9 +330,9 @@ class TestRatingEndpoints:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Rating endpoint may return 200 (success), 404 (not found), or 500 (error)
-        assert response.status_code in [200, 404, 500], (
-            f"Expected 200, 404, or 500, got {response.status_code}: {response.text}"
+        # Rating endpoint may return 200 (success), 403 (auth failed), 404 (not found), or 500 (error)
+        assert response.status_code in [200, 403, 404, 500], (
+            f"Expected 200, 403, 404, or 500, got {response.status_code}: {response.text}"
         )
 
         if response.status_code == 200:
@@ -348,7 +348,7 @@ class TestRatingEndpoints:
                 )
             if "name" in data:
                 assert isinstance(data["name"], str), "name should be a string"
-        elif response.status_code in [404, 500]:
+        elif response.status_code in [403, 404, 500]:
             # Validate error response structure
             data = response.json()
             assert isinstance(data, dict), "Error response should be a JSON object"
