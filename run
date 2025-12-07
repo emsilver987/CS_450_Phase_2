@@ -83,29 +83,18 @@ install_deps() {
 run_tests() {
     check_python
     
-    # Ensure package is installed in development mode for coverage
+    # Ensure package is installed in development mode
     if [[ -f "pyproject.toml" ]]; then
         $PYTHON_CMD -m pip install --quiet -e . || true
     fi
     
-    if ! SKIP_PROCESSPOOL_TESTS=1 $PYTHON_CMD -m coverage run --source=acmecli -m pytest tests/unit -q --disable-warnings > pytest_output.log 2>&1; then
-        coverage_report=$($PYTHON_CMD -m coverage report -m 2>&1 || true)
-        passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-        failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-        total=$((passed + failed))
-        percent=$(echo "$coverage_report" | grep -E '^TOTAL' | awk '{print $NF}' | tr -d '%' || echo 0)
-        echo "${passed}/${total} test cases passed. ${percent}% line coverage achieved."
-        echo "❌ Tests failed!"
-        exit 1
-    fi
-
-    coverage_report=$($PYTHON_CMD -m coverage report -m 2>&1 || true)
-    passed=$(grep -Eo '[0-9]+ passed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-    failed=$(grep -Eo '[0-9]+ failed' pytest_output.log | grep -Eo '[0-9]+' || echo 0)
-    total=$((passed + failed))
-    percent=$(echo "$coverage_report" | grep -E '^TOTAL' | awk '{print $NF}' | tr -d '%' || echo 0)
-    echo "${passed}/${total} test cases passed. ${percent}% line coverage achieved."
-    echo "✅ Tests completed successfully!"
+    # Run tests with coverage
+    $PYTHON_CMD -m coverage run --source=src -m pytest tests/unit
+    
+    # Display coverage report after tests
+    echo ""
+    echo "Coverage Report:"
+    $PYTHON_CMD -m coverage report -m
 }
 
 

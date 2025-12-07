@@ -1,4 +1,4 @@
-# Infrastructure Overview
+# Infrastructure Overview,
 
 This directory contains the Terraform definition for the Phase-2 deployment. It is split into
 environment-specific stacks under `envs/` and reusable modules under `modules/`.
