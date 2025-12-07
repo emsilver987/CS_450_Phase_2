@@ -200,7 +200,7 @@ def test_trigger_workload(
     auth_token: Optional[str],
     num_clients: int = 100,
     model_id: str = DEFAULT_MODEL_ID,
-    duration_seconds: int = 300,
+    duration_seconds: int = 600,
 ) -> Optional[str]:
     """Test POST /health/performance/workload endpoint"""
     print(f"\n{'='*80}")
@@ -759,7 +759,7 @@ def poll_for_results(
     api_base_url: str,
     auth_token: Optional[str],
     run_id: str,
-    max_wait_seconds: int = 300,
+    max_wait_seconds: int = 600,
     poll_interval: int = 5,
 ) -> Optional[Dict[str, Any]]:
     """
@@ -901,8 +901,8 @@ Examples:
     parser.add_argument(
         "--duration-seconds",
         type=int,
-        default=300,
-        help="Workload duration in seconds (default: 300)",
+        default=600,
+        help="Workload duration in seconds (default: 600)",
     )
     
     parser.add_argument(
