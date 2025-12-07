@@ -24,19 +24,39 @@ def compute_net_score(results: dict):
     for metric_name, weight in weights.items():
         if metric_name in results:
             metric_result = results[metric_name]
-            metric_value = metric_result.value
+            try:
+                # Safely get metric value
+                if hasattr(metric_result, "value"):
+                    metric_value = metric_result.value
+                elif isinstance(metric_result, (int, float)):
+                    metric_value = float(metric_result)
+                else:
+                    # Skip this metric if we can't get a value
+                    continue
 
-            # Handle size_score specially since it's a dict
-            if metric_name == "size_score" and isinstance(metric_value, dict):
-                # Average across all platform scores
-                platform_scores = list(metric_value.values())
-                metric_value = (
-                    sum(platform_scores) / len(platform_scores)
-                    if platform_scores
-                    else 0.0
-                )
+                # Handle None values
+                if metric_value is None:
+                    continue
 
-            net_score += metric_value * weight
+                # Handle size_score specially since it's a dict
+                if metric_name == "size_score" and isinstance(metric_value, dict):
+                    # Average across all platform scores
+                    platform_scores = list(metric_value.values())
+                    metric_value = (
+                        sum(platform_scores) / len(platform_scores)
+                        if platform_scores
+                        else 0.0
+                    )
+
+                # Ensure metric_value is a number
+                if not isinstance(metric_value, (int, float)):
+                    continue
+
+                net_score += metric_value * weight
+            except (AttributeError, TypeError, ValueError) as e:
+                # Skip this metric if there's an error accessing its value
+                print(f"Warning: Error processing metric {metric_name}: {e}")
+                continue
 
     net_score = round(float(net_score), 2)
     latency_ms = int((time.perf_counter() - t0) * 1000)

@@ -213,7 +213,7 @@ def extract_model_component(zip_content: bytes, component: str) -> bytes:
 
 
 def get_presigned_upload_url(
-    model_id: str, version: str, expires_in: int = 300
+    model_id: str, version: str, expires_in: int = 600
 ) -> Dict[str, str]:
     """Generate presigned URL for direct S3 upload (bypasses API Gateway 10MB limit)
     
