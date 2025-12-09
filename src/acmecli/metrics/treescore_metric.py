@@ -55,77 +55,95 @@ class TreescoreMetric:
             value = sum(scores) / len(scores)
             value = max(0.0, min(1.0, value))
         else:
-            if len(parents) > 0:
-                # Parents found in lineage graph but no scores available (parents not uploaded to system)
-                # Per spec (4): Cannot calculate average without parent scores, default to 0.5
-                value = 0.5
-            else:
-                # No parents found - try LLM analysis as fallback when rule-based extraction fails
-                # This helps with complex config.json files where lineage is not in standard fields
-                llm_failed = False
-                try:
-                    from ...services.llm_service import calculate_treescore, is_llm_available
-                    
-                    if is_llm_available():
-                        config = meta.get("config", {})
-                        if config and isinstance(config, dict):
-                            # Get uploaded models list first (with fallback)
+            # No scores available - try LLM as fallback in two cases:
+            # 1. Parents found but no scores available (parents not uploaded to system)
+            # 2. No parents found (rule-based extraction failed)
+            # LLM can help extract additional lineage info and calculate treescore
+            llm_failed = False
+            try:
+                from ...services.llm_service import calculate_treescore, is_llm_available
+                
+                if is_llm_available():
+                    config = meta.get("config", {})
+                    if config and isinstance(config, dict):
+                        # Get uploaded models list first (with fallback)
+                        uploaded_model_names = []
+                        try:
+                            from ...services.s3_service import list_models
+                            uploaded_models_result = list_models(limit=1000)
+                            uploaded_model_names = [m.get("name", "") for m in uploaded_models_result.get("models", [])]
+                        except Exception as list_error:
+                            logger.debug(f"Failed to get uploaded models list for treescore: {list_error}")
                             uploaded_model_names = []
-                            try:
-                                from ...services.s3_service import list_models
-                                uploaded_models_result = list_models(limit=1000)
-                                uploaded_model_names = [m.get("name", "") for m in uploaded_models_result.get("models", [])]
-                            except Exception as list_error:
-                                logger.debug(f"Failed to get uploaded models list for treescore: {list_error}")
-                                uploaded_model_names = []
-                            
-                            # Try LLM to extract parents and calculate treescore
-                            # LLM will extract parents from config.json directly
-                            try:
-                                llm_score = calculate_treescore(
-                                    config,
-                                    parent_scores=None,  # LLM will extract parents from config
-                                    uploaded_models=uploaded_model_names if uploaded_model_names else None
-                                )
+                        
+                        # Build parent_scores dictionary from found parents
+                        # This helps LLM when parents are found but scores aren't available
+                        parent_scores_dict = {}
+                        if len(parents) > 0:
+                            # Try to get scores for found parents
+                            for p in parents:
+                                parent_id = None
+                                if isinstance(p, dict):
+                                    parent_id = p.get("id") or p.get("name") or p.get("model_id")
+                                elif isinstance(p, str):
+                                    parent_id = p
                                 
-                                if llm_score is not None and isinstance(llm_score, (int, float)):
-                                    # Validate the score is in valid range
-                                    if 0.0 <= float(llm_score) <= 1.0:
-                                        value = float(llm_score)
-                                        llm_used = True
-                                        latency_ms = int((time.perf_counter() - t0) * 1000)
-                                        logger.info(f"Used LLM to calculate treescore: {value}")
-                                        # Store LLM usage flag in meta for frontend
-                                        meta["treescore_llm_enhanced"] = True
-                                        return MetricValue(self.name, value, latency_ms)
-                                    else:
-                                        logger.warning(f"LLM returned invalid treescore out of range: {llm_score}")
-                                        llm_failed = True
+                                if parent_id:
+                                    # Try to look up score for this parent
+                                    parent_score = self._lookup_parent_score(parent_id)
+                                    if parent_score is not None and 0.0 <= parent_score <= 1.0:
+                                        parent_scores_dict[parent_id] = parent_score
+                        
+                        # Try LLM to extract parents and calculate treescore
+                        # LLM can extract additional parents from config.json and use available scores
+                        try:
+                            llm_score = calculate_treescore(
+                                config,
+                                parent_scores=parent_scores_dict if parent_scores_dict else None,
+                                uploaded_models=uploaded_model_names if uploaded_model_names else None
+                            )
+                            
+                            if llm_score is not None and isinstance(llm_score, (int, float)):
+                                # Validate the score is in valid range
+                                if 0.0 <= float(llm_score) <= 1.0:
+                                    value = float(llm_score)
+                                    llm_used = True
+                                    latency_ms = int((time.perf_counter() - t0) * 1000)
+                                    logger.info(f"Used LLM to calculate treescore: {value} (parents found: {len(parents)}, scores available: {len(parent_scores_dict)})")
+                                    # Store LLM usage flag in meta for frontend
+                                    meta["treescore_llm_enhanced"] = True
+                                    return MetricValue(self.name, value, latency_ms)
                                 else:
-                                    logger.debug("LLM treescore calculation returned None or invalid type")
+                                    logger.warning(f"LLM returned invalid treescore out of range: {llm_score}")
                                     llm_failed = True
-                            except Exception as llm_error:
-                                # LLM calculation itself failed
-                                logger.debug(f"LLM treescore calculation error: {llm_error}")
+                            else:
+                                logger.debug("LLM treescore calculation returned None or invalid type")
                                 llm_failed = True
-                        else:
-                            logger.debug("No config.json available for LLM treescore calculation")
+                        except Exception as llm_error:
+                            # LLM calculation itself failed
+                            logger.debug(f"LLM treescore calculation error: {llm_error}")
                             llm_failed = True
                     else:
-                        logger.debug("LLM service not available for treescore calculation")
+                        logger.debug("No config.json available for LLM treescore calculation")
                         llm_failed = True
-                except ImportError as import_error:
-                    # LLM service module not available
-                    logger.debug(f"LLM service import failed: {import_error}")
+                else:
+                    logger.debug("LLM service not available for treescore calculation")
                     llm_failed = True
-                except Exception as e:
-                    # Any other unexpected error - log but don't crash
-                    logger.warning(f"Unexpected error in LLM treescore fallback: {e}", exc_info=True)
-                    llm_failed = True
-                
-                # Fallback: No parents found - no lineage information available in config.json
-                # Per spec (4): Cannot calculate average without parents, default to 0.5
-                # value should already be None at this point, but ensure it's set to 0.5
+            except ImportError as import_error:
+                # LLM service module not available
+                logger.debug(f"LLM service import failed: {import_error}")
+                llm_failed = True
+            except Exception as e:
+                # Any other unexpected error - log but don't crash
+                logger.warning(f"Unexpected error in LLM treescore fallback: {e}", exc_info=True)
+                llm_failed = True
+            
+            # Fallback: If LLM failed or unavailable, default to 0.5 per spec
+            # This happens when:
+            # - Parents found but no scores available and LLM failed/unavailable
+            # - No parents found and LLM failed/unavailable
+            # Per spec (4): Cannot calculate average without parent scores, default to 0.5
+            if not llm_used:
                 value = 0.5
 
         value = max(0.0, min(1.0, value))
